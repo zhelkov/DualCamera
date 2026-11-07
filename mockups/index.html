@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="ru">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>DualCamera — макеты интерфейса</title>
+		<style>
+			:root {
+				--bg: #111318;
+				--text: #e8eaf0;
+				--muted: #9aa1ad;
+			}
+			* {
+				box-sizing: border-box;
+			}
+			body {
+				margin: 0;
+				font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+				background: var(--bg);
+				color: var(--text);
+				padding: 32px;
+			}
+			h1 {
+				font-size: 22px;
+				margin: 0 0 4px;
+			}
+			.sub {
+				color: var(--muted);
+				margin-bottom: 24px;
+				font-size: 14px;
+			}
+			.grid {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 28px;
+			}
+			.card {
+				width: 260px;
+			}
+			.label {
+				text-align: center;
+				color: var(--muted);
+				margin-bottom: 10px;
+				font-size: 14px;
+			}
+			.phone {
+				width: 260px;
+				height: 540px;
+				border-radius: 40px;
+				overflow: hidden;
+				background: #000;
+				border: 8px solid #2a2d35;
+				position: relative;
+				box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+			}
+			.screen {
+				position: absolute;
+				inset: 0;
+			}
+			.notch {
+				position: absolute;
+				top: 8px;
+				left: 50%;
+				transform: translateX(-50%);
+				width: 110px;
+				height: 22px;
+				background: #000;
+				border-radius: 12px;
+				z-index: 20;
+			}
+			.preview {
+				position: absolute;
+				overflow: hidden;
+			}
+			.back-preview {
+				background: linear-gradient(160deg, #2b5876, #4e4376);
+			}
+			.front-preview {
+				background: linear-gradient(160deg, #e0a16e, #8e5a3c);
+				border: 1px solid rgba(255, 255, 255, 0.35);
+			}
+			.cam-tag {
+				position: absolute;
+				left: 10px;
+				top: 10px;
+				font-size: 10px;
+				color: rgba(255, 255, 255, 0.8);
+				background: rgba(0, 0, 0, 0.35);
+				padding: 3px 7px;
+				border-radius: 8px;
+			}
+			.controls {
+				position: absolute;
+				inset: 0;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				justify-content: space-between;
+				padding: 52px 16px 22px;
+				z-index: 10;
+				pointer-events: none;
+			}
+			.topbar {
+				display: flex;
+				gap: 10px;
+				width: 100%;
+				align-items: center;
+			}
+			.seg {
+				flex: 1;
+				display: flex;
+				background: rgba(255, 255, 255, 0.14);
+				border-radius: 10px;
+				padding: 3px;
+			}
+			.seg span {
+				flex: 1;
+				text-align: center;
+				font-size: 11px;
+				padding: 6px 0;
+				border-radius: 8px;
+				color: #fff;
+			}
+			.seg span.active {
+				background: rgba(255, 255, 255, 0.88);
+				color: #111;
+				font-weight: 600;
+			}
+			.swap {
+				width: 34px;
+				height: 34px;
+				border-radius: 50%;
+				background: rgba(0, 0, 0, 0.45);
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				font-size: 15px;
+			}
+			.bottom {
+				display: flex;
+				align-items: center;
+				gap: 26px;
+			}
+			.shutter {
+				width: 64px;
+				height: 64px;
+				border-radius: 50%;
+				background: #fff;
+				border: 5px solid rgba(255, 255, 255, 0.4);
+			}
+			.record {
+				width: 64px;
+				height: 64px;
+				border-radius: 50%;
+				border: 4px solid #fff;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+			}
+			.record .dot {
+				width: 44px;
+				height: 44px;
+				border-radius: 50%;
+				background: #f43f5e;
+			}
+			.record.stop .dot {
+				width: 24px;
+				height: 24px;
+				border-radius: 6px;
+			}
+			.timer {
+				color: #fff;
+				font-weight: 700;
+				font-variant-numeric: tabular-nums;
+				font-size: 13px;
+				background: rgba(0, 0, 0, 0.45);
+				padding: 4px 10px;
+				border-radius: 8px;
+				margin-bottom: 12px;
+			}
+			.result {
+				position: absolute;
+				inset: 0;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				justify-content: center;
+				gap: 14px;
+				background: #000;
+			}
+			.thumb {
+				width: 90%;
+				height: 300px;
+				border-radius: 16px;
+				background: linear-gradient(160deg, #334, #556);
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				color: rgba(255, 255, 255, 0.7);
+				font-size: 13px;
+			}
+			.btn {
+				background: #3b82f6;
+				color: #fff;
+				border: none;
+				border-radius: 12px;
+				padding: 10px 18px;
+				font-size: 14px;
+				font-weight: 600;
+			}
+			.top {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				gap: 8px;
+				width: 100%;
+			}
+			.shape-picker {
+				display: flex;
+				gap: 6px;
+				background: rgba(255, 255, 255, 0.12);
+				padding: 4px 6px;
+				border-radius: 12px;
+			}
+			.shape {
+				width: 30px;
+				height: 30px;
+				border-radius: 50%;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				font-size: 14px;
+				color: #fff;
+			}
+			.shape.active {
+				background: rgba(255, 255, 255, 0.88);
+				color: #111;
+				font-weight: 600;
+			}
+			.drag-outline {
+				position: absolute;
+				border: 1.5px dashed rgba(255, 255, 255, 0.55);
+				border-radius: 14px;
+			}
+			.drag-handle {
+				position: absolute;
+				width: 22px;
+				height: 22px;
+				border-radius: 50%;
+				background: rgba(0, 0, 0, 0.45);
+				color: #fff;
+				font-size: 12px;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>DualCamera — макеты интерфейса</h1>
+		<div class="sub">
+			Экраны приложения: раскладки, запись и результат. Сгенерировано для
+			наглядности.
+		</div>
+
+		<div class="grid">
+			<div class="card">
+				<div class="label">1. Сплит — основной экран</div>
+				<div class="phone">
+					<div class="screen">
+						<div
+							class="preview back-preview"
+							style="top: 0; left: 0; right: 0; height: 50%"
+						>
+							<span class="cam-tag">Задняя камера</span>
+						</div>
+						<div
+							class="preview front-preview"
+							style="bottom: 0; left: 0; right: 0; height: 50%"
+						>
+							<span class="cam-tag">Передняя камера</span>
+						</div>
+						<div class="controls">
+							<div class="topbar">
+								<div class="seg">
+									<span class="active">Сплит</span><span>PiP</span>
+								</div>
+								<div class="swap">⇄</div>
+							</div>
+							<div class="bottom">
+								<div class="shutter"></div>
+								<div class="record"><div class="dot"></div></div>
+							</div>
+						</div>
+						<div class="notch"></div>
+					</div>
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="label">2. Картинка в картинке (PiP)</div>
+				<div class="phone">
+					<div class="screen">
+						<div class="preview back-preview" style="inset: 0">
+							<span class="cam-tag">Задняя камера</span>
+						</div>
+						<div
+							class="preview front-preview"
+							style="
+								right: 12px;
+								bottom: 96px;
+								width: 92px;
+								height: 130px;
+								border-radius: 14px;
+							"
+						>
+							<span class="cam-tag">Передняя</span>
+						</div>
+						<div class="controls">
+							<div class="topbar">
+								<div class="seg">
+									<span>Сплит</span><span class="active">PiP</span>
+								</div>
+								<div class="swap">⇄</div>
+							</div>
+							<div class="bottom">
+								<div class="shutter"></div>
+								<div class="record"><div class="dot"></div></div>
+							</div>
+						</div>
+						<div class="notch"></div>
+					</div>
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="label">3. Запись (идёт видео)</div>
+				<div class="phone">
+					<div class="screen">
+						<div
+							class="preview back-preview"
+							style="top: 0; left: 0; right: 0; height: 50%"
+						></div>
+						<div
+							class="preview front-preview"
+							style="bottom: 0; left: 0; right: 0; height: 50%"
+						></div>
+						<div class="controls">
+							<div class="topbar">
+								<div class="seg">
+									<span class="active">Сплит</span><span>PiP</span>
+								</div>
+								<div class="swap">⇄</div>
+							</div>
+							<div>
+								<div class="timer">● 00:07</div>
+								<div class="bottom" style="justify-content: center">
+									<div class="record stop"><div class="dot"></div></div>
+								</div>
+							</div>
+						</div>
+						<div class="notch"></div>
+					</div>
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="label">4. Результат — видео</div>
+				<div class="phone">
+					<div class="screen">
+						<div class="result">
+							<div class="thumb">▶ видеоплеер</div>
+							<button class="btn">Сохранить в Фото</button>
+						</div>
+						<div class="notch"></div>
+					</div>
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="label">5. Результат — фото</div>
+				<div class="phone">
+					<div class="screen">
+						<div class="result">
+							<div class="thumb">📷 склеенный снимок</div>
+							<button class="btn">Сохранить в Фото</button>
+						</div>
+						<div class="notch"></div>
+					</div>
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="label">6. PiP — прямоугольник</div>
+				<div class="phone">
+					<div class="screen">
+						<div class="preview back-preview" style="inset: 0">
+							<span class="cam-tag">Задняя камера</span>
+						</div>
+						<div
+							class="preview front-preview"
+							style="
+								right: 12px;
+								bottom: 96px;
+								width: 92px;
+								height: 52px;
+								border-radius: 12px;
+							"
+						>
+							<span class="cam-tag">Передняя</span>
+						</div>
+						<div class="controls">
+							<div class="top">
+								<div class="topbar">
+									<div class="seg">
+										<span>Сплит</span><span class="active">PiP</span>
+									</div>
+									<div class="swap">⇄</div>
+								</div>
+								<div class="shape-picker">
+									<div class="shape active">▭</div>
+									<div class="shape">◼</div>
+									<div class="shape">●</div>
+								</div>
+							</div>
+							<div class="bottom">
+								<div class="shutter"></div>
+								<div class="record"><div class="dot"></div></div>
+							</div>
+						</div>
+						<div class="notch"></div>
+					</div>
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="label">7. PiP — квадрат</div>
+				<div class="phone">
+					<div class="screen">
+						<div class="preview back-preview" style="inset: 0">
+							<span class="cam-tag">Задняя камера</span>
+						</div>
+						<div
+							class="preview front-preview"
+							style="
+								right: 12px;
+								bottom: 96px;
+								width: 92px;
+								height: 92px;
+								border-radius: 12px;
+							"
+						>
+							<span class="cam-tag">Передняя</span>
+						</div>
+						<div class="controls">
+							<div class="top">
+								<div class="topbar">
+									<div class="seg">
+										<span>Сплит</span><span class="active">PiP</span>
+									</div>
+									<div class="swap">⇄</div>
+								</div>
+								<div class="shape-picker">
+									<div class="shape">▭</div>
+									<div class="shape active">◼</div>
+									<div class="shape">●</div>
+								</div>
+							</div>
+							<div class="bottom">
+								<div class="shutter"></div>
+								<div class="record"><div class="dot"></div></div>
+							</div>
+						</div>
+						<div class="notch"></div>
+					</div>
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="label">8. PiP — круг</div>
+				<div class="phone">
+					<div class="screen">
+						<div class="preview back-preview" style="inset: 0">
+							<span class="cam-tag">Задняя камера</span>
+						</div>
+						<div
+							class="preview front-preview"
+							style="
+								right: 12px;
+								bottom: 96px;
+								width: 92px;
+								height: 92px;
+								border-radius: 50%;
+							"
+						>
+							<span class="cam-tag">Передняя</span>
+						</div>
+						<div class="controls">
+							<div class="top">
+								<div class="topbar">
+									<div class="seg">
+										<span>Сплит</span><span class="active">PiP</span>
+									</div>
+									<div class="swap">⇄</div>
+								</div>
+								<div class="shape-picker">
+									<div class="shape">▭</div>
+									<div class="shape">◼</div>
+									<div class="shape active">●</div>
+								</div>
+							</div>
+							<div class="bottom">
+								<div class="shutter"></div>
+								<div class="record"><div class="dot"></div></div>
+							</div>
+						</div>
+						<div class="notch"></div>
+					</div>
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="label">9. PiP — перетаскивание</div>
+				<div class="phone">
+					<div class="screen">
+						<div class="preview back-preview" style="inset: 0">
+							<span class="cam-tag">Задняя камера</span>
+						</div>
+						<div
+							class="drag-outline"
+							style="left: 16px; top: 92px; width: 92px; height: 92px"
+						></div>
+						<div
+							class="preview front-preview"
+							style="
+								left: 16px;
+								top: 92px;
+								width: 92px;
+								height: 92px;
+								border-radius: 50%;
+							"
+						>
+							<span class="cam-tag">Передняя</span>
+							<div class="drag-handle" style="right: -6px; bottom: -6px">✥</div>
+						</div>
+						<div class="controls">
+							<div class="top">
+								<div class="topbar">
+									<div class="seg">
+										<span>Сплит</span><span class="active">PiP</span>
+									</div>
+									<div class="swap">⇄</div>
+								</div>
+								<div class="shape-picker">
+									<div class="shape">▭</div>
+									<div class="shape">◼</div>
+									<div class="shape active">●</div>
+								</div>
+							</div>
+							<div class="bottom">
+								<div class="shutter"></div>
+								<div class="record"><div class="dot"></div></div>
+							</div>
+						</div>
+						<div class="notch"></div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</body>
+</html>

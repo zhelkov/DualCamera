@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Xcode / DerivedData
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcworkspace
+
+# XcodeGen: .xcodeproj генерируется из project.yml
+*.xcodeproj
