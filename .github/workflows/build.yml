@@ -19,7 +19,9 @@ jobs:
         run: xcodegen generate
 
       - name: Build unsigned archive
+        id: build
         run: |
+          set -o pipefail
           xcodebuild archive \
             -project DualCamera.xcodeproj \
             -scheme DualCamera \
@@ -28,15 +30,34 @@ jobs:
             -archivePath "$PWD/build/DualCamera.xcarchive" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            CODE_SIGN_IDENTITY="" 2>&1 | tee build.log
+        continue-on-error: true
+
+      - name: Show build errors
+        if: always()
+        run: |
+          if [ -f build.log ]; then
+            {
+              echo "## Build errors (xcodebuild)"
+              echo '```'
+              grep -E "error:" build.log | head -60
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Fail on build error
+        if: steps.build.outcome == 'failure'
+        run: exit 1
 
       - name: Package IPA
+        if: steps.build.outcome == 'success'
         run: |
           mkdir -p Payload
           cp -R "build/DualCamera.xcarchive/Products/Applications/DualCamera.app" Payload/
           zip -ry DualCamera.ipa Payload
 
       - name: Upload IPA artifact
+        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: DualCamera-ipa
