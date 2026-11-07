@@ -140,8 +140,8 @@ final class DrawingEngine {
             el.kind = .stroke(points: points + [point])
             draftElement = el
         case .rectangle:
-            guard var el = draftElement, case .rectangle(let rect) = el.kind else { return }
-            el.kind = .rectangle(rect: rect(from: rect.origin, to: point))
+            guard var el = draftElement, case .rectangle(let r) = el.kind else { return }
+            el.kind = .rectangle(rect: rect(from: r.origin, to: point))
             draftElement = el
         case .arrow:
             guard var el = draftElement, case .arrow(let from, _) = el.kind else { return }
@@ -199,8 +199,8 @@ final class DrawingEngine {
                                                                   y: point.y - dragStartPoint.y))
         case .resize:
             switch snapshot.kind {
-            case .rectangle(let rect):
-                updated.kind = .rectangle(rect: rect(from: rect.origin, to: point))
+            case .rectangle(let r):
+                updated.kind = .rectangle(rect: rect(from: r.origin, to: point))
             case .arrow(let from, _):
                 updated.kind = .arrow(from: from, to: point)
             case .stroke:

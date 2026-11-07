@@ -537,18 +537,8 @@ final class CameraManager {
         let backs = discovery.devices.filter { $0.position == .back }
         let fronts = discovery.devices.filter { $0.position == .front }
 
-        let supportedSets = AVCaptureMultiCamSession.supportedMultiCamDeviceSets
-
-        // Ищем пару, которая входит в список поддерживаемых комбинаций.
-        for back in backs {
-            for front in fronts {
-                let set: Set<AVCaptureDevice> = [back, front]
-                if supportedSets.contains(where: { $0 == set }) {
-                    return (back, front)
-                }
-            }
-        }
-        // Запасной вариант — первые найденные устройства.
+        // Берём первую заднюю и первую переднюю камеру.
+        // Совместимость пары система проверит сама при добавлении входов в сессию.
         return (backs.first, fronts.first)
     }
 
@@ -598,9 +588,11 @@ final class CameraManager {
     private func connect(_ input: AVCaptureDeviceInput,
                          to output: AVCapturePhotoOutput,
                          mirrored: Bool) throws {
-        guard let port = input.ports.first,
-              let connection = AVCaptureConnection(inputPorts: [port], output: output),
-              session.canAddConnection(connection) else {
+        guard let port = input.ports.first else {
+            throw CameraError.connectionFailed
+        }
+        let connection = AVCaptureConnection(inputPorts: [port], output: output)
+        guard session.canAddConnection(connection) else {
             throw CameraError.connectionFailed
         }
         applyVideoConfig(to: connection, mirrored: mirrored)
@@ -611,9 +603,11 @@ final class CameraManager {
     private func connect(_ input: AVCaptureDeviceInput,
                          to output: AVCaptureMovieFileOutput,
                          mirrored: Bool) throws {
-        guard let port = input.ports.first,
-              let connection = AVCaptureConnection(inputPorts: [port], output: output),
-              session.canAddConnection(connection) else {
+        guard let port = input.ports.first else {
+            throw CameraError.connectionFailed
+        }
+        let connection = AVCaptureConnection(inputPorts: [port], output: output)
+        guard session.canAddConnection(connection) else {
             throw CameraError.connectionFailed
         }
         applyVideoConfig(to: connection, mirrored: mirrored)
@@ -624,8 +618,8 @@ final class CameraManager {
     /// Подключает аудио-порт к видео-выходу (добавляет звуковую дорожку).
     private func connect(_ port: AVCaptureInput.Port,
                          to output: AVCaptureMovieFileOutput) throws {
-        guard let connection = AVCaptureConnection(inputPorts: [port], output: output),
-              session.canAddConnection(connection) else {
+        let connection = AVCaptureConnection(inputPorts: [port], output: output)
+        guard session.canAddConnection(connection) else {
             throw CameraError.connectionFailed
         }
         session.addConnection(connection)
@@ -634,9 +628,11 @@ final class CameraManager {
     private func connect(_ input: AVCaptureDeviceInput,
                          to layer: AVCaptureVideoPreviewLayer,
                          mirrored: Bool) throws {
-        guard let port = input.ports.first,
-              let connection = AVCaptureConnection(inputPorts: [port], videoPreviewLayer: layer),
-              session.canAddConnection(connection) else {
+        guard let port = input.ports.first else {
+            throw CameraError.connectionFailed
+        }
+        let connection = AVCaptureConnection(inputPort: port, videoPreviewLayer: layer)
+        guard session.canAddConnection(connection) else {
             throw CameraError.connectionFailed
         }
         applyVideoConfig(to: connection, mirrored: mirrored)
