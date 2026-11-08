@@ -595,8 +595,8 @@ final class CameraManager {
         guard session.canAddConnection(connection) else {
             throw CameraError.connectionFailed
         }
-        applyVideoConfig(to: connection, mirrored: mirrored)
         session.addConnection(connection)
+        applyVideoConfig(to: connection, mirrored: mirrored)
         if mirrored { frontPhotoConnection = connection } else { backPhotoConnection = connection }
     }
 
@@ -610,8 +610,8 @@ final class CameraManager {
         guard session.canAddConnection(connection) else {
             throw CameraError.connectionFailed
         }
-        applyVideoConfig(to: connection, mirrored: mirrored)
         session.addConnection(connection)
+        applyVideoConfig(to: connection, mirrored: mirrored)
         if mirrored { frontMovieConnection = connection } else { backMovieConnection = connection }
     }
 
@@ -635,8 +635,8 @@ final class CameraManager {
         guard session.canAddConnection(connection) else {
             throw CameraError.connectionFailed
         }
-        applyVideoConfig(to: connection, mirrored: mirrored)
         session.addConnection(connection)
+        applyVideoConfig(to: connection, mirrored: mirrored)
     }
 
     /// Общие настройки видео-соединения: зеркалирование.
