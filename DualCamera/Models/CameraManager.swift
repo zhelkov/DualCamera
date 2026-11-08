@@ -420,9 +420,9 @@ final class CameraManager {
         backCamera = back
         frontCamera = front
 
-        // 2. Подбираем форматы: задняя 1080p, передняя 720p (для стабильного превью).
+        // 2. Подбираем форматы: задняя 1080p, передняя минимальный 480p для диагностики.
         try configureFormat(for: back, target: CGSize(width: 1920, height: 1080))
-        try configureFormat(for: front, target: CGSize(width: 1280, height: 720))
+        try configureFormat(for: front, target: CGSize(width: 640, height: 480))
 
         // 3. Добавляем входы БЕЗ автоматических соединений.
         let backDeviceInput = try AVCaptureDeviceInput(device: back)
@@ -490,15 +490,15 @@ final class CameraManager {
             updateOnMain { self.errorMessage = "Превью не подключилось: \(error)" }
             return
         }
-        // Через секунду проверяем, активны ли соединения превью.
-        sessionQueue.asyncAfter(deadline: .now() + 1) { [weak self] in
+        // Через 2 секунды проверяем состояние превью-слоёв.
+        sessionQueue.asyncAfter(deadline: .now() + 2) { [weak self] in
             guard let self else { return }
             let backActive = self.backPreviewLayer.connection?.isActive ?? false
             let frontActive = self.frontPreviewLayer.connection?.isActive ?? false
-            if !frontActive {
-                self.updateOnMain {
-                    self.errorMessage = "Превью передней: back=\(backActive), front=\(frontActive)"
-                }
+            let backPreviewing = self.backPreviewLayer.isPreviewing
+            let frontPreviewing = self.frontPreviewLayer.isPreviewing
+            self.updateOnMain {
+                self.errorMessage = "back active=\(backActive) prev=\(backPreviewing); front active=\(frontActive) prev=\(frontPreviewing)"
             }
         }
     }
