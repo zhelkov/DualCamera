@@ -568,6 +568,9 @@ final class CameraManager {
         }
         try device.lockForConfiguration()
         device.activeFormat = format
+        // Принудительно SDR: на новых iOS HDR-видео в превью может
+        // показываться белым экраном (особенно у фронтальной камеры).
+        device.activeColorSpace = .sRGB
         // Фиксируем 30 fps для стабильной совместной работы.
         let fps = CMTime(value: 1, timescale: 30)
         device.activeVideoMinFrameDuration = fps
