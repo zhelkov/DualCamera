@@ -441,6 +441,13 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         )
     }
 
+    func updateRecordingElements(_ elements: [DrawingElement]) {
+        guard isRecording else { return }
+        sessionQueue.async { [weak self] in
+            self?.recordingElements = elements
+        }
+    }
+
     // MARK: - Настройка сессии (выполняется в sessionQueue)
 
     private func configureSession() throws {

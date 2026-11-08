@@ -205,7 +205,10 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                 composed = overlay.composited(over: composed)
             }
 
-            context.render(composed.cropped(to: canvas),
+            let uprightFrame = composed.transformed(by: CGAffineTransform(a: 1, b: 0,
+                                                                           c: 0, d: -1,
+                                                                           tx: 0, ty: canvas.height))
+            context.render(uprightFrame.cropped(to: canvas),
                            to: output,
                            bounds: canvas,
                            colorSpace: colorSpace)

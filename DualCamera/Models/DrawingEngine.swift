@@ -3,7 +3,7 @@ import UIKit
 import Observation
 
 /// Цвет кисти и фигур.
-enum DrawColor: String, CaseIterable, Identifiable {
+enum DrawColor: String, CaseIterable, Identifiable, Equatable {
     case white, black, red, blue, green, yellow
 
     var id: String { rawValue }
@@ -49,13 +49,13 @@ enum ToolMode: String, CaseIterable, Identifiable {
 
 /// Один элемент рисунка. Координаты и размеры — нормализованные (0...1),
 /// толщина линии — доля ширины холста.
-struct DrawingElement: Identifiable {
+struct DrawingElement: Identifiable, Equatable {
     let id = UUID()
     var kind: Kind
     var color: DrawColor
     var lineWidth: CGFloat
 
-    enum Kind {
+    enum Kind: Equatable {
         case stroke(points: [CGPoint])
         case rectangle(rect: CGRect)
         case arrow(from: CGPoint, to: CGPoint)
@@ -198,14 +198,7 @@ final class DrawingEngine {
             updated.kind = translated(snapshot.kind, by: CGPoint(x: point.x - dragStartPoint.x,
                                                                   y: point.y - dragStartPoint.y))
         case .resize:
-            switch snapshot.kind {
-            case .rectangle(let r):
-                updated.kind = .rectangle(rect: rect(from: r.origin, to: point))
-            case .arrow(let from, _):
-                updated.kind = .arrow(from: from, to: point)
-            case .stroke:
-                break
-            }
+            updated.kind = resized(snapshot.kind, from: snapshot.boundingBox, to: point)
         case .none:
             break
         }
@@ -234,6 +227,26 @@ final class DrawingEngine {
         case .arrow(let from, let to):
             return .arrow(from: CGPoint(x: from.x + delta.x, y: from.y + delta.y),
                           to: CGPoint(x: to.x + delta.x, y: to.y + delta.y))
+        }
+    }
+
+    private func resized(_ kind: DrawingElement.Kind, from bounds: CGRect, to point: CGPoint) -> DrawingElement.Kind {
+        let scaleX = abs(bounds.width) > 0.0001 ? (point.x - bounds.minX) / bounds.width : 1
+        let scaleY = abs(bounds.height) > 0.0001 ? (point.y - bounds.minY) / bounds.height : 1
+        func map(_ value: CGPoint) -> CGPoint {
+            CGPoint(x: bounds.minX + (value.x - bounds.minX) * scaleX,
+                    y: bounds.minY + (value.y - bounds.minY) * scaleY)
+        }
+
+        switch kind {
+        case .stroke(let points):
+            return .stroke(points: points.map(map))
+        case .rectangle(let rect):
+            return .rectangle(rect: CGRect(origin: map(rect.origin),
+                                            size: CGSize(width: rect.width * scaleX,
+                                                         height: rect.height * scaleY)).standardized)
+        case .arrow(let from, let to):
+            return .arrow(from: map(from), to: map(to))
         }
     }
 

@@ -38,6 +38,9 @@ struct ContentView: View {
         .onChange(of: selectedMediaItems) { _, items in
             handlePickedMedia(items)
         }
+        .onChange(of: drawing.elements) { _, elements in
+            camera.updateRecordingElements(elements)
+        }
         .alert("Ошибка", isPresented: errorBinding) {
             Button("ОК", role: .cancel) {}
         } message: {
