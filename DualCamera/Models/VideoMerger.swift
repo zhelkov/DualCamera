@@ -4,7 +4,15 @@ import UIKit
 /// Объединяет два записанных клипа (передняя и задняя камеры) в один файл.
 enum VideoMerger {
 
-    static func merge(back: URL, front: URL, layout: CaptureLayout, shape: PipShape, splitOrientation: SplitOrientation = .vertical, elements: [DrawingElement] = []) async throws -> URL {
+    static func merge(back: URL,
+                      front: URL,
+                      layout: CaptureLayout,
+                      shape: PipShape,
+                      splitOrientation: SplitOrientation = .vertical,
+                      pipOffsetFraction: CGSize = .zero,
+                      backImage: UIImage? = nil,
+                      frontImage: UIImage? = nil,
+                      elements: [DrawingElement] = []) async throws -> URL {
         let backAsset = AVURLAsset(url: back)
         let frontAsset = AVURLAsset(url: front)
 
@@ -48,28 +56,25 @@ enum VideoMerger {
         videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
         videoComposition.renderSize = canvas
 
-        switch layout {
-        case .splitScreen:
-            videoComposition.instructions = [
-                splitInstruction(timeRange: timeRange,
-                                 canvas: canvas,
-                                 splitOrientation: splitOrientation,
-                                 backClip: backClip,
-                                 frontClip: frontClip,
-                                 backTrack: backCompTrack,
-                                 frontTrack: frontCompTrack)
-            ]
-        case .pip:
-            videoComposition.instructions = [
-                pipInstruction(timeRange: timeRange,
-                               canvas: canvas,
-                               shape: shape,
-                               backClip: backClip,
-                               frontClip: frontClip,
-                               backTrack: backCompTrack,
-                               frontTrack: frontCompTrack)
-            ]
-        }
+        videoComposition.customVideoCompositorClass = DualCameraVideoCompositor.self
+        videoComposition.instructions = [
+            DualCameraVideoCompositionInstruction(
+                timeRange: timeRange,
+                backTrackID: backCompTrack.trackID,
+                frontTrackID: frontCompTrack.trackID,
+                canvasSize: canvas,
+                layout: layout,
+                splitOrientation: splitOrientation,
+                shape: shape,
+                pipOffsetFraction: pipOffsetFraction,
+                backTransform: backClip.preferredTransform,
+                frontTransform: frontClip.preferredTransform,
+                backSourceSize: backClip.naturalSize,
+                frontSourceSize: frontClip.naturalSize,
+                backImage: Self.normalizedCIImage(backImage),
+                frontImage: Self.normalizedCIImage(frontImage)
+            )
+        ]
 
         if let drawingImage {
             videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
@@ -247,12 +252,23 @@ enum VideoMerger {
             .appendingPathComponent("dualcamera-merged-\(UUID().uuidString).mov")
     }
 
+    private static func normalizedCIImage(_ image: UIImage?) -> CIImage? {
+        guard let image else { return nil }
+        let renderer = UIGraphicsImageRenderer(size: image.size)
+        let normalized = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+        guard let cgImage = normalized.cgImage else { return nil }
+        return CIImage(cgImage: cgImage)
+    }
+
     /// Готовый к использованию трек вместе с ориентацией и размером.
     private struct ClipInfo {
         let track: AVAssetTrack
         let preferredTransform: CGAffineTransform
         let duration: CMTime
         let displaySize: CGSize
+        let naturalSize: CGSize
 
         init(asset: AVURLAsset) async throws {
             let videoTracks = try await asset.loadTracks(withMediaType: .video)
@@ -266,6 +282,7 @@ enum VideoMerger {
             self.track = videoTrack
             self.preferredTransform = transform
             self.duration = duration
+            self.naturalSize = naturalSize
 
             // При повороте на 90/270° меняем ширину и высоту местами.
             self.displaySize = CGRect(origin: .zero, size: naturalSize)

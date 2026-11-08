@@ -6,7 +6,6 @@ import Combine
 
 final class FrontCameraPreviewStore: ObservableObject {
     @Published var image: UIImage?
-    @Published var status = "Проверка видеопотока передней камеры…"
 }
 
 /// Менеджер камеры. Отвечает за одновременную съёмку с двух камер
@@ -89,9 +88,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private let frontVideoOutputQueue = DispatchQueue(label: "com.dualcamera.front-probe", qos: .userInitiated)
     private let frontProbeImageContext = CIContext()
     let frontPreviewStore = FrontCameraPreviewStore()
-    private var frontProbeFrameCount = 0
     private var lastFrontProbeImageUpdate: UInt64 = 0
-    private var lastFrontProbeStatusUpdate: UInt64 = 0
 
     // MARK: - Ротация
 
@@ -124,6 +121,9 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var recordingBackURL: URL?
     private var recordingFrontURL: URL?
     private var recordingElements: [DrawingElement] = []
+    private var recordingPipOffsetFraction: CGSize = .zero
+    private var recordingBackImage: UIImage?
+    private var recordingFrontImage: UIImage?
     private var expectedRecordingCount = 0
     private var receivedRecordingCallbacks = 0
     private var recordedURLs: [MovieCaptureDelegate.Camera: URL] = [:]
@@ -247,7 +247,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     }
 
     /// Снимает фото одновременно с обеих камер, склеивает и накладывает рисунок.
-    func captureBothCameras(elements: [DrawingElement] = []) {
+    func captureBothCameras(elements: [DrawingElement] = [], pipOffsetFraction: CGSize = .zero) {
         guard isConfigured, !isCapturing else { return }
         updateOnMain { self.isCapturing = true }
 
@@ -255,7 +255,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             guard let self else { return }
             Task {
                 do {
-                    let merged = try await self.captureAndMerge(elements: elements)
+                    let merged = try await self.captureAndMerge(elements: elements,
+                                                                pipOffsetFraction: pipOffsetFraction)
                     self.updateOnMain {
                         self.lastMergedPhoto = merged
                         self.isCapturing = false
@@ -369,7 +370,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     /// Начинает одновременную запись видео с обеих камер.
     /// `elements` — рисунок, который вшивается в видео (снимок на момент старта).
-    func startRecording(elements: [DrawingElement] = []) {
+    func startRecording(elements: [DrawingElement] = [], pipOffsetFraction: CGSize = .zero) {
         guard isConfigured, !isRecording else { return }
         updateOnMain {
             self.isRecording = true
@@ -381,6 +382,9 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             guard let self else { return }
 
             self.recordingElements = elements
+            self.recordingPipOffsetFraction = pipOffsetFraction
+            self.recordingBackImage = self.isCamerasSwapped ? self.importedPhoto : nil
+            self.recordingFrontImage = self.isCamerasSwapped ? nil : self.importedPhoto
 
             self.recordingLock.lock()
             self.recordedURLs.removeAll()
@@ -483,13 +487,10 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             do {
                 try connect(frontDeviceInput, to: frontVideoDataOutput)
                 frontVideoDataOutput.setSampleBufferDelegate(self, queue: frontVideoOutputQueue)
-                updateOnMain { self.frontPreviewStore.status = "Ожидание кадров с передней камеры…" }
             } catch {
                 session.removeOutput(frontVideoDataOutput)
-                updateOnMain { self.frontPreviewStore.status = "Не удалось подключить диагностику: \(error.localizedDescription)" }
             }
         } else {
-            updateOnMain { self.frontPreviewStore.status = "iPhone не смог добавить диагностический видеовыход." }
         }
 
         // 7а. Микрофон: добавляем вход и подключаем звук к обоим видео-выходам.
@@ -713,7 +714,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     // MARK: - Съёмка и склейка
 
-    private func captureAndMerge(elements: [DrawingElement]) async throws -> UIImage {
+    private func captureAndMerge(elements: [DrawingElement], pipOffsetFraction: CGSize) async throws -> UIImage {
         defer { clearPhotoDelegates() }
 
         // Запускаем оба захвата подряд. Вызовы возвращаются мгновенно,
@@ -740,7 +741,13 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         // Если камеры поменяны местами — меняем и порядок склейки.
         let primary = isCamerasSwapped ? frontImage : backImage
         let secondary = isCamerasSwapped ? backImage : frontImage
-        return PhotoMerger.merge(back: primary, front: secondary, layout: layout, shape: pipShape, splitOrientation: splitOrientation, elements: elements)
+        return PhotoMerger.merge(back: primary,
+                                 front: secondary,
+                                 layout: layout,
+                                 shape: pipShape,
+                                 splitOrientation: splitOrientation,
+                                 pipOffsetFraction: pipOffsetFraction,
+                                 elements: elements)
     }
 
     private func capturePhoto(from output: AVCapturePhotoOutput) async throws -> Data {
@@ -833,7 +840,17 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 let frontSource = self.importedVideoURL ?? frontURL
                 let primaryURL = self.isCamerasSwapped ? frontSource : backURL
                 let secondaryURL = self.isCamerasSwapped ? backURL : frontSource
-                let merged = try await VideoMerger.merge(back: primaryURL, front: secondaryURL, layout: self.layout, shape: self.pipShape, splitOrientation: self.splitOrientation, elements: self.recordingElements)
+                let merged = try await VideoMerger.merge(
+                    back: primaryURL,
+                    front: secondaryURL,
+                    layout: self.layout,
+                    shape: self.pipShape,
+                    splitOrientation: self.splitOrientation,
+                    pipOffsetFraction: self.recordingPipOffsetFraction,
+                    backImage: self.recordingBackImage,
+                    frontImage: self.recordingFrontImage,
+                    elements: self.recordingElements
+                )
                 // Удаляем исходные клипы — остаётся только объединённый файл.
                 Self.removeTemporaryFiles([backURL, frontURL])
                 self.updateOnMain {
@@ -862,6 +879,9 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingBackURL = nil
         recordingFrontURL = nil
         recordingElements = []
+        recordingPipOffsetFraction = .zero
+        recordingBackImage = nil
+        recordingFrontImage = nil
     }
 
     // MARK: - Таймер записи (главный поток)
@@ -914,54 +934,15 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     func captureOutput(_ output: AVCaptureOutput,
                        didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
-        guard output === frontVideoDataOutput else { return }
-
-        frontProbeFrameCount += 1
+        guard output === frontVideoDataOutput,
+              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let now = DispatchTime.now().uptimeNanoseconds
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        let width = CVPixelBufferGetWidth(pixelBuffer)
-        let height = CVPixelBufferGetHeight(pixelBuffer)
-        let pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
-        let frameCount = frontProbeFrameCount
-
-        if frameCount == 1 || now - lastFrontProbeImageUpdate >= 66_666_667 {
-            lastFrontProbeImageUpdate = now
-            let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-            if let cgImage = frontProbeImageContext.createCGImage(ciImage, from: ciImage.extent) {
-                let image = UIImage(cgImage: cgImage)
-                updateOnMain { self.frontPreviewStore.image = image }
-            }
+        guard lastFrontProbeImageUpdate == 0 || now - lastFrontProbeImageUpdate >= 66_666_667 else { return }
+        lastFrontProbeImageUpdate = now
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        if let cgImage = frontProbeImageContext.createCGImage(ciImage, from: ciImage.extent) {
+            let image = UIImage(cgImage: cgImage)
+            updateOnMain { self.frontPreviewStore.image = image }
         }
-
-        if frameCount == 1 || now - lastFrontProbeStatusUpdate >= 500_000_000 {
-            lastFrontProbeStatusUpdate = now
-            let centerLuma = centerLumaValue(of: pixelBuffer).map { "\($0)/255" } ?? "н/д"
-            updateOnMain {
-                self.frontPreviewStore.status = "ФРОНТ · \(width)×\(height)\nКадр \(frameCount) · центр \(centerLuma) · 0x\(String(pixelFormat, radix: 16))"
-            }
-        }
-    }
-
-    private func centerLumaValue(of pixelBuffer: CVPixelBuffer) -> UInt8? {
-        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
-
-        let x = CVPixelBufferGetWidth(pixelBuffer) / 2
-        let y = CVPixelBufferGetHeight(pixelBuffer) / 2
-        if CVPixelBufferGetPlaneCount(pixelBuffer) > 0,
-           let base = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0) {
-            let rowBytes = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0)
-            return base.load(fromByteOffset: y * rowBytes + x, as: UInt8.self)
-        }
-        if CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA,
-           let base = CVPixelBufferGetBaseAddress(pixelBuffer) {
-            let rowBytes = CVPixelBufferGetBytesPerRow(pixelBuffer)
-            let offset = y * rowBytes + x * 4
-            let blue = Double(base.load(fromByteOffset: offset, as: UInt8.self))
-            let green = Double(base.load(fromByteOffset: offset + 1, as: UInt8.self))
-            let red = Double(base.load(fromByteOffset: offset + 2, as: UInt8.self))
-            return UInt8(min(255, max(0, (0.299 * red + 0.587 * green + 0.114 * blue).rounded())))
-        }
-        return nil
     }
 }

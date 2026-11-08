@@ -3,7 +3,13 @@ import UIKit
 /// Склеивает снимки передней и задней камер в одно изображение.
 enum PhotoMerger {
 
-    static func merge(back: UIImage, front: UIImage, layout: CaptureLayout, shape: PipShape, splitOrientation: SplitOrientation = .vertical, elements: [DrawingElement] = []) -> UIImage {
+    static func merge(back: UIImage,
+                      front: UIImage,
+                      layout: CaptureLayout,
+                      shape: PipShape,
+                      splitOrientation: SplitOrientation = .vertical,
+                      pipOffsetFraction: CGSize = .zero,
+                      elements: [DrawingElement] = []) -> UIImage {
         // Приводим к вертикальной ориентации, чтобы размеры были честными.
         let back = normalized(back)
         let front = normalized(front)
@@ -15,7 +21,8 @@ enum PhotoMerger {
                 ? horizontalSplit(back: back, front: front)
                 : verticalSplit(back: back, front: front)
         case .pip:
-            merged = pictureInPicture(back: back, front: front, shape: shape)
+            merged = pictureInPicture(back: back, front: front, shape: shape,
+                                      pipOffsetFraction: pipOffsetFraction)
         }
 
         return elements.isEmpty ? merged : overlay(DrawingRenderer.render(elements, size: merged.size), on: merged)
@@ -82,18 +89,25 @@ enum PhotoMerger {
     }
 
     /// Картинка в картинке: задняя камера на весь кадр, передняя — в окне заданной формы.
-    private static func pictureInPicture(back: UIImage, front: UIImage, shape: PipShape) -> UIImage {
+    private static func pictureInPicture(back: UIImage,
+                                         front: UIImage,
+                                         shape: PipShape,
+                                         pipOffsetFraction: CGSize) -> UIImage {
         let size = back.size
         let renderer = UIGraphicsImageRenderer(size: size)
         return renderer.image { ctx in
             back.draw(in: CGRect(origin: .zero, size: size))
 
             // Передняя камера занимает ~25% ширины кадра.
-            let pipWidth = size.width * 0.25
+            let pipWidth = size.width * 0.3
             let pipHeight = pipWidth * shape.aspectRatio
             let inset: CGFloat = 16
-            let pipRect = CGRect(x: size.width - pipWidth - inset,
-                                 y: size.height - pipHeight - inset,
+            let x = min(max(0, size.width - pipWidth - inset + pipOffsetFraction.width * size.width),
+                        size.width - pipWidth)
+            let y = min(max(0, size.height - pipHeight - inset + pipOffsetFraction.height * size.height),
+                        size.height - pipHeight)
+            let pipRect = CGRect(x: x,
+                                 y: y,
                                  width: pipWidth,
                                  height: pipHeight)
 

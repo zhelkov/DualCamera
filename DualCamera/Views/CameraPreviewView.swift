@@ -63,14 +63,12 @@ struct FrontCameraImageView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: FrontCameraImageContainerView, context: Context) {
-        uiView.update(image: store.image, status: store.status)
+        uiView.update(image: store.image)
     }
 }
 
 final class FrontCameraImageContainerView: UIView {
     private let imageView = UIImageView()
-    private let statusLabel = UILabel()
-
     init(store: FrontCameraPreviewStore) {
         super.init(frame: .zero)
         backgroundColor = .black
@@ -82,25 +80,13 @@ final class FrontCameraImageContainerView: UIView {
         imageView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(imageView)
 
-        statusLabel.numberOfLines = 0
-        statusLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        statusLabel.textColor = .white
-        statusLabel.backgroundColor = UIColor.black.withAlphaComponent(0.7)
-        statusLabel.layer.cornerRadius = 6
-        statusLabel.clipsToBounds = true
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(statusLabel)
-
         NSLayoutConstraint.activate([
             imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
             imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
             imageView.topAnchor.constraint(equalTo: topAnchor),
-            imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            statusLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
-            statusLabel.topAnchor.constraint(equalTo: topAnchor, constant: 6),
-            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -6)
+            imageView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
-        update(image: store.image, status: store.status)
+        update(image: store.image)
     }
 
     @available(*, unavailable)
@@ -108,8 +94,7 @@ final class FrontCameraImageContainerView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func update(image: UIImage?, status: String) {
+    func update(image: UIImage?) {
         imageView.image = image
-        statusLabel.text = status
     }
 }

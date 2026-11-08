@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var camera = CameraManager()
     @Environment(\.scenePhase) private var scenePhase
     @State private var pipOffset: CGSize = .zero
+    @State private var previewSize: CGSize = .zero
     @State private var pipDragBase: CGSize?
     @State private var isZoomSliderVisible = false
     @State private var drawing = DrawingEngine()
@@ -70,13 +71,13 @@ struct ContentView: View {
                         .offset(x: frames.main.minX, y: frames.main.minY)
                         .gesture(focusTap(in: frames.main.size))
 
-                    FrontCameraImageView(store: camera.frontPreviewStore)
+                    frontCameraContent
                         .frame(width: frames.secondary.width, height: frames.secondary.height)
                         .modifier(SecondaryPreviewClip(layout: camera.layout, radius: pipRadius))
                         .offset(x: frames.secondary.minX, y: frames.secondary.minY)
                         .gesture(pipDrag)
                 } else {
-                    FrontCameraImageView(store: camera.frontPreviewStore)
+                    frontCameraContent
                         .frame(width: frames.main.width, height: frames.main.height)
                         .offset(x: frames.main.minX, y: frames.main.minY)
                         .gesture(focusTap(in: frames.main.size))
@@ -91,7 +92,26 @@ struct ContentView: View {
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.layout)
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.isCamerasSwapped)
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.pipShape)
+            .onAppear { previewSize = size }
+            .onChange(of: size) { _, newSize in previewSize = newSize }
         }
+    }
+
+    @ViewBuilder
+    private var frontCameraContent: some View {
+        if let image = camera.importedPhoto {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+        } else {
+            FrontCameraImageView(store: camera.frontPreviewStore)
+        }
+    }
+
+    private var pipOffsetFraction: CGSize {
+        guard previewSize.width > 0, previewSize.height > 0 else { return .zero }
+        return CGSize(width: pipOffset.width / previewSize.width,
+                      height: pipOffset.height / previewSize.height)
     }
 
     /// Перетаскивание окна PiP (работает только в раскладке «картинка в картинке»).
@@ -275,7 +295,8 @@ struct ContentView: View {
                             .frame(width: 72, height: 72)
                     } else {
                         Button {
-                            camera.captureBothCameras(elements: drawing.elements)
+                            camera.captureBothCameras(elements: drawing.elements,
+                                                      pipOffsetFraction: pipOffsetFraction)
                         } label: {
                             Circle()
                                 .fill(.white)
@@ -285,7 +306,8 @@ struct ContentView: View {
                     }
 
                     Button {
-                        camera.startRecording(elements: drawing.elements)
+                        camera.startRecording(elements: drawing.elements,
+                                              pipOffsetFraction: pipOffsetFraction)
                     } label: {
                         ZStack {
                             Circle().stroke(.white, lineWidth: 4).frame(width: 72, height: 72)
