@@ -9,6 +9,7 @@ enum PhotoMerger {
                       shape: PipShape,
                       splitOrientation: SplitOrientation = .vertical,
                       pipOffsetFraction: CGSize = .zero,
+                      pipWidthFraction: CGFloat = 0.3,
                       elements: [DrawingElement] = []) -> UIImage {
         // Приводим к вертикальной ориентации, чтобы размеры были честными.
         let back = normalized(back)
@@ -22,7 +23,8 @@ enum PhotoMerger {
                 : verticalSplit(back: back, front: front)
         case .pip:
             merged = pictureInPicture(back: back, front: front, shape: shape,
-                                      pipOffsetFraction: pipOffsetFraction)
+                                      pipOffsetFraction: pipOffsetFraction,
+                                      pipWidthFraction: pipWidthFraction)
         }
 
         return elements.isEmpty ? merged : overlay(DrawingRenderer.render(elements, size: merged.size), on: merged)
@@ -92,14 +94,15 @@ enum PhotoMerger {
     private static func pictureInPicture(back: UIImage,
                                          front: UIImage,
                                          shape: PipShape,
-                                         pipOffsetFraction: CGSize) -> UIImage {
+                                         pipOffsetFraction: CGSize,
+                                         pipWidthFraction: CGFloat) -> UIImage {
         let size = back.size
         let renderer = UIGraphicsImageRenderer(size: size)
         return renderer.image { ctx in
             back.draw(in: CGRect(origin: .zero, size: size))
 
             // Передняя камера занимает ~25% ширины кадра.
-            let pipWidth = size.width * 0.3
+            let pipWidth = size.width * pipWidthFraction
             let pipHeight = pipWidth * shape.aspectRatio
             let inset: CGFloat = 16
             let x = min(max(0, size.width - pipWidth - inset + pipOffsetFraction.width * size.width),

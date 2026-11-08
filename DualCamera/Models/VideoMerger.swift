@@ -10,7 +10,9 @@ enum VideoMerger {
                       shape: PipShape,
                       splitOrientation: SplitOrientation = .vertical,
                       pipOffsetFraction: CGSize = .zero,
+                      pipWidthFraction: CGFloat = 0.3,
                       pipPositionKeyframes: [PipPositionKeyframe] = [],
+                      drawingKeyframes: [DrawingElementsKeyframe] = [],
                       backImage: UIImage? = nil,
                       frontImage: UIImage? = nil,
                       elements: [DrawingElement] = []) async throws -> URL {
@@ -27,7 +29,9 @@ enum VideoMerger {
         let canvas = backClip.displaySize
 
         // Рисунок поверх видео (если есть элементы).
-        let drawingImage = elements.isEmpty ? nil : DrawingRenderer.render(elements, size: canvas)
+        let effectiveDrawingKeyframes = drawingKeyframes.isEmpty
+            ? [DrawingElementsKeyframe(time: 0, elements: elements)]
+            : drawingKeyframes
 
         let composition = AVMutableComposition()
         guard let backCompTrack = composition.addMutableTrack(
@@ -68,14 +72,15 @@ enum VideoMerger {
                 splitOrientation: splitOrientation,
                 shape: shape,
                 pipOffsetFraction: pipOffsetFraction,
+                pipWidthFraction: pipWidthFraction,
                 pipPositionKeyframes: pipPositionKeyframes,
+                drawingKeyframes: effectiveDrawingKeyframes,
                 backTransform: backClip.preferredTransform,
                 frontTransform: frontClip.preferredTransform,
                 backSourceSize: backClip.naturalSize,
                 frontSourceSize: frontClip.naturalSize,
                 backImage: Self.normalizedCIImage(backImage),
-                frontImage: Self.normalizedCIImage(frontImage),
-                overlayImage: Self.normalizedCIImage(drawingImage)
+                frontImage: Self.normalizedCIImage(frontImage)
             )
         ]
 

@@ -9,6 +9,7 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var pipOffset: CGSize = .zero
     @State private var previewSize: CGSize = .zero
+    @State private var importedImageWidthFraction: CGFloat = 0.3
     @State private var pipDragBase: CGSize?
     @State private var isZoomSliderVisible = false
     @State private var drawing = DrawingEngine()
@@ -63,7 +64,8 @@ struct ContentView: View {
         GeometryReader { geo in
             let size = geo.size
             let backIsMain = !camera.isCamerasSwapped
-            let pip = Self.pipSize(for: camera.pipShape, in: size)
+            let pipWidthFraction = camera.importedPhoto == nil ? 0.3 : importedImageWidthFraction
+            let pip = Self.pipSize(for: camera.pipShape, in: size, widthFraction: pipWidthFraction)
             let frames = Self.layoutFrames(layout: camera.layout, size: size, pipSize: pip, pipOffset: pipOffset, splitOrientation: camera.splitOrientation)
             let pipRadius = camera.pipShape.cornerRadius(for: pip)
 
@@ -153,8 +155,8 @@ struct ContentView: View {
     }
 
     /// Размер окна PiP в зависимости от выбранной формы.
-    private static func pipSize(for shape: PipShape, in size: CGSize) -> CGSize {
-        let width = size.width * 0.3
+    private static func pipSize(for shape: PipShape, in size: CGSize, widthFraction: CGFloat) -> CGSize {
+        let width = size.width * widthFraction
         return CGSize(width: width, height: width * shape.aspectRatio)
     }
 
@@ -254,6 +256,26 @@ struct ContentView: View {
                 .pickerStyle(.segmented)
                 .frame(width: 150)
                 .padding(.top, 6)
+
+                if camera.importedPhoto != nil {
+                    HStack(spacing: 8) {
+                        Text("Размер фото")
+                            .font(.caption)
+                            .foregroundStyle(.white)
+                        Slider(value: $importedImageWidthFraction, in: 0.15...0.6)
+                            .tint(.white)
+                            .frame(width: 120)
+                        Text("\(Int(importedImageWidthFraction * 100))%")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+                    .onChange(of: importedImageWidthFraction) { _, newValue in
+                        camera.updatePipOffsetFraction(pipOffsetFraction,
+                                                       widthFraction: newValue)
+                    }
+                }
             }
 
             if camera.layout == .splitScreen {
@@ -306,7 +328,8 @@ struct ContentView: View {
                     } else {
                         Button {
                             camera.captureBothCameras(elements: drawing.elements,
-                                                      pipOffsetFraction: pipOffsetFraction)
+                                                      pipOffsetFraction: pipOffsetFraction,
+                                                      pipWidthFraction: camera.importedPhoto == nil ? 0.3 : importedImageWidthFraction)
                         } label: {
                             Circle()
                                 .fill(.white)
@@ -317,7 +340,8 @@ struct ContentView: View {
 
                     Button {
                         camera.startRecording(elements: drawing.elements,
-                                              pipOffsetFraction: pipOffsetFraction)
+                                              pipOffsetFraction: pipOffsetFraction,
+                                              pipWidthFraction: camera.importedPhoto == nil ? 0.3 : importedImageWidthFraction)
                     } label: {
                         ZStack {
                             Circle().stroke(.white, lineWidth: 4).frame(width: 72, height: 72)
