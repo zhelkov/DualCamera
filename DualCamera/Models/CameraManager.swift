@@ -169,11 +169,11 @@ final class CameraManager {
 
             do {
                 try self.configureSession()
+                // Подключаем превью-слои до запуска сессии.
+                self.connectPreviewLayers()
                 self.session.startRunning()
                 // Ротация превью и соединений под устройство.
                 self.configureRotationCoordinators()
-                // Подключаем превью-слои после запуска сессии.
-                self.connectPreviewLayers()
                 // Характеристики читаем на очереди сессии, применяем на главной.
                 let minZoom = self.backCamera?.minAvailableVideoZoomFactor ?? 1
                 let maxZoom = self.backCamera?.maxAvailableVideoZoomFactor ?? 1
@@ -541,22 +541,10 @@ final class CameraManager {
         return (back, front)
     }
 
-    /// Для задней камеры предпочитаем виртуальное устройство (широкоугольная +
-    /// сверхширокоугольная) — оно даёт зум от 0.5x. Если виртуальное устройство
-    /// не поддерживает MultiCam, берём обычную широкоугольную.
+    /// Для задней камеры используем обычную широкоугольную. Виртуальное
+    /// устройство (сверхширокоугольная + широкоугольная) может занимать
+    /// ресурсы портов и оставлять превью передней камеры пустым.
     private func preferredBackDevice() -> AVCaptureDevice? {
-        let candidates: [AVCaptureDevice.DeviceType] = [
-            .builtInDualWideCamera,
-            .builtInTripleCamera,
-            .builtInUltraWideCamera,
-            .builtInWideAngleCamera
-        ]
-        for type in candidates {
-            if let device = AVCaptureDevice.default(type, for: .video, position: .back),
-               device.formats.contains(where: { $0.isMultiCamSupported }) {
-                return device
-            }
-        }
         return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
     }
 
@@ -654,8 +642,6 @@ final class CameraManager {
             throw CameraError.connectionFailed
         }
         session.addConnection(connection)
-        // Для передней камеры система сама применяет зеркалирование превью.
-        connection.automaticallyAdjustsVideoMirroring = true
     }
 
     // MARK: - Съёмка и склейка
