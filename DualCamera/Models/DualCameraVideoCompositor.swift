@@ -25,7 +25,8 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
     let frontImage: CIImage?
 
     var requiredSourceTrackIDs: [NSValue]? {
-        [NSValue(value: backTrackID), NSValue(value: frontTrackID)]
+        [NSNumber(value: backTrackID) as NSValue,
+         NSNumber(value: frontTrackID) as NSValue]
     }
 
     init(timeRange: CMTimeRange,
@@ -157,8 +158,8 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                 let radius = min(frontBottomRect.width, frontBottomRect.height) / 2
                 let mask = CIFilter.radialGradient()
                 mask.center = center
-                mask.radius0 = max(0, radius - 0.5)
-                mask.radius1 = radius + 0.5
+                mask.radius0 = Float(max(0, radius - 0.5))
+                mask.radius1 = Float(radius + 0.5)
                 mask.color0 = CIColor.white
                 mask.color1 = CIColor.black
                 guard let maskImage = mask.outputImage?.cropped(to: canvas) else {
