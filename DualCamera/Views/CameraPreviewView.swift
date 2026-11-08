@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import UIKit
+import Combine
 
 /// Обёртка для показа `AVCaptureVideoPreviewLayer` внутри SwiftUI.
 struct CameraPreviewView: UIViewRepresentable {
@@ -53,30 +54,62 @@ final class PreviewContainerView: UIView {
     }
 }
 
-/// Показывает кадры передней камеры как обычные изображения SwiftUI.
-struct FrontCameraImageView: View {
-    let camera: CameraManager
+/// Показывает кадры передней камеры в отдельном UIKit-контейнере.
+struct FrontCameraImageView: UIViewRepresentable {
+    @ObservedObject var store: FrontCameraPreviewStore
 
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .topLeading) {
-                Color.black
-                if let image = camera.frontProbeImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .clipped()
-                        .scaleEffect(x: -1, y: 1)
-                }
-                Text(camera.frontProbeStatus)
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.white)
-                    .padding(6)
-                    .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 6))
-                    .padding(6)
-            }
-        }
-        .clipped()
+    func makeUIView(context: Context) -> FrontCameraImageContainerView {
+        FrontCameraImageContainerView(store: store)
+    }
+
+    func updateUIView(_ uiView: FrontCameraImageContainerView, context: Context) {
+        uiView.update(image: store.image, status: store.status)
+    }
+}
+
+final class FrontCameraImageContainerView: UIView {
+    private let imageView = UIImageView()
+    private let statusLabel = UILabel()
+
+    init(store: FrontCameraPreviewStore) {
+        super.init(frame: .zero)
+        backgroundColor = .black
+        clipsToBounds = true
+
+        imageView.contentMode = .scaleAspectFill
+        imageView.clipsToBounds = true
+        imageView.transform = CGAffineTransform(scaleX: -1, y: 1)
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(imageView)
+
+        statusLabel.numberOfLines = 0
+        statusLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        statusLabel.textColor = .white
+        statusLabel.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        statusLabel.layer.cornerRadius = 6
+        statusLabel.clipsToBounds = true
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(statusLabel)
+
+        NSLayoutConstraint.activate([
+            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            imageView.topAnchor.constraint(equalTo: topAnchor),
+            imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            statusLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            statusLabel.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -6)
+        ])
+        update(image: store.image, status: store.status)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(image: UIImage?, status: String) {
+        imageView.image = image
+        statusLabel.text = status
     }
 }

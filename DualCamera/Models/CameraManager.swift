@@ -2,6 +2,12 @@ import AVFoundation
 import UIKit
 import CoreImage
 import Observation
+import Combine
+
+final class FrontCameraPreviewStore: ObservableObject {
+    @Published var image: UIImage?
+    @Published var status = "Проверка видеопотока передней камеры…"
+}
 
 /// Менеджер камеры. Отвечает за одновременную съёмку с двух камер
 /// через `AVCaptureMultiCamSession`.
@@ -82,8 +88,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private let frontVideoDataOutput = AVCaptureVideoDataOutput()
     private let frontVideoOutputQueue = DispatchQueue(label: "com.dualcamera.front-probe", qos: .userInitiated)
     private let frontProbeImageContext = CIContext()
-    private(set) var frontProbeStatus = "Проверка видеопотока передней камеры…"
-    private(set) var frontProbeImage: UIImage?
+    let frontPreviewStore = FrontCameraPreviewStore()
     private var frontProbeFrameCount = 0
     private var lastFrontProbeImageUpdate: UInt64 = 0
     private var lastFrontProbeStatusUpdate: UInt64 = 0
@@ -478,13 +483,13 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             do {
                 try connect(frontDeviceInput, to: frontVideoDataOutput)
                 frontVideoDataOutput.setSampleBufferDelegate(self, queue: frontVideoOutputQueue)
-                updateOnMain { self.frontProbeStatus = "Ожидание кадров с передней камеры…" }
+                updateOnMain { self.frontPreviewStore.status = "Ожидание кадров с передней камеры…" }
             } catch {
                 session.removeOutput(frontVideoDataOutput)
-                updateOnMain { self.frontProbeStatus = "Не удалось подключить диагностику: \(error.localizedDescription)" }
+                updateOnMain { self.frontPreviewStore.status = "Не удалось подключить диагностику: \(error.localizedDescription)" }
             }
         } else {
-            updateOnMain { self.frontProbeStatus = "iPhone не смог добавить диагностический видеовыход." }
+            updateOnMain { self.frontPreviewStore.status = "iPhone не смог добавить диагностический видеовыход." }
         }
 
         // 7а. Микрофон: добавляем вход и подключаем звук к обоим видео-выходам.
@@ -924,7 +929,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
             if let cgImage = frontProbeImageContext.createCGImage(ciImage, from: ciImage.extent) {
                 let image = UIImage(cgImage: cgImage)
-                updateOnMain { self.frontProbeImage = image }
+                updateOnMain { self.frontPreviewStore.image = image }
             }
         }
 
@@ -932,7 +937,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             lastFrontProbeStatusUpdate = now
             let centerLuma = centerLumaValue(of: pixelBuffer).map { "\($0)/255" } ?? "н/д"
             updateOnMain {
-                self.frontProbeStatus = "ФРОНТ · \(width)×\(height)\nКадр \(frameCount) · центр \(centerLuma) · 0x\(String(pixelFormat, radix: 16))"
+                self.frontPreviewStore.status = "ФРОНТ · \(width)×\(height)\nКадр \(frameCount) · центр \(centerLuma) · 0x\(String(pixelFormat, radix: 16))"
             }
         }
     }
