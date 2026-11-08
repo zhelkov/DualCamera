@@ -66,21 +66,45 @@ struct ContentView: View {
             let pipRadius = camera.pipShape.cornerRadius(for: pip)
 
             ZStack(alignment: .topLeading) {
-                CameraPreviewView(previewLayer: mainLayer, isMirrored: !backIsMain)
-                    .frame(width: frames.main.width, height: frames.main.height)
-                    .offset(x: frames.main.minX, y: frames.main.minY)
-                    .gesture(focusTap(in: frames.main.size))
+                if backIsMain {
+                    CameraPreviewView(previewLayer: camera.backPreviewLayer, isMirrored: false)
+                        .frame(width: frames.main.width, height: frames.main.height)
+                        .offset(x: frames.main.minX, y: frames.main.minY)
+                        .gesture(focusTap(in: frames.main.size))
 
-                CameraPreviewView(previewLayer: pipLayer, isMirrored: backIsMain)
-                    .frame(width: frames.secondary.width, height: frames.secondary.height)
-                    .offset(x: frames.secondary.minX, y: frames.secondary.minY)
-                    .clipShape(AnimatableRoundedRectangle(radius: camera.layout == .pip ? pipRadius : 0))
-                    .gesture(pipDrag)
+                    SampleBufferPreviewView(sampleBufferLayer: camera.frontSampleBufferLayer)
+                        .frame(width: frames.secondary.width, height: frames.secondary.height)
+                        .offset(x: frames.secondary.minX, y: frames.secondary.minY)
+                        .clipShape(AnimatableRoundedRectangle(radius: camera.layout == .pip ? pipRadius : 0))
+                        .overlay(alignment: .topLeading) { probeStatusLabel }
+                        .gesture(pipDrag)
+                } else {
+                    SampleBufferPreviewView(sampleBufferLayer: camera.frontSampleBufferLayer)
+                        .frame(width: frames.main.width, height: frames.main.height)
+                        .offset(x: frames.main.minX, y: frames.main.minY)
+                        .overlay(alignment: .topLeading) { probeStatusLabel }
+                        .gesture(focusTap(in: frames.main.size))
+
+                    CameraPreviewView(previewLayer: camera.backPreviewLayer, isMirrored: false)
+                        .frame(width: frames.secondary.width, height: frames.secondary.height)
+                        .offset(x: frames.secondary.minX, y: frames.secondary.minY)
+                        .clipShape(AnimatableRoundedRectangle(radius: camera.layout == .pip ? pipRadius : 0))
+                        .gesture(pipDrag)
+                }
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.layout)
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.isCamerasSwapped)
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.pipShape)
         }
+    }
+
+    private var probeStatusLabel: some View {
+        Text(camera.frontProbeStatus)
+            .font(.caption2.monospaced())
+            .foregroundStyle(.white)
+            .padding(6)
+            .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 6))
+            .padding(6)
     }
 
     /// Перетаскивание окна PiP (работает только в раскладке «картинка в картинке»).

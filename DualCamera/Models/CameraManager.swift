@@ -11,7 +11,7 @@ import Observation
 /// - Соединения создаются вручную через `AVCaptureConnection`,
 ///   а не автоматически сессией.
 @Observable
-final class CameraManager {
+final class CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
 
     // MARK: - Состояние для UI (обновляется на главном потоке)
 
@@ -78,6 +78,9 @@ final class CameraManager {
     private let frontPhotoOutput = AVCapturePhotoOutput()
     private let backMovieOutput = AVCaptureMovieFileOutput()
     private let frontMovieOutput = AVCaptureMovieFileOutput()
+    private let frontVideoDataOutput = AVCaptureVideoDataOutput()
+    private let frontVideoOutputQueue = DispatchQueue(label: "com.dualcamera.front-probe", qos: .userInitiated)
+    private(set) var frontProbeStatus = "Проверка видеопотока передней камеры…"
 
     // MARK: - Ротация
 
@@ -96,6 +99,7 @@ final class CameraManager {
     let backPreviewLayer: AVCaptureVideoPreviewLayer
     /// Превью передней камеры.
     let frontPreviewLayer: AVCaptureVideoPreviewLayer
+    let frontSampleBufferLayer = AVSampleBufferDisplayLayer()
 
     // MARK: - Удержание делегатов фотосъёмки
 
@@ -127,6 +131,7 @@ final class CameraManager {
         frontPreviewLayer = AVCaptureVideoPreviewLayer(sessionWithNoConnection: session)
         backPreviewLayer.videoGravity = .resizeAspectFill
         frontPreviewLayer.videoGravity = .resizeAspectFill
+        frontSampleBufferLayer.videoGravity = .resizeAspectFill
     }
 
     // MARK: - Публичное API
@@ -457,6 +462,25 @@ final class CameraManager {
         try connect(backDeviceInput, to: backMovieOutput, mirrored: false)
         try connect(frontDeviceInput, to: frontMovieOutput, mirrored: true)
 
+        // Диагностический путь в обход AVCaptureVideoPreviewLayer.
+        frontVideoDataOutput.alwaysDiscardsLateVideoFrames = true
+        frontVideoDataOutput.videoSettings = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        ]
+        if session.canAddOutput(frontVideoDataOutput) {
+            session.addOutputWithNoConnections(frontVideoDataOutput)
+            do {
+                try connect(frontDeviceInput, to: frontVideoDataOutput)
+                frontVideoDataOutput.setSampleBufferDelegate(self, queue: frontVideoOutputQueue)
+                updateOnMain { self.frontProbeStatus = "Ожидание кадров с передней камеры…" }
+            } catch {
+                session.removeOutput(frontVideoDataOutput)
+                updateOnMain { self.frontProbeStatus = "Не удалось подключить диагностику: \(error.localizedDescription)" }
+            }
+        } else {
+            updateOnMain { self.frontProbeStatus = "iPhone не смог добавить диагностический видеовыход." }
+        }
+
         // 7а. Микрофон: добавляем вход и подключаем звук к обоим видео-выходам.
         try addAudioInput()
     }
@@ -654,6 +678,20 @@ final class CameraManager {
             throw CameraError.connectionFailed
         }
         let connection = AVCaptureConnection(inputPort: port, videoPreviewLayer: layer)
+        guard session.canAddConnection(connection) else {
+            throw CameraError.connectionFailed
+        }
+        session.addConnection(connection)
+    }
+
+    private func connect(_ input: AVCaptureDeviceInput,
+                         to output: AVCaptureVideoDataOutput) throws {
+        guard let port = input.ports(for: .video,
+                                     sourceDeviceType: input.device.deviceType,
+                                     sourceDevicePosition: input.device.position).first else {
+            throw CameraError.connectionFailed
+        }
+        let connection = AVCaptureConnection(inputPorts: [port], output: output)
         guard session.canAddConnection(connection) else {
             throw CameraError.connectionFailed
         }
@@ -858,5 +896,50 @@ final class CameraManager {
 
     private func setError(_ error: CameraError) {
         updateOnMain { self.errorMessage = error.errorDescription }
+    }
+
+    func captureOutput(_ output: AVCaptureOutput,
+                       didOutput sampleBuffer: CMSampleBuffer,
+                       from connection: AVCaptureConnection) {
+        guard output === frontVideoDataOutput else { return }
+
+        if frontSampleBufferLayer.status == .failed {
+            frontSampleBufferLayer.flush()
+        }
+        frontSampleBufferLayer.enqueue(sampleBuffer)
+
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+        let pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
+        let centerLuma = centerLumaValue(of: pixelBuffer).map { "\($0)/255" } ?? "н/д"
+        updateOnMain {
+            if self.frontProbeStatus.hasPrefix("Ожидание кадров") {
+                self.frontProbeStatus = "Сырые кадры: \(width)×\(height) · яркость центра \(centerLuma) · формат 0x\(String(pixelFormat, radix: 16))"
+            }
+        }
+    }
+
+    private func centerLumaValue(of pixelBuffer: CVPixelBuffer) -> UInt8? {
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+
+        let x = CVPixelBufferGetWidth(pixelBuffer) / 2
+        let y = CVPixelBufferGetHeight(pixelBuffer) / 2
+        if CVPixelBufferGetPlaneCount(pixelBuffer) > 0,
+           let base = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0) {
+            let rowBytes = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0)
+            return base.load(fromByteOffset: y * rowBytes + x, as: UInt8.self)
+        }
+        if CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA,
+           let base = CVPixelBufferGetBaseAddress(pixelBuffer) {
+            let rowBytes = CVPixelBufferGetBytesPerRow(pixelBuffer)
+            let offset = y * rowBytes + x * 4
+            let blue = Double(base.load(fromByteOffset: offset, as: UInt8.self))
+            let green = Double(base.load(fromByteOffset: offset + 1, as: UInt8.self))
+            let red = Double(base.load(fromByteOffset: offset + 2, as: UInt8.self))
+            return UInt8(min(255, max(0, (0.299 * red + 0.587 * green + 0.114 * blue).rounded())))
+        }
+        return nil
     }
 }

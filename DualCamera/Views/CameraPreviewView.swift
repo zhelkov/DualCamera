@@ -52,3 +52,35 @@ final class PreviewContainerView: UIView {
         previewLayer.frame = bounds
     }
 }
+
+/// Показывает необработанные кадры из AVCaptureVideoDataOutput для диагностики.
+struct SampleBufferPreviewView: UIViewRepresentable {
+    let sampleBufferLayer: AVSampleBufferDisplayLayer
+
+    func makeUIView(context: Context) -> SampleBufferContainerView {
+        SampleBufferContainerView(sampleBufferLayer: sampleBufferLayer)
+    }
+
+    func updateUIView(_ uiView: SampleBufferContainerView, context: Context) {}
+}
+
+final class SampleBufferContainerView: UIView {
+    private let sampleBufferLayer: AVSampleBufferDisplayLayer
+
+    init(sampleBufferLayer: AVSampleBufferDisplayLayer) {
+        self.sampleBufferLayer = sampleBufferLayer
+        super.init(frame: .zero)
+        backgroundColor = .black
+        layer.addSublayer(sampleBufferLayer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        sampleBufferLayer.frame = bounds
+    }
+}
