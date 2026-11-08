@@ -55,19 +55,26 @@ final class PreviewContainerView: UIView {
 
 /// Показывает кадры передней камеры как обычные изображения SwiftUI.
 struct FrontCameraImageView: View {
-    let image: UIImage?
+    let camera: CameraManager
 
     var body: some View {
         GeometryReader { geometry in
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-                    .clipped()
-                    .scaleEffect(x: -1, y: 1)
-            } else {
+            ZStack(alignment: .topLeading) {
                 Color.black
+                if let image = camera.frontProbeImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .scaleEffect(x: -1, y: 1)
+                }
+                Text(camera.frontProbeStatus)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.white)
+                    .padding(6)
+                    .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 6))
+                    .padding(6)
             }
         }
         .clipped()

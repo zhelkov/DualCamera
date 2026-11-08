@@ -919,7 +919,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         let pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
         let frameCount = frontProbeFrameCount
 
-        if frameCount == 1 || now - lastFrontProbeImageUpdate >= 200_000_000 {
+        if frameCount == 1 || now - lastFrontProbeImageUpdate >= 66_666_667 {
             lastFrontProbeImageUpdate = now
             let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
             if let cgImage = frontProbeImageContext.createCGImage(ciImage, from: ciImage.extent) {
