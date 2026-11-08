@@ -490,15 +490,11 @@ final class CameraManager {
             updateOnMain { self.errorMessage = "Превью не подключилось: \(error)" }
             return
         }
-        // Через 2 секунды проверяем состояние превью-слоёв.
+        // Через 2 секунды проверяем, получает ли превью видео.
         sessionQueue.asyncAfter(deadline: .now() + 2) { [weak self] in
             guard let self else { return }
-            let backActive = self.backPreviewLayer.connection?.isActive ?? false
-            let frontActive = self.frontPreviewLayer.connection?.isActive ?? false
-            let backPreviewing = self.backPreviewLayer.isPreviewing
-            let frontPreviewing = self.frontPreviewLayer.isPreviewing
-            self.updateOnMain {
-                self.errorMessage = "back active=\(backActive) prev=\(backPreviewing); front active=\(frontActive) prev=\(frontPreviewing)"
+            if !self.frontPreviewLayer.isPreviewing {
+                self.updateOnMain { self.errorMessage = "Превью передней камеры не получает видео." }
             }
         }
     }
@@ -537,7 +533,9 @@ final class CameraManager {
             (backPhotoConnection, backCapture),
             (frontPhotoConnection, frontCapture),
             (backMovieConnection, backCapture),
-            (frontMovieConnection, frontCapture)
+            (frontMovieConnection, frontCapture),
+            (backPreviewLayer.connection, previewAngle),
+            (frontPreviewLayer.connection, previewAngle)
         ]
         for (connection, angle) in pairs {
             if let connection, connection.isVideoRotationAngleSupported(angle) {
