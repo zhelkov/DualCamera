@@ -420,9 +420,9 @@ final class CameraManager {
         backCamera = back
         frontCamera = front
 
-        // 2. Подбираем форматы, поддерживающие совместную работу (1080p@30 в приоритете).
-        try configureFormat(for: back)
-        try configureFormat(for: front)
+        // 2. Подбираем форматы: задняя 1080p, передняя 720p (для стабильного превью).
+        try configureFormat(for: back, target: CGSize(width: 1920, height: 1080))
+        try configureFormat(for: front, target: CGSize(width: 1280, height: 720))
 
         // 3. Добавляем входы БЕЗ автоматических соединений.
         let backDeviceInput = try AVCaptureDeviceInput(device: back)
@@ -562,8 +562,8 @@ final class CameraManager {
         return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
     }
 
-    private func configureFormat(for device: AVCaptureDevice) throws {
-        guard let format = bestMultiCamFormat(for: device) else {
+    private func configureFormat(for device: AVCaptureDevice, target: CGSize) throws {
+        guard let format = bestMultiCamFormat(for: device, target: target) else {
             throw CameraError.noCompatibleFormat
         }
         try device.lockForConfiguration()
@@ -580,8 +580,7 @@ final class CameraManager {
 
     /// Подбирает формат: поддержка MultiCam обязательна,
     /// 1080p@30fps — в приоритете.
-    private func bestMultiCamFormat(for device: AVCaptureDevice) -> AVCaptureDevice.Format? {
-        let target = CGSize(width: 1920, height: 1080)
+    private func bestMultiCamFormat(for device: AVCaptureDevice, target: CGSize) -> AVCaptureDevice.Format? {
         var bestFormat: AVCaptureDevice.Format?
         var bestScore = CGFloat.greatestFiniteMagnitude
 
