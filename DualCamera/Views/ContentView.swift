@@ -73,7 +73,7 @@ struct ContentView: View {
                     FrontCameraImageView(store: camera.frontPreviewStore)
                         .frame(width: frames.secondary.width, height: frames.secondary.height)
                         .offset(x: frames.secondary.minX, y: frames.secondary.minY)
-                        .clipShape(AnimatableRoundedRectangle(radius: camera.layout == .pip ? pipRadius : 0))
+                        .modifier(SecondaryPreviewClip(layout: camera.layout, radius: pipRadius))
                         .gesture(pipDrag)
                 } else {
                     FrontCameraImageView(store: camera.frontPreviewStore)
@@ -84,7 +84,7 @@ struct ContentView: View {
                     CameraPreviewView(previewLayer: camera.backPreviewLayer, isMirrored: false)
                         .frame(width: frames.secondary.width, height: frames.secondary.height)
                         .offset(x: frames.secondary.minX, y: frames.secondary.minY)
-                        .clipShape(AnimatableRoundedRectangle(radius: camera.layout == .pip ? pipRadius : 0))
+                        .modifier(SecondaryPreviewClip(layout: camera.layout, radius: pipRadius))
                         .gesture(pipDrag)
                 }
             }
@@ -459,6 +459,20 @@ struct ContentView: View {
             get: { camera.lastMergedVideoURL != nil },
             set: { if !$0 { camera.clearMergedVideo() } }
         )
+    }
+}
+
+private struct SecondaryPreviewClip: ViewModifier {
+    let layout: CaptureLayout
+    let radius: CGFloat
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if layout == .pip && radius > 0 {
+            content.clipShape(AnimatableRoundedRectangle(radius: radius))
+        } else {
+            content
+        }
     }
 }
 
