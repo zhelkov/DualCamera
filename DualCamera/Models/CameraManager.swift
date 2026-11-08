@@ -596,7 +596,6 @@ final class CameraManager {
             throw CameraError.connectionFailed
         }
         session.addConnection(connection)
-        applyVideoConfig(to: connection, mirrored: mirrored)
         if mirrored { frontPhotoConnection = connection } else { backPhotoConnection = connection }
     }
 
@@ -611,7 +610,6 @@ final class CameraManager {
             throw CameraError.connectionFailed
         }
         session.addConnection(connection)
-        applyVideoConfig(to: connection, mirrored: mirrored)
         if mirrored { frontMovieConnection = connection } else { backMovieConnection = connection }
     }
 
@@ -636,15 +634,6 @@ final class CameraManager {
             throw CameraError.connectionFailed
         }
         session.addConnection(connection)
-        applyVideoConfig(to: connection, mirrored: mirrored)
-    }
-
-    /// Общие настройки видео-соединения: зеркалирование.
-    /// Ориентацией управляет `AVCaptureDevice.RotationCoordinator`.
-    private func applyVideoConfig(to connection: AVCaptureConnection, mirrored: Bool) {
-        if connection.isVideoMirroringSupported {
-            connection.isVideoMirrored = mirrored
-        }
     }
 
     // MARK: - Съёмка и склейка
