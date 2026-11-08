@@ -127,6 +127,11 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var recordingDrawingKeyframes: [DrawingElementsKeyframe] = []
     private var recordingBackImage: UIImage?
     private var recordingFrontImage: UIImage?
+    private var recordingImportedVideoURL: URL?
+    private var recordingLayout: CaptureLayout = .splitScreen
+    private var recordingShape: PipShape = .rectangle
+    private var recordingSplitOrientation: SplitOrientation = .vertical
+    private var recordingCamerasSwapped = false
     private var expectedRecordingCount = 0
     private var receivedRecordingCallbacks = 0
     private var recordedURLs: [MovieCaptureDelegate.Camera: URL] = [:]
@@ -380,6 +385,12 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                         pipOffsetFraction: CGSize = .zero,
                         pipWidthFraction: CGFloat = 0.3) {
         guard isConfigured, !isRecording else { return }
+        let importedPhotoAtStart = importedPhoto
+        let swappedAtStart = isCamerasSwapped
+        let importedVideoAtStart = importedVideoURL
+        let layoutAtStart = layout
+        let shapeAtStart = pipShape
+        let splitOrientationAtStart = splitOrientation
         updateOnMain {
             self.isRecording = true
             self.recordingDuration = 0
@@ -393,8 +404,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
             self.recordingElements = elements
             self.recordingPipOffsetFraction = pipOffsetFraction
-            self.recordingBackImage = self.isCamerasSwapped ? self.importedPhoto : nil
-            self.recordingFrontImage = self.isCamerasSwapped ? nil : self.importedPhoto
+            self.recordingBackImage = swappedAtStart ? importedPhotoAtStart : nil
+            self.recordingFrontImage = swappedAtStart ? nil : importedPhotoAtStart
 
             self.recordingLock.lock()
             self.recordedURLs.removeAll()
@@ -417,6 +428,12 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 self?.handleMovieFinished(camera: camera, url: url, error: error)
             }
             self.recordingDelegates = [backDelegate, frontDelegate]
+
+            self.recordingLayout = layoutAtStart
+            self.recordingShape = shapeAtStart
+            self.recordingSplitOrientation = splitOrientationAtStart
+            self.recordingCamerasSwapped = swappedAtStart
+            self.recordingImportedVideoURL = importedVideoAtStart
 
             self.backMovieOutput.startRecording(to: backURL, recordingDelegate: backDelegate)
             self.frontMovieOutput.startRecording(to: frontURL, recordingDelegate: frontDelegate)
@@ -900,15 +917,15 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             guard let self else { return }
             do {
                 // Второй слой: импортированное видео или запись передней камеры.
-                let frontSource = self.importedVideoURL ?? frontURL
-                let primaryURL = self.isCamerasSwapped ? frontSource : backURL
-                let secondaryURL = self.isCamerasSwapped ? backURL : frontSource
+                let frontSource = self.recordingImportedVideoURL ?? frontURL
+                let primaryURL = self.recordingCamerasSwapped ? frontSource : backURL
+                let secondaryURL = self.recordingCamerasSwapped ? backURL : frontSource
                 let merged = try await VideoMerger.merge(
                     back: primaryURL,
                     front: secondaryURL,
-                    layout: self.layout,
-                    shape: self.pipShape,
-                    splitOrientation: self.splitOrientation,
+                    layout: self.recordingLayout,
+                    shape: self.recordingShape,
+                    splitOrientation: self.recordingSplitOrientation,
                     pipOffsetFraction: self.recordingPipOffsetFraction,
                     pipWidthFraction: self.recordingPipWidthFraction,
                     pipPositionKeyframes: pipKeyframes,
@@ -950,6 +967,11 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingPipWidthFraction = 0.3
         recordingBackImage = nil
         recordingFrontImage = nil
+        recordingImportedVideoURL = nil
+        recordingLayout = .splitScreen
+        recordingShape = .rectangle
+        recordingSplitOrientation = .vertical
+        recordingCamerasSwapped = false
     }
 
     // MARK: - Таймер записи (главный поток)
