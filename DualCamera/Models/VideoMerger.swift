@@ -59,16 +59,23 @@ enum VideoMerger {
                                  backTrack: backCompTrack,
                                  frontTrack: frontCompTrack)
             ]
-            // Рисунок накладываем отдельным Core Animation слоем.
-            if let drawingImage {
-                videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
-                    additionalLayer: drawingOverlayLayer(image: drawingImage, canvas: canvas),
-                    asTrackID: kCMPersistentTrackID_Invalid
-                )
-            }
         case .pip:
-            // PiP через Core Animation — так работают скругления и круг.
-            videoComposition.animationTool = pipAnimationTool(canvas: canvas, shape: shape, drawingImage: drawingImage)
+            videoComposition.instructions = [
+                pipInstruction(timeRange: timeRange,
+                               canvas: canvas,
+                               shape: shape,
+                               backClip: backClip,
+                               frontClip: frontClip,
+                               backTrack: backCompTrack,
+                               frontTrack: frontCompTrack)
+            ]
+        }
+
+        if let drawingImage {
+            videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
+                additionalLayer: drawingOverlayLayer(image: drawingImage, canvas: canvas),
+                asTrackID: kCMPersistentTrackID_Invalid
+            )
         }
 
         let outputURL = Self.mergedMovieURL()
@@ -109,28 +116,28 @@ enum VideoMerger {
         let instruction = AVMutableVideoCompositionInstruction()
         instruction.timeRange = timeRange
 
+        let backPlacement = makePlacement(for: backClip, targetRect: backRect)
         let backLayer = AVMutableVideoCompositionLayerInstruction(assetTrack: backTrack)
-        backLayer.setTransform(makeTransform(for: backClip, targetRect: backRect), at: .zero)
+        backLayer.setCropRectangle(backPlacement.cropRect, at: .zero)
+        backLayer.setTransform(backPlacement.transform, at: .zero)
 
+        let frontPlacement = makePlacement(for: frontClip, targetRect: frontRect)
         let frontLayer = AVMutableVideoCompositionLayerInstruction(assetTrack: frontTrack)
-        frontLayer.setTransform(makeTransform(for: frontClip, targetRect: frontRect), at: .zero)
+        frontLayer.setCropRectangle(frontPlacement.cropRect, at: .zero)
+        frontLayer.setTransform(frontPlacement.transform, at: .zero)
 
-        instruction.layerInstructions = [backLayer, frontLayer]
+        instruction.layerInstructions = [frontLayer, backLayer]
         return instruction
     }
 
-    /// PiP: основная камера на весь кадр, вторая — в окне заданной формы.
-    /// Собирается через Core Animation, чтобы работали скругления и круг.
-    private static func pipAnimationTool(canvas: CGSize, shape: PipShape, drawingImage: UIImage?) -> AVVideoCompositionCoreAnimationTool {
-        let parentLayer = CALayer()
-        parentLayer.frame = CGRect(origin: .zero, size: canvas)
-        // Видео рисуется сверху вниз, поэтому переворачиваем геометрию слоя.
-        parentLayer.isGeometryFlipped = true
-
-        let backLayer = CALayer()
-        backLayer.frame = CGRect(origin: .zero, size: canvas)
-        backLayer.contentsGravity = .resizeAspectFill
-
+    /// PiP: основная камера заполняет кадр, вторая камера занимает маленькое окно.
+    private static func pipInstruction(timeRange: CMTimeRange,
+                                       canvas: CGSize,
+                                       shape: PipShape,
+                                       backClip: ClipInfo,
+                                       frontClip: ClipInfo,
+                                       backTrack: AVMutableCompositionTrack,
+                                       frontTrack: AVMutableCompositionTrack) -> AVMutableVideoCompositionInstruction {
         let pipWidth = canvas.width * 0.25
         let pipHeight = pipWidth * shape.aspectRatio
         let pipRect = CGRect(x: canvas.width - pipWidth - 16,
@@ -138,24 +145,22 @@ enum VideoMerger {
                              width: pipWidth,
                              height: pipHeight)
 
-        let frontLayer = CALayer()
-        frontLayer.frame = pipRect
-        frontLayer.contentsGravity = .resizeAspectFill
-        frontLayer.masksToBounds = true
-        switch shape {
-        case .rectangle: frontLayer.cornerRadius = 16
-        case .square: frontLayer.cornerRadius = 12
-        case .circle: frontLayer.cornerRadius = pipWidth / 2
-        }
+        let instruction = AVMutableVideoCompositionInstruction()
+        instruction.timeRange = timeRange
 
-        parentLayer.addSublayer(backLayer)
-        parentLayer.addSublayer(frontLayer)
+        let backPlacement = makePlacement(for: backClip,
+                                          targetRect: CGRect(origin: .zero, size: canvas))
+        let backLayer = AVMutableVideoCompositionLayerInstruction(assetTrack: backTrack)
+        backLayer.setCropRectangle(backPlacement.cropRect, at: .zero)
+        backLayer.setTransform(backPlacement.transform, at: .zero)
 
-        if let drawingImage {
-            parentLayer.addSublayer(drawingOverlayLayer(image: drawingImage, canvas: canvas))
-        }
+        let frontPlacement = makePlacement(for: frontClip, targetRect: pipRect)
+        let frontLayer = AVMutableVideoCompositionLayerInstruction(assetTrack: frontTrack)
+        frontLayer.setCropRectangle(frontPlacement.cropRect, at: .zero)
+        frontLayer.setTransform(frontPlacement.transform, at: .zero)
 
-        return AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayers: [backLayer, frontLayer], in: parentLayer)
+        instruction.layerInstructions = [frontLayer, backLayer]
+        return instruction
     }
 
     /// Слой рисунка, растянутый на весь кадр.
@@ -170,9 +175,33 @@ enum VideoMerger {
 
     /// Считает трансформацию, которая ставит клип вертикально
     /// и вписывает его в целевой прямоугольник (по центру, без обрезки).
-    private static func makeTransform(for clip: ClipInfo, targetRect: CGRect) -> CGAffineTransform {
+    private static func makePlacement(for clip: ClipInfo, targetRect: CGRect) -> Placement {
         // 1. Применяем preferredTransform — приводит кадр в вертикальную ориентацию.
-        var transform = clip.preferredTransform
+        let targetAspect = targetRect.width / targetRect.height
+        let sourceAspect = clip.displaySize.width / clip.displaySize.height
+        let displayCrop: CGRect
+        if sourceAspect > targetAspect {
+            let width = clip.displaySize.height * targetAspect
+            displayCrop = CGRect(x: (clip.displaySize.width - width) / 2, y: 0,
+                                 width: width, height: clip.displaySize.height)
+        } else {
+            let height = clip.displaySize.width / targetAspect
+            displayCrop = CGRect(x: 0, y: (clip.displaySize.height - height) / 2,
+                                 width: clip.displaySize.width, height: height)
+        }
+        let sourceCrop = displayCrop.applying(clip.preferredTransform.inverted()).standardized
+        let scale = targetRect.width / displayCrop.width
+        let transform = CGAffineTransform(
+            a: clip.preferredTransform.a * scale,
+            b: clip.preferredTransform.b * scale,
+            c: clip.preferredTransform.c * scale,
+            d: clip.preferredTransform.d * scale,
+            tx: (clip.preferredTransform.tx - displayCrop.minX) * scale + targetRect.minX,
+            ty: (clip.preferredTransform.ty - displayCrop.minY) * scale + targetRect.minY
+        )
+        return Placement(cropRect: sourceCrop, transform: transform)
+
+        /*
 
         // 2. Масштаб: вписываем весь кадр в целевой прямоугольник.
         let scaleX = targetRect.width / clip.displaySize.width
@@ -187,7 +216,13 @@ enum VideoMerger {
         let dy = targetRect.midY - scaledHeight / 2
         transform = transform.translatedBy(x: dx, y: dy)
 
-        return transform
+        return Placement(cropRect: .zero, transform: transform)
+        */
+    }
+
+    private struct Placement {
+        let cropRect: CGRect
+        let transform: CGAffineTransform
     }
 
     private static func runExport(_ exporter: AVAssetExportSession) async throws {
@@ -233,11 +268,10 @@ enum VideoMerger {
             self.duration = duration
 
             // При повороте на 90/270° меняем ширину и высоту местами.
-            if abs(transform.b) > 0.5 || abs(transform.c) > 0.5 {
-                self.displaySize = CGSize(width: naturalSize.height, height: naturalSize.width)
-            } else {
-                self.displaySize = naturalSize
-            }
+            self.displaySize = CGRect(origin: .zero, size: naturalSize)
+                .applying(transform)
+                .standardized
+                .size
         }
     }
 }
