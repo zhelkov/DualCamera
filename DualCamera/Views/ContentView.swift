@@ -70,14 +70,14 @@ struct ContentView: View {
                         .offset(x: frames.main.minX, y: frames.main.minY)
                         .gesture(focusTap(in: frames.main.size))
 
-                    SampleBufferPreviewView(sampleBufferLayer: camera.frontSampleBufferLayer)
+                    FrontCameraImageView(image: camera.frontProbeImage)
                         .frame(width: frames.secondary.width, height: frames.secondary.height)
                         .offset(x: frames.secondary.minX, y: frames.secondary.minY)
                         .clipShape(AnimatableRoundedRectangle(radius: camera.layout == .pip ? pipRadius : 0))
                         .overlay(alignment: .topLeading) { probeStatusLabel }
                         .gesture(pipDrag)
                 } else {
-                    SampleBufferPreviewView(sampleBufferLayer: camera.frontSampleBufferLayer)
+                    FrontCameraImageView(image: camera.frontProbeImage)
                         .frame(width: frames.main.width, height: frames.main.height)
                         .offset(x: frames.main.minX, y: frames.main.minY)
                         .overlay(alignment: .topLeading) { probeStatusLabel }

@@ -1,5 +1,6 @@
 import AVFoundation
 import UIKit
+import CoreImage
 import Observation
 
 /// Менеджер камеры. Отвечает за одновременную съёмку с двух камер
@@ -80,8 +81,11 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private let frontMovieOutput = AVCaptureMovieFileOutput()
     private let frontVideoDataOutput = AVCaptureVideoDataOutput()
     private let frontVideoOutputQueue = DispatchQueue(label: "com.dualcamera.front-probe", qos: .userInitiated)
+    private let frontProbeImageContext = CIContext()
     private(set) var frontProbeStatus = "Проверка видеопотока передней камеры…"
+    private(set) var frontProbeImage: UIImage?
     private var frontProbeFrameCount = 0
+    private var lastFrontProbeImageUpdate: UInt64 = 0
     private var lastFrontProbeStatusUpdate: UInt64 = 0
 
     // MARK: - Ротация
@@ -93,6 +97,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var frontPhotoConnection: AVCaptureConnection?
     private var backMovieConnection: AVCaptureConnection?
     private var frontMovieConnection: AVCaptureConnection?
+    private var frontVideoDataConnection: AVCaptureConnection?
 
     // MARK: - Превью-слои
 
@@ -101,7 +106,6 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     let backPreviewLayer: AVCaptureVideoPreviewLayer
     /// Превью передней камеры.
     let frontPreviewLayer: AVCaptureVideoPreviewLayer
-    let frontSampleBufferLayer = AVSampleBufferDisplayLayer()
 
     // MARK: - Удержание делегатов фотосъёмки
 
@@ -134,7 +138,6 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         super.init()
         backPreviewLayer.videoGravity = .resizeAspectFill
         frontPreviewLayer.videoGravity = .resizeAspectFill
-        frontSampleBufferLayer.videoGravity = .resizeAspectFill
     }
 
     // MARK: - Публичное API
@@ -561,6 +564,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             (frontPhotoConnection, frontCapture),
             (backMovieConnection, backCapture),
             (frontMovieConnection, frontCapture),
+            (frontVideoDataConnection, frontCapture),
             (backPreviewLayer.connection, previewAngle),
             (frontPreviewLayer.connection, previewAngle)
         ]
@@ -699,6 +703,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             throw CameraError.connectionFailed
         }
         session.addConnection(connection)
+        frontVideoDataConnection = connection
     }
 
     // MARK: - Съёмка и склейка
@@ -906,24 +911,29 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                        from connection: AVCaptureConnection) {
         guard output === frontVideoDataOutput else { return }
 
-        if frontSampleBufferLayer.status == .failed {
-            frontSampleBufferLayer.flush()
-        }
-        frontSampleBufferLayer.enqueue(sampleBuffer)
-
         frontProbeFrameCount += 1
         let now = DispatchTime.now().uptimeNanoseconds
-        guard frontProbeFrameCount == 1 || now - lastFrontProbeStatusUpdate >= 500_000_000 else { return }
-        lastFrontProbeStatusUpdate = now
-
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
         let pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
-        let centerLuma = centerLumaValue(of: pixelBuffer).map { "\($0)/255" } ?? "н/д"
         let frameCount = frontProbeFrameCount
-        updateOnMain {
-            self.frontProbeStatus = "ФРОНТ · \(width)×\(height)\nКадр \(frameCount) · центр \(centerLuma) · 0x\(String(pixelFormat, radix: 16))"
+
+        if frameCount == 1 || now - lastFrontProbeImageUpdate >= 200_000_000 {
+            lastFrontProbeImageUpdate = now
+            let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+            if let cgImage = frontProbeImageContext.createCGImage(ciImage, from: ciImage.extent) {
+                let image = UIImage(cgImage: cgImage)
+                updateOnMain { self.frontProbeImage = image }
+            }
+        }
+
+        if frameCount == 1 || now - lastFrontProbeStatusUpdate >= 500_000_000 {
+            lastFrontProbeStatusUpdate = now
+            let centerLuma = centerLumaValue(of: pixelBuffer).map { "\($0)/255" } ?? "н/д"
+            updateOnMain {
+                self.frontProbeStatus = "ФРОНТ · \(width)×\(height)\nКадр \(frameCount) · центр \(centerLuma) · 0x\(String(pixelFormat, radix: 16))"
+            }
         }
     }
 

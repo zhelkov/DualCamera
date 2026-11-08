@@ -53,34 +53,23 @@ final class PreviewContainerView: UIView {
     }
 }
 
-/// Показывает необработанные кадры из AVCaptureVideoDataOutput для диагностики.
-struct SampleBufferPreviewView: UIViewRepresentable {
-    let sampleBufferLayer: AVSampleBufferDisplayLayer
+/// Показывает кадры передней камеры как обычные изображения SwiftUI.
+struct FrontCameraImageView: View {
+    let image: UIImage?
 
-    func makeUIView(context: Context) -> SampleBufferContainerView {
-        SampleBufferContainerView(sampleBufferLayer: sampleBufferLayer)
-    }
-
-    func updateUIView(_ uiView: SampleBufferContainerView, context: Context) {}
-}
-
-final class SampleBufferContainerView: UIView {
-    private let sampleBufferLayer: AVSampleBufferDisplayLayer
-
-    init(sampleBufferLayer: AVSampleBufferDisplayLayer) {
-        self.sampleBufferLayer = sampleBufferLayer
-        super.init(frame: .zero)
-        backgroundColor = .black
-        layer.addSublayer(sampleBufferLayer)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        sampleBufferLayer.frame = bounds
+    var body: some View {
+        GeometryReader { geometry in
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .clipped()
+                    .scaleEffect(x: -1, y: 1)
+            } else {
+                Color.black
+            }
+        }
+        .clipped()
     }
 }
