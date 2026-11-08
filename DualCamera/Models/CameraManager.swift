@@ -415,10 +415,13 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     }
 
     /// Останавливает запись и склеивает оба клипа в один файл.
-    func stopRecording() {
+    func stopRecording(elements: [DrawingElement]? = nil) {
         guard isRecording else { return }
         sessionQueue.async { [weak self] in
             guard let self else { return }
+            if let elements {
+                self.recordingElements = elements
+            }
             if self.backMovieOutput.isRecording { self.backMovieOutput.stopRecording() }
             if self.frontMovieOutput.isRecording { self.frontMovieOutput.stopRecording() }
         }

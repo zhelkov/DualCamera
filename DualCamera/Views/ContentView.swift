@@ -283,7 +283,7 @@ struct ContentView: View {
                         .font(.system(.headline, design: .monospaced))
                         .foregroundStyle(.white)
                     Button {
-                        camera.stopRecording()
+                        camera.stopRecording(elements: drawing.elements)
                     } label: {
                         ZStack {
                             Circle().stroke(.white, lineWidth: 4).frame(width: 72, height: 72)
