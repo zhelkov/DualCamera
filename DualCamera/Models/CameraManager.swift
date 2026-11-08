@@ -433,6 +433,11 @@ final class CameraManager {
         backInput = backDeviceInput
         frontInput = frontDeviceInput
 
+        // 3а. Превью-соединения добавляем первыми, чтобы обе камеры гарантированно
+        // получали видеопоток для отображения на экране.
+        try connect(backDeviceInput, to: backPreviewLayer, mirrored: false)
+        try connect(frontDeviceInput, to: frontPreviewLayer, mirrored: true)
+
         // 4. Добавляем фото-выходы БЕЗ автоматических соединений.
         guard session.canAddOutput(backPhotoOutput), session.canAddOutput(frontPhotoOutput) else {
             throw CameraError.outputFailed
@@ -457,10 +462,6 @@ final class CameraManager {
 
         // 7а. Микрофон: добавляем вход и подключаем звук к обоим видео-выходам.
         try addAudioInput()
-
-        // 8. Вручную соединяем входы с превью-слоями.
-        try connect(backDeviceInput, to: backPreviewLayer, mirrored: false)
-        try connect(frontDeviceInput, to: frontPreviewLayer, mirrored: true)
     }
 
     /// Добавляет микрофон и подключает его к обоим видео-выходам.
@@ -637,7 +638,9 @@ final class CameraManager {
     private func connect(_ input: AVCaptureDeviceInput,
                          to layer: AVCaptureVideoPreviewLayer,
                          mirrored: Bool) throws {
-        guard let port = input.ports.first else {
+        guard let port = input.ports(for: .video,
+                                     sourceDeviceType: input.device.deviceType,
+                                     sourceDevicePosition: input.device.position).first else {
             throw CameraError.connectionFailed
         }
         let connection = AVCaptureConnection(inputPort: port, videoPreviewLayer: layer)
