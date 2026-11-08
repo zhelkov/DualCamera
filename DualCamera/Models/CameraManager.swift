@@ -172,8 +172,6 @@ final class CameraManager {
                 self.session.startRunning()
                 // Ротация превью и соединений под устройство.
                 self.configureRotationCoordinators()
-                // Зеркалирование превью передней камеры (иначе она не отображается).
-                self.configurePreviewMirroring()
                 // Характеристики читаем на очереди сессии, применяем на главной.
                 let minZoom = self.backCamera?.minAvailableVideoZoomFactor ?? 1
                 let maxZoom = self.backCamera?.maxAvailableVideoZoomFactor ?? 1
@@ -525,15 +523,6 @@ final class CameraManager {
             if let connection, connection.isVideoRotationAngleSupported(angle) {
                 connection.videoRotationAngle = angle
             }
-        }
-    }
-
-    /// Включает зеркалирование превью передней камеры. Без этого превью
-    /// передней камеры на некоторых версиях iOS показывает пустой экран.
-    private func configurePreviewMirroring() {
-        if let connection = frontPreviewLayer.connection,
-           connection.isVideoMirroringSupported {
-            connection.isVideoMirrored = true
         }
     }
 
