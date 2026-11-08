@@ -172,6 +172,8 @@ final class CameraManager {
                 self.session.startRunning()
                 // Ротация превью и соединений под устройство.
                 self.configureRotationCoordinators()
+                // Подключаем превью-слои после запуска сессии.
+                self.connectPreviewLayers()
                 // Характеристики читаем на очереди сессии, применяем на главной.
                 let minZoom = self.backCamera?.minAvailableVideoZoomFactor ?? 1
                 let maxZoom = self.backCamera?.maxAvailableVideoZoomFactor ?? 1
@@ -433,11 +435,6 @@ final class CameraManager {
         backInput = backDeviceInput
         frontInput = frontDeviceInput
 
-        // 3а. Превью-соединения добавляем первыми, чтобы обе камеры гарантированно
-        // получали видеопоток для отображения на экране.
-        try connect(backDeviceInput, to: backPreviewLayer, mirrored: false)
-        try connect(frontDeviceInput, to: frontPreviewLayer, mirrored: true)
-
         // 4. Добавляем фото-выходы БЕЗ автоматических соединений.
         guard session.canAddOutput(backPhotoOutput), session.canAddOutput(frontPhotoOutput) else {
             throw CameraError.outputFailed
@@ -482,6 +479,15 @@ final class CameraManager {
     }
 
     // MARK: - Ротация
+
+    /// Подключает превью-слои к уже запущенной сессии.
+    /// На новых версиях iOS подключение превью передней камеры до запуска
+    /// сессии может оставлять её превью пустым.
+    private func connectPreviewLayers() {
+        guard let back = backInput, let front = frontInput else { return }
+        try? connect(back, to: backPreviewLayer, mirrored: false)
+        try? connect(front, to: frontPreviewLayer, mirrored: true)
+    }
 
     /// Настраивает ротацию превью и отслеживает поворот устройства.
     private func configureRotationCoordinators() {
