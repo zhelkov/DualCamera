@@ -2,12 +2,15 @@ import SwiftUI
 import AVKit
 import Photos
 
-/// Экран результата записи: показывает объединённое видео и позволяет сохранить его.
+/// Экран результата записи: показывает объединённое видео, которое сохраняется автоматически.
 struct MergedVideoView: View {
     let videoURL: URL
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
     @State private var saveErrorMessage: String?
+    @State private var saveStatus = "Сохраняем видео в Фото…"
+    @State private var isSaving = true
+    @State private var didStartSaving = false
 
     var body: some View {
         NavigationStack {
@@ -23,11 +26,24 @@ struct MergedVideoView: View {
                         .padding()
                 }
 
-                Button("Сохранить в Фото") {
-                    save()
+                HStack(spacing: 8) {
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Image(systemName: saveErrorMessage == nil ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    }
+                    Text(saveStatus)
+                        .font(.subheadline)
                 }
-                .buttonStyle(.borderedProminent)
                 .padding()
+
+                if saveErrorMessage != nil {
+                    Button("Повторить сохранение") {
+                        save()
+                    }
+                    .buttonStyle(.bordered)
+                    .padding(.bottom)
+                }
             }
             .navigationTitle("Видео")
             .navigationBarTitleDisplayMode(.inline)
@@ -38,6 +54,9 @@ struct MergedVideoView: View {
             }
             .onAppear {
                 player = AVPlayer(url: videoURL)
+                guard !didStartSaving else { return }
+                didStartSaving = true
+                save()
             }
             .onDisappear {
                 player?.pause()
@@ -58,10 +77,16 @@ struct MergedVideoView: View {
     }
 
     private func save() {
+        isSaving = true
+        saveErrorMessage = nil
+        saveStatus = "Сохраняем видео в Фото…"
+
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
             guard status == .authorized || status == .limited else {
                 DispatchQueue.main.async {
-                    saveErrorMessage = "Нет доступа к медиатеке. Разрешите доступ в настройках."
+                    isSaving = false
+                    saveStatus = "Нет доступа к Фото"
+                    saveErrorMessage = "Разрешите приложению добавлять видео в медиатеку в настройках iPhone."
                 }
                 return
             }
@@ -70,8 +95,11 @@ struct MergedVideoView: View {
             } completionHandler: { success, error in
                 DispatchQueue.main.async {
                     if success {
-                        dismiss()
+                        isSaving = false
+                        saveStatus = "Видео сохранено в Фото"
                     } else {
+                        isSaving = false
+                        saveStatus = "Не удалось сохранить видео"
                         saveErrorMessage = error?.localizedDescription ?? "Не удалось сохранить видео."
                     }
                 }
