@@ -14,6 +14,7 @@ enum VideoMerger {
                       pipWidthFraction: CGFloat = 0.3,
                       pipPositionKeyframes: [PipPositionKeyframe] = [],
                       drawingKeyframes: [DrawingElementsKeyframe] = [],
+                      pipPhoto: UIImage? = nil,
                       backImage: UIImage? = nil,
                       frontImage: UIImage? = nil,
                       elements: [DrawingElement] = []) async throws -> URL {
@@ -35,8 +36,10 @@ enum VideoMerger {
             : drawingKeyframes
         let normalizedBackImage = Self.normalizedCIImage(backImage)
         let normalizedFrontImage = Self.normalizedCIImage(frontImage)
+        let normalizedPipPhoto = Self.normalizedCIImage(pipPhoto)
         guard (backImage == nil || normalizedBackImage != nil),
-              (frontImage == nil || normalizedFrontImage != nil) else {
+              (frontImage == nil || normalizedFrontImage != nil),
+              (pipPhoto == nil || normalizedPipPhoto != nil) else {
             throw CameraError.videoMergeFailed
         }
 
@@ -87,7 +90,8 @@ enum VideoMerger {
                 backSourceSize: backClip.naturalSize,
                 frontSourceSize: frontClip.naturalSize,
                 backImage: normalizedBackImage,
-                frontImage: normalizedFrontImage
+                frontImage: normalizedFrontImage,
+                pipPhoto: normalizedPipPhoto
             )
         ]
 

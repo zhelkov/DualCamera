@@ -37,6 +37,7 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
     let frontSourceSize: CGSize
     let backImage: CIImage?
     let frontImage: CIImage?
+    let pipPhoto: CIImage?
 
     var requiredSourceTrackIDs: [NSValue]? {
         [NSNumber(value: backTrackID) as NSValue,
@@ -59,7 +60,8 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
          backSourceSize: CGSize,
          frontSourceSize: CGSize,
          backImage: CIImage?,
-         frontImage: CIImage?) {
+         frontImage: CIImage?,
+         pipPhoto: CIImage?) {
         self.timeRange = timeRange
         self.backTrackID = backTrackID
         self.frontTrackID = frontTrackID
@@ -77,6 +79,7 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
         self.frontSourceSize = frontSourceSize
         self.backImage = backImage
         self.frontImage = frontImage
+        self.pipPhoto = pipPhoto
     }
 }
 
@@ -158,7 +161,7 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                 backSource = nil
             }
             let frontSource: CIImage?
-            if let image = instruction.frontImage {
+            if let image = instruction.pipPhoto ?? instruction.frontImage {
                 frontSource = image
             } else if let buffer = request.sourceFrame(byTrackID: instruction.frontTrackID) {
                 frontSource = CIImage(cvPixelBuffer: buffer)

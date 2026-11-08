@@ -125,8 +125,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var recordingPipWidthFraction: CGFloat = 0.3
     private var recordingPipPositionKeyframes: [PipPositionKeyframe] = []
     private var recordingDrawingKeyframes: [DrawingElementsKeyframe] = []
-    private var recordingBackImage: UIImage?
-    private var recordingFrontImage: UIImage?
+    private var recordingPipPhoto: UIImage?
     private var recordingImportedVideoURL: URL?
     private var recordingLayout: CaptureLayout = .splitScreen
     private var recordingShape: PipShape = .rectangle
@@ -404,8 +403,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
             self.recordingElements = elements
             self.recordingPipOffsetFraction = pipOffsetFraction
-            self.recordingBackImage = swappedAtStart ? importedPhotoAtStart : nil
-            self.recordingFrontImage = swappedAtStart ? nil : importedPhotoAtStart
+            self.recordingPipPhoto = importedPhotoAtStart
 
             self.recordingLock.lock()
             self.recordedURLs.removeAll()
@@ -916,8 +914,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         let outputSplitOrientation = recordingSplitOrientation
         let outputOffset = recordingPipOffsetFraction
         let outputWidth = recordingPipWidthFraction
-        let outputBackImage = recordingBackImage
-        let outputFrontImage = recordingFrontImage
+        let outputPipPhoto = recordingPipPhoto
         let outputImportedVideoURL = recordingImportedVideoURL
         let outputCamerasSwapped = recordingCamerasSwapped
         let outputElements = recordingElements
@@ -940,8 +937,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                     pipWidthFraction: outputWidth,
                     pipPositionKeyframes: pipKeyframes,
                     drawingKeyframes: drawingKeyframes,
-                    backImage: outputBackImage,
-                    frontImage: outputFrontImage,
+                    pipPhoto: outputPipPhoto,
                     elements: outputElements
                 )
                 // Удаляем исходные клипы — остаётся только объединённый файл.
@@ -975,8 +971,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingElements = []
         recordingPipOffsetFraction = .zero
         recordingPipWidthFraction = 0.3
-        recordingBackImage = nil
-        recordingFrontImage = nil
+        recordingPipPhoto = nil
         recordingImportedVideoURL = nil
         recordingLayout = .splitScreen
         recordingShape = .rectangle
