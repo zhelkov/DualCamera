@@ -3,6 +3,11 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 import UIKit
 
+struct PipPositionKeyframe {
+    let time: TimeInterval
+    let offsetFraction: CGSize
+}
+
 final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionInstructionProtocol {
     let timeRange: CMTimeRange
     let passthroughTrackID: CMPersistentTrackID = kCMPersistentTrackID_Invalid
@@ -17,12 +22,14 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
     let splitOrientation: SplitOrientation
     let shape: PipShape
     let pipOffsetFraction: CGSize
+    let pipPositionKeyframes: [PipPositionKeyframe]
     let backTransform: CGAffineTransform
     let frontTransform: CGAffineTransform
     let backSourceSize: CGSize
     let frontSourceSize: CGSize
     let backImage: CIImage?
     let frontImage: CIImage?
+    let overlayImage: CIImage?
 
     var requiredSourceTrackIDs: [NSValue]? {
         [NSNumber(value: backTrackID) as NSValue,
@@ -37,12 +44,14 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
          splitOrientation: SplitOrientation,
          shape: PipShape,
          pipOffsetFraction: CGSize,
+         pipPositionKeyframes: [PipPositionKeyframe],
          backTransform: CGAffineTransform,
          frontTransform: CGAffineTransform,
          backSourceSize: CGSize,
          frontSourceSize: CGSize,
          backImage: CIImage?,
-         frontImage: CIImage?) {
+         frontImage: CIImage?,
+         overlayImage: CIImage?) {
         self.timeRange = timeRange
         self.backTrackID = backTrackID
         self.frontTrackID = frontTrackID
@@ -51,12 +60,14 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
         self.splitOrientation = splitOrientation
         self.shape = shape
         self.pipOffsetFraction = pipOffsetFraction
+        self.pipPositionKeyframes = pipPositionKeyframes
         self.backTransform = backTransform
         self.frontTransform = frontTransform
         self.backSourceSize = backSourceSize
         self.frontSourceSize = frontSourceSize
         self.backImage = backImage
         self.frontImage = frontImage
+        self.overlayImage = overlayImage
     }
 }
 
@@ -77,7 +88,9 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
     func startRequest(_ request: AVAsynchronousVideoCompositionRequest) {
         guard let instruction = request.videoCompositionInstruction as? DualCameraVideoCompositionInstruction,
               let output = request.renderContext.newPixelBuffer() else {
-            request.finish(with: CameraError.videoMergeFailed)
+            request.finish(with: NSError(domain: "DualCameraVideoCompositor",
+                                         code: 1,
+                                         userInfo: [NSLocalizedDescriptionKey: "Не удалось подготовить кадр видеокомпозиции."]))
             return
         }
 
@@ -89,11 +102,12 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
             case .pip:
                 let width = instruction.canvasSize.width * 0.3
                 let height = width * instruction.shape.aspectRatio
+                let offset = offsetFraction(instruction, at: request.compositionTime.seconds)
                 let x = min(max(0, instruction.canvasSize.width - width - 16
-                                + instruction.pipOffsetFraction.width * instruction.canvasSize.width),
+                                + offset.width * instruction.canvasSize.width),
                             instruction.canvasSize.width - width)
                 let y = min(max(0, instruction.canvasSize.height - height - 16
-                                + instruction.pipOffsetFraction.height * instruction.canvasSize.height),
+                                + offset.height * instruction.canvasSize.height),
                             instruction.canvasSize.height - height)
                 frontRect = CGRect(x: x,
                                    y: y,
@@ -134,7 +148,10 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                 frontSource = nil
             }
             guard let backSource, let frontSource else {
-                throw CameraError.videoMergeFailed
+                throw NSError(domain: "DualCameraVideoCompositor",
+                              code: 2,
+                              userInfo: [NSLocalizedDescriptionKey:
+                                            "Не получены видеокадры источников \(instruction.backTrackID) и \(instruction.frontTrackID) в момент \(request.compositionTime.seconds) с."])
             }
 
             let back = place(backSource,
@@ -179,6 +196,15 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                     .composited(over: composed)
             }
 
+            if let overlayImage = instruction.overlayImage {
+                let overlay = place(overlayImage,
+                                    sourceSize: overlayImage.extent.size,
+                                    transform: .identity,
+                                    in: CGRect(origin: .zero, size: instruction.canvasSize),
+                                    canvasHeight: instruction.canvasSize.height)
+                composed = overlay.composited(over: composed)
+            }
+
             context.render(composed.cropped(to: canvas),
                            to: output,
                            bounds: canvas,
@@ -190,6 +216,25 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
     }
 
     func cancelAllPendingVideoCompositionRequests() {}
+
+    private func offsetFraction(_ instruction: DualCameraVideoCompositionInstruction,
+                                at time: TimeInterval) -> CGSize {
+        let keyframes = instruction.pipPositionKeyframes
+        guard let first = keyframes.first else { return instruction.pipOffsetFraction }
+        guard time > first.time else { return first.offsetFraction }
+        for index in 1..<keyframes.count {
+            let start = keyframes[index - 1]
+            let end = keyframes[index]
+            guard time <= end.time else { continue }
+            let interval = max(0.0001, end.time - start.time)
+            let progress = CGFloat(min(1, max(0, (time - start.time) / interval)))
+            return CGSize(width: start.offsetFraction.width
+                            + (end.offsetFraction.width - start.offsetFraction.width) * progress,
+                          height: start.offsetFraction.height
+                            + (end.offsetFraction.height - start.offsetFraction.height) * progress)
+        }
+        return keyframes.last?.offsetFraction ?? first.offsetFraction
+    }
 
     private func place(_ source: CIImage,
                        sourceSize: CGSize,

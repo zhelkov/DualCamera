@@ -10,6 +10,7 @@ enum VideoMerger {
                       shape: PipShape,
                       splitOrientation: SplitOrientation = .vertical,
                       pipOffsetFraction: CGSize = .zero,
+                      pipPositionKeyframes: [PipPositionKeyframe] = [],
                       backImage: UIImage? = nil,
                       frontImage: UIImage? = nil,
                       elements: [DrawingElement] = []) async throws -> URL {
@@ -67,21 +68,16 @@ enum VideoMerger {
                 splitOrientation: splitOrientation,
                 shape: shape,
                 pipOffsetFraction: pipOffsetFraction,
+                pipPositionKeyframes: pipPositionKeyframes,
                 backTransform: backClip.preferredTransform,
                 frontTransform: frontClip.preferredTransform,
                 backSourceSize: backClip.naturalSize,
                 frontSourceSize: frontClip.naturalSize,
                 backImage: Self.normalizedCIImage(backImage),
-                frontImage: Self.normalizedCIImage(frontImage)
+                frontImage: Self.normalizedCIImage(frontImage),
+                overlayImage: Self.normalizedCIImage(drawingImage)
             )
         ]
-
-        if let drawingImage {
-            videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
-                additionalLayer: drawingOverlayLayer(image: drawingImage, canvas: canvas),
-                asTrackID: kCMPersistentTrackID_Invalid
-            )
-        }
 
         let outputURL = Self.mergedMovieURL()
         guard let exporter = AVAssetExportSession(

@@ -109,9 +109,13 @@ struct ContentView: View {
     }
 
     private var pipOffsetFraction: CGSize {
+        pipOffsetFraction(for: pipOffset)
+    }
+
+    private func pipOffsetFraction(for offset: CGSize) -> CGSize {
         guard previewSize.width > 0, previewSize.height > 0 else { return .zero }
-        return CGSize(width: pipOffset.width / previewSize.width,
-                      height: pipOffset.height / previewSize.height)
+        return CGSize(width: offset.width / previewSize.width,
+                      height: offset.height / previewSize.height)
     }
 
     /// Перетаскивание окна PiP (работает только в раскладке «картинка в картинке»).
@@ -123,11 +127,14 @@ struct ContentView: View {
                     pipDragBase = pipOffset
                 }
                 guard let base = pipDragBase else { return }
-                pipOffset = CGSize(width: base.width + value.translation.width,
-                                   height: base.height + value.translation.height)
+                let nextOffset = CGSize(width: base.width + value.translation.width,
+                                        height: base.height + value.translation.height)
+                pipOffset = nextOffset
+                camera.updatePipOffsetFraction(pipOffsetFraction(for: nextOffset))
             }
             .onEnded { _ in
                 pipDragBase = nil
+                camera.updatePipOffsetFraction(pipOffsetFraction)
             }
     }
 

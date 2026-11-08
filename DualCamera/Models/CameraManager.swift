@@ -122,6 +122,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var recordingFrontURL: URL?
     private var recordingElements: [DrawingElement] = []
     private var recordingPipOffsetFraction: CGSize = .zero
+    private var recordingPipPositionKeyframes: [PipPositionKeyframe] = []
     private var recordingBackImage: UIImage?
     private var recordingFrontImage: UIImage?
     private var expectedRecordingCount = 0
@@ -375,7 +376,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         updateOnMain {
             self.isRecording = true
             self.recordingDuration = 0
-            self.startRecordingTimer()
+            self.startRecordingTimer(initialOffsetFraction: pipOffsetFraction)
         }
 
         sessionQueue.async { [weak self] in
@@ -421,6 +422,23 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             if self.backMovieOutput.isRecording { self.backMovieOutput.stopRecording() }
             if self.frontMovieOutput.isRecording { self.frontMovieOutput.stopRecording() }
         }
+    }
+
+    func updatePipOffsetFraction(_ offsetFraction: CGSize) {
+        guard isRecording else { return }
+        recordingLock.lock()
+        defer { recordingLock.unlock() }
+        guard let recordingStartDate else { return }
+        let time = Date().timeIntervalSince(recordingStartDate)
+        if let previous = recordingPipPositionKeyframes.last,
+           time - previous.time < 0.025,
+           abs(previous.offsetFraction.width - offsetFraction.width) < 0.0005,
+           abs(previous.offsetFraction.height - offsetFraction.height) < 0.0005 {
+            return
+        }
+        recordingPipPositionKeyframes.append(
+            PipPositionKeyframe(time: time, offsetFraction: offsetFraction)
+        )
     }
 
     // MARK: - Настройка сессии (выполняется в sessionQueue)
@@ -832,6 +850,10 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             return
         }
 
+        recordingLock.lock()
+        let pipKeyframes = recordingPipPositionKeyframes
+        recordingLock.unlock()
+
         // Склейку выполняем в фоне, чтобы не блокировать очередь сессии.
         Task { [weak self] in
             guard let self else { return }
@@ -847,6 +869,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                     shape: self.pipShape,
                     splitOrientation: self.splitOrientation,
                     pipOffsetFraction: self.recordingPipOffsetFraction,
+                    pipPositionKeyframes: pipKeyframes,
                     backImage: self.recordingBackImage,
                     frontImage: self.recordingFrontImage,
                     elements: self.recordingElements
@@ -860,8 +883,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             } catch {
                 self.updateOnMain {
                     self.isRecording = false
-                    self.errorMessage = (error as? LocalizedError)?.errorDescription
-                        ?? "Не удалось склеить видео."
+                    self.errorMessage = error.localizedDescription
                 }
             }
             self.sessionQueue.async { self.resetRecordingState() }
@@ -872,6 +894,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingLock.lock()
         recordedURLs.removeAll()
         recordingError = nil
+        recordingPipPositionKeyframes.removeAll()
         expectedRecordingCount = 0
         receivedRecordingCallbacks = 0
         recordingLock.unlock()
@@ -886,8 +909,13 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     // MARK: - Таймер записи (главный поток)
 
-    private func startRecordingTimer() {
+    private func startRecordingTimer(initialOffsetFraction: CGSize) {
         recordingStartDate = Date()
+        recordingLock.lock()
+        recordingPipPositionKeyframes = [
+            PipPositionKeyframe(time: 0, offsetFraction: initialOffsetFraction)
+        ]
+        recordingLock.unlock()
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self, let start = self.recordingStartDate else { return }
             self.recordingDuration = Date().timeIntervalSince(start)
