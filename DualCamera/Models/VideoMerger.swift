@@ -250,9 +250,17 @@ enum VideoMerger {
 
     private static func normalizedCIImage(_ image: UIImage?) -> CIImage? {
         guard let image else { return nil }
-        let renderer = UIGraphicsImageRenderer(size: image.size)
+        let longestSide = max(image.size.width, image.size.height)
+        guard longestSide > 0 else { return nil }
+        let scale = min(1, 1920 / longestSide)
+        let renderSize = CGSize(width: image.size.width * scale,
+                                height: image.size.height * scale)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: renderSize, format: format)
         let normalized = renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: image.size))
+            image.draw(in: CGRect(origin: .zero, size: renderSize))
         }
         guard let cgImage = normalized.cgImage else { return nil }
         return CIImage(cgImage: cgImage)
