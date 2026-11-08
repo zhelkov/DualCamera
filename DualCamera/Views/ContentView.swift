@@ -72,8 +72,8 @@ struct ContentView: View {
 
                     FrontCameraImageView(store: camera.frontPreviewStore)
                         .frame(width: frames.secondary.width, height: frames.secondary.height)
-                        .offset(x: frames.secondary.minX, y: frames.secondary.minY)
                         .modifier(SecondaryPreviewClip(layout: camera.layout, radius: pipRadius))
+                        .offset(x: frames.secondary.minX, y: frames.secondary.minY)
                         .gesture(pipDrag)
                 } else {
                     FrontCameraImageView(store: camera.frontPreviewStore)
@@ -83,8 +83,8 @@ struct ContentView: View {
 
                     CameraPreviewView(previewLayer: camera.backPreviewLayer, isMirrored: false)
                         .frame(width: frames.secondary.width, height: frames.secondary.height)
-                        .offset(x: frames.secondary.minX, y: frames.secondary.minY)
                         .modifier(SecondaryPreviewClip(layout: camera.layout, radius: pipRadius))
+                        .offset(x: frames.secondary.minX, y: frames.secondary.minY)
                         .gesture(pipDrag)
                 }
             }
