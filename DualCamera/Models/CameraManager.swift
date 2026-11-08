@@ -127,10 +127,6 @@ final class CameraManager {
         frontPreviewLayer = AVCaptureVideoPreviewLayer(sessionWithNoConnection: session)
         backPreviewLayer.videoGravity = .resizeAspectFill
         frontPreviewLayer.videoGravity = .resizeAspectFill
-        // Зеркалим превью передней камеры визуально: `isVideoMirrored`
-        // на новых iOS приводит к крашу, а без зеркалирования превью
-        // передней камеры отображается пустым (белым).
-        frontPreviewLayer.transform = CATransform3DMakeScale(-1, 1, 1)
     }
 
     // MARK: - Публичное API
