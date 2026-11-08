@@ -124,7 +124,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     // MARK: - Инициализация
 
-    init() {
+    override init() {
         // Превью-слои привязаны к сессии, но соединений пока нет —
         // их создадим в `connect(_:to:mirrored:)`.
         backPreviewLayer = AVCaptureVideoPreviewLayer(sessionWithNoConnection: session)
