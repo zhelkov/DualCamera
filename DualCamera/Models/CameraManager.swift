@@ -480,13 +480,27 @@ final class CameraManager {
 
     // MARK: - Ротация
 
-    /// Подключает превью-слои к уже запущенной сессии.
-    /// На новых версиях iOS подключение превью передней камеры до запуска
-    /// сессии может оставлять её превью пустым.
+    /// Подключает превью-слои к сессии и проверяет активность соединений.
     private func connectPreviewLayers() {
         guard let back = backInput, let front = frontInput else { return }
-        try? connect(back, to: backPreviewLayer, mirrored: false)
-        try? connect(front, to: frontPreviewLayer, mirrored: true)
+        do {
+            try connect(back, to: backPreviewLayer, mirrored: false)
+            try connect(front, to: frontPreviewLayer, mirrored: true)
+        } catch {
+            updateOnMain { self.errorMessage = "Превью не подключилось: \(error)" }
+            return
+        }
+        // Через секунду проверяем, активны ли соединения превью.
+        sessionQueue.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self else { return }
+            let backActive = self.backPreviewLayer.connection?.isActive ?? false
+            let frontActive = self.frontPreviewLayer.connection?.isActive ?? false
+            if !frontActive {
+                self.updateOnMain {
+                    self.errorMessage = "Превью передней: back=\(backActive), front=\(frontActive)"
+                }
+            }
+        }
     }
 
     /// Настраивает ротацию превью и отслеживает поворот устройства.
@@ -536,8 +550,8 @@ final class CameraManager {
     /// использовать одновременно.
     private func selectMultiCamPair() -> (back: AVCaptureDevice?, front: AVCaptureDevice?) {
         let back = preferredBackDevice()
-        let front = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
-            ?? AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front)
+        let front = AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front)
+            ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
         return (back, front)
     }
 
