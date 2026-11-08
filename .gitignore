@@ -13,3 +13,10 @@ xcuserdata/
 
 # XcodeGen: .xcodeproj генерируется из project.yml
 *.xcodeproj
+
+# Локальные артефакты сборки и диагностика
+ipa_check/
+ipa_new/
+ipa_v102/
+*.stackdump
+*.ips
