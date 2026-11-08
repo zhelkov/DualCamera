@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreImage
 import UIKit
 
 /// Объединяет два записанных клипа (передняя и задняя камеры) в один файл.
@@ -32,6 +33,12 @@ enum VideoMerger {
         let effectiveDrawingKeyframes = drawingKeyframes.isEmpty
             ? [DrawingElementsKeyframe(time: 0, elements: elements)]
             : drawingKeyframes
+        let normalizedBackImage = Self.normalizedCIImage(backImage)
+        let normalizedFrontImage = Self.normalizedCIImage(frontImage)
+        guard (backImage == nil || normalizedBackImage != nil),
+              (frontImage == nil || normalizedFrontImage != nil) else {
+            throw CameraError.videoMergeFailed
+        }
 
         let composition = AVMutableComposition()
         guard let backCompTrack = composition.addMutableTrack(
@@ -79,8 +86,8 @@ enum VideoMerger {
                 frontTransform: frontClip.preferredTransform,
                 backSourceSize: backClip.naturalSize,
                 frontSourceSize: frontClip.naturalSize,
-                backImage: Self.normalizedCIImage(backImage),
-                frontImage: Self.normalizedCIImage(frontImage)
+                backImage: normalizedBackImage,
+                frontImage: normalizedFrontImage
             )
         ]
 
@@ -255,20 +262,38 @@ enum VideoMerger {
 
     private static func normalizedCIImage(_ image: UIImage?) -> CIImage? {
         guard let image else { return nil }
-        let longestSide = max(image.size.width, image.size.height)
-        guard longestSide > 0 else { return nil }
-        let scale = min(1, 1920 / longestSide)
-        let renderSize = CGSize(width: image.size.width * scale,
-                                height: image.size.height * scale)
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = false
-        let renderer = UIGraphicsImageRenderer(size: renderSize, format: format)
-        let normalized = renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: renderSize))
+        let source: CIImage
+        if let cgImage = image.cgImage {
+            source = CIImage(cgImage: cgImage)
+        } else if let ciImage = image.ciImage {
+            source = ciImage
+        } else {
+            return nil
         }
-        guard let cgImage = normalized.cgImage else { return nil }
-        return CIImage(cgImage: cgImage)
+
+        let exifOrientation: Int32
+        switch image.imageOrientation {
+        case .up: exifOrientation = 1
+        case .upMirrored: exifOrientation = 2
+        case .down: exifOrientation = 3
+        case .downMirrored: exifOrientation = 4
+        case .leftMirrored: exifOrientation = 5
+        case .right: exifOrientation = 6
+        case .rightMirrored: exifOrientation = 7
+        case .left: exifOrientation = 8
+        @unknown default: exifOrientation = 1
+        }
+
+        let oriented = source.oriented(forExifOrientation: exifOrientation)
+        let extent = oriented.extent.integral
+        guard extent.width > 0, extent.height > 0 else { return nil }
+        let translated = oriented.transformed(by: CGAffineTransform(translationX: -extent.minX,
+                                                                     y: -extent.minY))
+        let scale = min(1, 1920 / max(extent.width, extent.height))
+        let outputSize = CGSize(width: extent.width * scale,
+                                height: extent.height * scale)
+        return translated.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            .cropped(to: CGRect(origin: .zero, size: outputSize))
     }
 
     /// Готовый к использованию трек вместе с ориентацией и размером.

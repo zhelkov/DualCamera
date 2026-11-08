@@ -911,28 +911,38 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         let pipKeyframes = recordingPipPositionKeyframes
         let drawingKeyframes = recordingDrawingKeyframes
         recordingLock.unlock()
+        let outputLayout = recordingLayout
+        let outputShape = recordingShape
+        let outputSplitOrientation = recordingSplitOrientation
+        let outputOffset = recordingPipOffsetFraction
+        let outputWidth = recordingPipWidthFraction
+        let outputBackImage = recordingBackImage
+        let outputFrontImage = recordingFrontImage
+        let outputImportedVideoURL = recordingImportedVideoURL
+        let outputCamerasSwapped = recordingCamerasSwapped
+        let outputElements = recordingElements
 
         // Склейку выполняем в фоне, чтобы не блокировать очередь сессии.
         Task { [weak self] in
             guard let self else { return }
             do {
                 // Второй слой: импортированное видео или запись передней камеры.
-                let frontSource = self.recordingImportedVideoURL ?? frontURL
-                let primaryURL = self.recordingCamerasSwapped ? frontSource : backURL
-                let secondaryURL = self.recordingCamerasSwapped ? backURL : frontSource
+                let frontSource = outputImportedVideoURL ?? frontURL
+                let primaryURL = outputCamerasSwapped ? frontSource : backURL
+                let secondaryURL = outputCamerasSwapped ? backURL : frontSource
                 let merged = try await VideoMerger.merge(
                     back: primaryURL,
                     front: secondaryURL,
-                    layout: self.recordingLayout,
-                    shape: self.recordingShape,
-                    splitOrientation: self.recordingSplitOrientation,
-                    pipOffsetFraction: self.recordingPipOffsetFraction,
-                    pipWidthFraction: self.recordingPipWidthFraction,
+                    layout: outputLayout,
+                    shape: outputShape,
+                    splitOrientation: outputSplitOrientation,
+                    pipOffsetFraction: outputOffset,
+                    pipWidthFraction: outputWidth,
                     pipPositionKeyframes: pipKeyframes,
                     drawingKeyframes: drawingKeyframes,
-                    backImage: self.recordingBackImage,
-                    frontImage: self.recordingFrontImage,
-                    elements: self.recordingElements
+                    backImage: outputBackImage,
+                    frontImage: outputFrontImage,
+                    elements: outputElements
                 )
                 // Удаляем исходные клипы — остаётся только объединённый файл.
                 Self.removeTemporaryFiles([backURL, frontURL])
