@@ -81,6 +81,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private let frontVideoDataOutput = AVCaptureVideoDataOutput()
     private let frontVideoOutputQueue = DispatchQueue(label: "com.dualcamera.front-probe", qos: .userInitiated)
     private(set) var frontProbeStatus = "Проверка видеопотока передней камеры…"
+    private var frontProbeFrameCount = 0
+    private var lastFrontProbeStatusUpdate: UInt64 = 0
 
     // MARK: - Ротация
 
@@ -909,15 +911,19 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
         frontSampleBufferLayer.enqueue(sampleBuffer)
 
+        frontProbeFrameCount += 1
+        let now = DispatchTime.now().uptimeNanoseconds
+        guard frontProbeFrameCount == 1 || now - lastFrontProbeStatusUpdate >= 500_000_000 else { return }
+        lastFrontProbeStatusUpdate = now
+
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
         let pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
         let centerLuma = centerLumaValue(of: pixelBuffer).map { "\($0)/255" } ?? "н/д"
+        let frameCount = frontProbeFrameCount
         updateOnMain {
-            if self.frontProbeStatus.hasPrefix("Ожидание кадров") {
-                self.frontProbeStatus = "Сырые кадры: \(width)×\(height) · яркость центра \(centerLuma) · формат 0x\(String(pixelFormat, radix: 16))"
-            }
+            self.frontProbeStatus = "ФРОНТ · \(width)×\(height)\nКадр \(frameCount) · центр \(centerLuma) · 0x\(String(pixelFormat, radix: 16))"
         }
     }
 
