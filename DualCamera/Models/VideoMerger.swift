@@ -4,7 +4,7 @@ import UIKit
 /// Объединяет два записанных клипа (передняя и задняя камеры) в один файл.
 enum VideoMerger {
 
-    static func merge(back: URL, front: URL, layout: CaptureLayout, shape: PipShape, elements: [DrawingElement] = []) async throws -> URL {
+    static func merge(back: URL, front: URL, layout: CaptureLayout, shape: PipShape, splitOrientation: SplitOrientation = .vertical, elements: [DrawingElement] = []) async throws -> URL {
         let backAsset = AVURLAsset(url: back)
         let frontAsset = AVURLAsset(url: front)
 
@@ -53,6 +53,7 @@ enum VideoMerger {
             videoComposition.instructions = [
                 splitInstruction(timeRange: timeRange,
                                  canvas: canvas,
+                                 splitOrientation: splitOrientation,
                                  backClip: backClip,
                                  frontClip: frontClip,
                                  backTrack: backCompTrack,
@@ -88,13 +89,14 @@ enum VideoMerger {
     /// Сплит: два клипа друг под другом через layer-инструкции.
     private static func splitInstruction(timeRange: CMTimeRange,
                                          canvas: CGSize,
+                                         splitOrientation: SplitOrientation,
                                          backClip: ClipInfo,
                                          frontClip: ClipInfo,
                                          backTrack: AVMutableCompositionTrack,
                                          frontTrack: AVMutableCompositionTrack) -> AVMutableVideoCompositionInstruction {
         let backRect: CGRect
         let frontRect: CGRect
-        if canvas.width > canvas.height {
+        if splitOrientation == .horizontal {
             // Ландшафт: бок о бок.
             backRect = CGRect(x: 0, y: 0, width: canvas.width / 2, height: canvas.height)
             frontRect = CGRect(x: canvas.width / 2, y: 0, width: canvas.width / 2, height: canvas.height)

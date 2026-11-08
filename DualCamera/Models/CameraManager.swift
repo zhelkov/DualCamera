@@ -33,6 +33,8 @@ final class CameraManager {
     private(set) var recordingDuration: TimeInterval = 0
     /// Текущая раскладка превью (сплит или картинка в картинке).
     var layout: CaptureLayout = .splitScreen
+    /// Ориентация сплита: вертикально или горизонтально.
+    var splitOrientation: SplitOrientation = .vertical
     /// Поменяны ли местами передняя и задняя камеры.
     var isCamerasSwapped = false
     /// Форма окна «картинка в картинке».
@@ -526,20 +528,29 @@ final class CameraManager {
     /// Находит пару «передняя + задняя», которую система разрешает
     /// использовать одновременно.
     private func selectMultiCamPair() -> (back: AVCaptureDevice?, front: AVCaptureDevice?) {
-        let discovery = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.builtInWideAngleCamera,
-                          .builtInUltraWideCamera,
-                          .builtInTelephotoCamera,
-                          .builtInDualWideCamera],
-            mediaType: .video,
-            position: .unspecified
-        )
-        let backs = discovery.devices.filter { $0.position == .back }
-        let fronts = discovery.devices.filter { $0.position == .front }
+        let back = preferredBackDevice()
+        let front = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
+            ?? AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front)
+        return (back, front)
+    }
 
-        // Берём первую заднюю и первую переднюю камеру.
-        // Совместимость пары система проверит сама при добавлении входов в сессию.
-        return (backs.first, fronts.first)
+    /// Для задней камеры предпочитаем виртуальное устройство (широкоугольная +
+    /// сверхширокоугольная) — оно даёт зум от 0.5x. Если виртуальное устройство
+    /// не поддерживает MultiCam, берём обычную широкоугольную.
+    private func preferredBackDevice() -> AVCaptureDevice? {
+        let candidates: [AVCaptureDevice.DeviceType] = [
+            .builtInDualWideCamera,
+            .builtInTripleCamera,
+            .builtInUltraWideCamera,
+            .builtInWideAngleCamera
+        ]
+        for type in candidates {
+            if let device = AVCaptureDevice.default(type, for: .video, position: .back),
+               device.formats.contains(where: { $0.isMultiCamSupported }) {
+                return device
+            }
+        }
+        return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
     }
 
     private func configureFormat(for device: AVCaptureDevice) throws {
@@ -634,6 +645,8 @@ final class CameraManager {
             throw CameraError.connectionFailed
         }
         session.addConnection(connection)
+        // Для передней камеры система сама применяет зеркалирование превью.
+        connection.automaticallyAdjustsVideoMirroring = true
     }
 
     // MARK: - Съёмка и склейка
@@ -665,7 +678,7 @@ final class CameraManager {
         // Если камеры поменяны местами — меняем и порядок склейки.
         let primary = isCamerasSwapped ? frontImage : backImage
         let secondary = isCamerasSwapped ? backImage : frontImage
-        return PhotoMerger.merge(back: primary, front: secondary, layout: layout, shape: pipShape, elements: elements)
+        return PhotoMerger.merge(back: primary, front: secondary, layout: layout, shape: pipShape, splitOrientation: splitOrientation, elements: elements)
     }
 
     private func capturePhoto(from output: AVCapturePhotoOutput) async throws -> Data {
@@ -758,7 +771,7 @@ final class CameraManager {
                 let frontSource = self.importedVideoURL ?? frontURL
                 let primaryURL = self.isCamerasSwapped ? frontSource : backURL
                 let secondaryURL = self.isCamerasSwapped ? backURL : frontSource
-                let merged = try await VideoMerger.merge(back: primaryURL, front: secondaryURL, layout: self.layout, shape: self.pipShape, elements: self.recordingElements)
+                let merged = try await VideoMerger.merge(back: primaryURL, front: secondaryURL, layout: self.layout, shape: self.pipShape, splitOrientation: self.splitOrientation, elements: self.recordingElements)
                 // Удаляем исходные клипы — остаётся только объединённый файл.
                 Self.removeTemporaryFiles([backURL, frontURL])
                 self.updateOnMain {

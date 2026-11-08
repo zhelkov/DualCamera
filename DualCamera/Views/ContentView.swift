@@ -62,7 +62,7 @@ struct ContentView: View {
             let mainLayer = backIsMain ? camera.backPreviewLayer : camera.frontPreviewLayer
             let pipLayer = backIsMain ? camera.frontPreviewLayer : camera.backPreviewLayer
             let pip = Self.pipSize(for: camera.pipShape, in: size)
-            let frames = Self.layoutFrames(layout: camera.layout, size: size, pipSize: pip, pipOffset: pipOffset, isPortrait: camera.isPortrait)
+            let frames = Self.layoutFrames(layout: camera.layout, size: size, pipSize: pip, pipOffset: pipOffset, splitOrientation: camera.splitOrientation)
             let pipRadius = camera.pipShape.cornerRadius(for: pip)
 
             ZStack(alignment: .topLeading) {
@@ -122,10 +122,10 @@ struct ContentView: View {
                                      size: CGSize,
                                      pipSize: CGSize,
                                      pipOffset: CGSize,
-                                     isPortrait: Bool) -> (main: CGRect, secondary: CGRect) {
+                                     splitOrientation: SplitOrientation) -> (main: CGRect, secondary: CGRect) {
         switch layout {
         case .splitScreen:
-            if isPortrait {
+            if splitOrientation == .vertical {
                 return (
                     CGRect(x: 0, y: 0, width: size.width, height: size.height / 2),
                     CGRect(x: 0, y: size.height / 2, width: size.width, height: size.height / 2)
@@ -208,6 +208,17 @@ struct ContentView: View {
                 Picker("Форма окна", selection: $camera.pipShape) {
                     ForEach(PipShape.allCases) { shape in
                         Image(systemName: shape.systemImage).tag(shape)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 150)
+                .padding(.top, 6)
+            }
+
+            if camera.layout == .splitScreen {
+                Picker("Ориентация сплита", selection: $camera.splitOrientation) {
+                    ForEach(SplitOrientation.allCases) { orientation in
+                        Image(systemName: orientation.systemImage).tag(orientation)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -482,14 +493,22 @@ struct MergedPhotoView: View {
     }
 
     private func save() {
-        PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.creationRequestForAsset(from: photo)
-        } completionHandler: { success, error in
-            DispatchQueue.main.async {
-                if success {
-                    dismiss()
-                } else {
-                    saveErrorMessage = error?.localizedDescription ?? "Не удалось сохранить фото."
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else {
+                DispatchQueue.main.async {
+                    saveErrorMessage = "Нет доступа к медиатеке. Разрешите доступ в настройках."
+                }
+                return
+            }
+            PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAsset(from: photo)
+            } completionHandler: { success, error in
+                DispatchQueue.main.async {
+                    if success {
+                        dismiss()
+                    } else {
+                        saveErrorMessage = error?.localizedDescription ?? "Не удалось сохранить фото."
+                    }
                 }
             }
         }

@@ -58,14 +58,22 @@ struct MergedVideoView: View {
     }
 
     private func save() {
-        PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: videoURL)
-        } completionHandler: { success, error in
-            DispatchQueue.main.async {
-                if success {
-                    dismiss()
-                } else {
-                    saveErrorMessage = error?.localizedDescription ?? "Не удалось сохранить видео."
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else {
+                DispatchQueue.main.async {
+                    saveErrorMessage = "Нет доступа к медиатеке. Разрешите доступ в настройках."
+                }
+                return
+            }
+            PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: videoURL)
+            } completionHandler: { success, error in
+                DispatchQueue.main.async {
+                    if success {
+                        dismiss()
+                    } else {
+                        saveErrorMessage = error?.localizedDescription ?? "Не удалось сохранить видео."
+                    }
                 }
             }
         }

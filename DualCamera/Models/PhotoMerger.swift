@@ -3,7 +3,7 @@ import UIKit
 /// Склеивает снимки передней и задней камер в одно изображение.
 enum PhotoMerger {
 
-    static func merge(back: UIImage, front: UIImage, layout: CaptureLayout, shape: PipShape, elements: [DrawingElement] = []) -> UIImage {
+    static func merge(back: UIImage, front: UIImage, layout: CaptureLayout, shape: PipShape, splitOrientation: SplitOrientation = .vertical, elements: [DrawingElement] = []) -> UIImage {
         // Приводим к вертикальной ориентации, чтобы размеры были честными.
         let back = normalized(back)
         let front = normalized(front)
@@ -11,7 +11,7 @@ enum PhotoMerger {
         let merged: UIImage
         switch layout {
         case .splitScreen:
-            merged = back.size.width > back.size.height
+            merged = splitOrientation == .horizontal
                 ? horizontalSplit(back: back, front: front)
                 : verticalSplit(back: back, front: front)
         case .pip:
