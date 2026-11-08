@@ -11,7 +11,7 @@ import Observation
 /// - Соединения создаются вручную через `AVCaptureConnection`,
 ///   а не автоматически сессией.
 @Observable
-final class CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
+final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
 
     // MARK: - Состояние для UI (обновляется на главном потоке)
 
@@ -129,6 +129,7 @@ final class CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
         // их создадим в `connect(_:to:mirrored:)`.
         backPreviewLayer = AVCaptureVideoPreviewLayer(sessionWithNoConnection: session)
         frontPreviewLayer = AVCaptureVideoPreviewLayer(sessionWithNoConnection: session)
+        super.init()
         backPreviewLayer.videoGravity = .resizeAspectFill
         frontPreviewLayer.videoGravity = .resizeAspectFill
         frontSampleBufferLayer.videoGravity = .resizeAspectFill

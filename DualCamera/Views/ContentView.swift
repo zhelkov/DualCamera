@@ -59,8 +59,6 @@ struct ContentView: View {
         GeometryReader { geo in
             let size = geo.size
             let backIsMain = !camera.isCamerasSwapped
-            let mainLayer = backIsMain ? camera.backPreviewLayer : camera.frontPreviewLayer
-            let pipLayer = backIsMain ? camera.frontPreviewLayer : camera.backPreviewLayer
             let pip = Self.pipSize(for: camera.pipShape, in: size)
             let frames = Self.layoutFrames(layout: camera.layout, size: size, pipSize: pip, pipOffset: pipOffset, splitOrientation: camera.splitOrientation)
             let pipRadius = camera.pipShape.cornerRadius(for: pip)
