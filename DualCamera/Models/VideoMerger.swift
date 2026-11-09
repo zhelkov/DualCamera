@@ -14,7 +14,10 @@ enum VideoMerger {
                       pipWidthFraction: CGFloat = 0.3,
                       pipPositionKeyframes: [PipPositionKeyframe] = [],
                       drawingKeyframes: [DrawingElementsKeyframe] = [],
-                      pipPhoto: UIImage? = nil,
+                      photoOverlay: UIImage? = nil,
+                      photoOverlayOffsetFraction: CGSize = .zero,
+                      photoOverlayWidthFraction: CGFloat = 0.3,
+                      photoOverlayKeyframes: [PhotoOverlayKeyframe] = [],
                       backImage: UIImage? = nil,
                       frontImage: UIImage? = nil,
                       elements: [DrawingElement] = []) async throws -> URL {
@@ -36,10 +39,10 @@ enum VideoMerger {
             : drawingKeyframes
         let normalizedBackImage = Self.normalizedCIImage(backImage)
         let normalizedFrontImage = Self.normalizedCIImage(frontImage)
-        let normalizedPipPhoto = Self.normalizedCIImage(pipPhoto)
+        let normalizedPhotoOverlay = Self.normalizedCIImage(photoOverlay)
         guard (backImage == nil || normalizedBackImage != nil),
               (frontImage == nil || normalizedFrontImage != nil),
-              (pipPhoto == nil || normalizedPipPhoto != nil) else {
+              (photoOverlay == nil || normalizedPhotoOverlay != nil) else {
             throw CameraError.videoMergeFailed
         }
 
@@ -85,13 +88,18 @@ enum VideoMerger {
                 pipWidthFraction: pipWidthFraction,
                 pipPositionKeyframes: pipPositionKeyframes,
                 drawingKeyframes: effectiveDrawingKeyframes,
+                photoOverlayKeyframes: photoOverlayKeyframes.isEmpty
+                    ? [PhotoOverlayKeyframe(time: 0,
+                                            offsetFraction: photoOverlayOffsetFraction,
+                                            widthFraction: photoOverlayWidthFraction)]
+                    : photoOverlayKeyframes,
                 backTransform: backClip.preferredTransform,
                 frontTransform: frontClip.preferredTransform,
                 backSourceSize: backClip.naturalSize,
                 frontSourceSize: frontClip.naturalSize,
                 backImage: normalizedBackImage,
                 frontImage: normalizedFrontImage,
-                pipPhoto: normalizedPipPhoto
+                photoOverlay: normalizedPhotoOverlay
             )
         ]
 

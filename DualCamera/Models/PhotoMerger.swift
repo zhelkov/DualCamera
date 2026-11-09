@@ -10,6 +10,9 @@ enum PhotoMerger {
                       splitOrientation: SplitOrientation = .vertical,
                       pipOffsetFraction: CGSize = .zero,
                       pipWidthFraction: CGFloat = 0.3,
+                      photoOverlay: UIImage? = nil,
+                      photoOverlayOffsetFraction: CGSize = .zero,
+                      photoOverlayWidthFraction: CGFloat = 0.3,
                       elements: [DrawingElement] = []) -> UIImage {
         // Приводим к вертикальной ориентации, чтобы размеры были честными.
         let back = normalized(back)
@@ -27,7 +30,12 @@ enum PhotoMerger {
                                       pipWidthFraction: pipWidthFraction)
         }
 
-        return elements.isEmpty ? merged : overlay(DrawingRenderer.render(elements, size: merged.size), on: merged)
+        let withPhoto = photoOverlay.map {
+            overlayPhoto($0, on: merged,
+                         offsetFraction: photoOverlayOffsetFraction,
+                         widthFraction: photoOverlayWidthFraction)
+        } ?? merged
+        return elements.isEmpty ? withPhoto : overlay(DrawingRenderer.render(elements, size: merged.size), on: withPhoto)
     }
 
     /// Накладывает прозрачное изображение рисунка поверх снимка.
@@ -37,6 +45,26 @@ enum PhotoMerger {
         return renderer.image { _ in
             image.draw(in: CGRect(origin: .zero, size: size))
             overlay.draw(in: CGRect(origin: .zero, size: size))
+        }
+    }
+
+    private static func overlayPhoto(_ photo: UIImage,
+                                     on image: UIImage,
+                                     offsetFraction: CGSize,
+                                     widthFraction: CGFloat) -> UIImage {
+        let size = image.size
+        let width = size.width * widthFraction
+        let height = width * photo.size.height / max(photo.size.width, 1)
+        let x = min(max(0, 16 + offsetFraction.width * size.width), size.width - width)
+        let y = min(max(0, 16 + offsetFraction.height * size.height), size.height - height)
+        let target = CGRect(x: x, y: y, width: width, height: height)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { context in
+            image.draw(in: CGRect(origin: .zero, size: size))
+            context.cgContext.saveGState()
+            UIBezierPath(roundedRect: target, cornerRadius: 10).addClip()
+            photo.draw(in: aspectFillRect(image: photo, in: target))
+            context.cgContext.restoreGState()
         }
     }
 

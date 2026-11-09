@@ -125,7 +125,10 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var recordingPipWidthFraction: CGFloat = 0.3
     private var recordingPipPositionKeyframes: [PipPositionKeyframe] = []
     private var recordingDrawingKeyframes: [DrawingElementsKeyframe] = []
-    private var recordingPipPhoto: UIImage?
+    private var recordingPhotoOverlay: UIImage?
+    private var recordingPhotoOverlayOffsetFraction: CGSize = .zero
+    private var recordingPhotoOverlayWidthFraction: CGFloat = 0.3
+    private var recordingPhotoOverlayKeyframes: [PhotoOverlayKeyframe] = []
     private var recordingImportedVideoURL: URL?
     private var recordingLayout: CaptureLayout = .splitScreen
     private var recordingShape: PipShape = .rectangle
@@ -256,7 +259,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     /// Снимает фото одновременно с обеих камер, склеивает и накладывает рисунок.
     func captureBothCameras(elements: [DrawingElement] = [],
                             pipOffsetFraction: CGSize = .zero,
-                            pipWidthFraction: CGFloat = 0.3) {
+                            photoOverlayOffsetFraction: CGSize = .zero,
+                            photoOverlayWidthFraction: CGFloat = 0.3) {
         guard isConfigured, !isCapturing else { return }
         updateOnMain { self.isCapturing = true }
 
@@ -266,7 +270,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 do {
                     let merged = try await self.captureAndMerge(elements: elements,
                                                                 pipOffsetFraction: pipOffsetFraction,
-                                                                pipWidthFraction: pipWidthFraction)
+                                                                photoOverlayOffsetFraction: photoOverlayOffsetFraction,
+                                                                photoOverlayWidthFraction: photoOverlayWidthFraction)
                     self.updateOnMain {
                         self.lastMergedPhoto = merged
                         self.isCapturing = false
@@ -382,7 +387,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     /// `elements` — рисунок, который вшивается в видео (снимок на момент старта).
     func startRecording(elements: [DrawingElement] = [],
                         pipOffsetFraction: CGSize = .zero,
-                        pipWidthFraction: CGFloat = 0.3) {
+                        photoOverlayOffsetFraction: CGSize = .zero,
+                        photoOverlayWidthFraction: CGFloat = 0.3) {
         guard isConfigured, !isRecording else { return }
         let importedPhotoAtStart = importedPhoto
         let swappedAtStart = isCamerasSwapped
@@ -394,8 +400,10 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             self.isRecording = true
             self.recordingDuration = 0
             self.startRecordingTimer(initialOffsetFraction: pipOffsetFraction,
-                                     widthFraction: pipWidthFraction,
-                                     elements: elements)
+                                     widthFraction: 0.3,
+                                     elements: elements,
+                                     photoOffsetFraction: photoOverlayOffsetFraction,
+                                     photoWidthFraction: photoOverlayWidthFraction)
         }
 
         sessionQueue.async { [weak self] in
@@ -403,7 +411,9 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
             self.recordingElements = elements
             self.recordingPipOffsetFraction = pipOffsetFraction
-            self.recordingPipPhoto = importedPhotoAtStart
+            self.recordingPhotoOverlay = importedPhotoAtStart
+            self.recordingPhotoOverlayOffsetFraction = photoOverlayOffsetFraction
+            self.recordingPhotoOverlayWidthFraction = photoOverlayWidthFraction
 
             self.recordingLock.lock()
             self.recordedURLs.removeAll()
@@ -491,6 +501,28 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             }
             self.recordingLock.unlock()
         }
+    }
+
+    func updatePhotoOverlay(offsetFraction: CGSize, widthFraction: CGFloat) {
+        guard isRecording else { return }
+        recordingLock.lock()
+        defer { recordingLock.unlock() }
+        guard let recordingStartDate else { return }
+        let time = Date().timeIntervalSince(recordingStartDate)
+        if let previous = recordingPhotoOverlayKeyframes.last,
+           time - previous.time < 0.025,
+           abs(previous.offsetFraction.width - offsetFraction.width) < 0.0005,
+           abs(previous.offsetFraction.height - offsetFraction.height) < 0.0005,
+           abs(previous.widthFraction - widthFraction) < 0.0005 {
+            return
+        }
+        recordingPhotoOverlayOffsetFraction = offsetFraction
+        recordingPhotoOverlayWidthFraction = widthFraction
+        recordingPhotoOverlayKeyframes.append(
+            PhotoOverlayKeyframe(time: time,
+                                 offsetFraction: offsetFraction,
+                                 widthFraction: widthFraction)
+        )
     }
 
     // MARK: - Настройка сессии (выполняется в sessionQueue)
@@ -786,7 +818,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     private func captureAndMerge(elements: [DrawingElement],
                                  pipOffsetFraction: CGSize,
-                                 pipWidthFraction: CGFloat) async throws -> UIImage {
+                                 photoOverlayOffsetFraction: CGSize,
+                                 photoOverlayWidthFraction: CGFloat) async throws -> UIImage {
         defer { clearPhotoDelegates() }
 
         // Запускаем оба захвата подряд. Вызовы возвращаются мгновенно,
@@ -799,18 +832,10 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             throw CameraError.captureFailed
         }
 
-        // Второй слой: импортированное фото или снимок передней камеры.
-        let frontImage: UIImage
-        if let imported = importedPhoto {
-            frontImage = imported
-        } else {
-            guard let image = UIImage(data: front) else {
-                throw CameraError.captureFailed
-            }
-            frontImage = image
+        guard let frontImage = UIImage(data: front) else {
+            throw CameraError.captureFailed
         }
 
-        // Если камеры поменяны местами — меняем и порядок склейки.
         let primary = isCamerasSwapped ? frontImage : backImage
         let secondary = isCamerasSwapped ? backImage : frontImage
         return PhotoMerger.merge(back: primary,
@@ -819,7 +844,9 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                                  shape: pipShape,
                                  splitOrientation: splitOrientation,
                                  pipOffsetFraction: pipOffsetFraction,
-                                 pipWidthFraction: pipWidthFraction,
+                                 photoOverlay: importedPhoto,
+                                 photoOverlayOffsetFraction: photoOverlayOffsetFraction,
+                                 photoOverlayWidthFraction: photoOverlayWidthFraction,
                                  elements: elements)
     }
 
@@ -908,16 +935,18 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingLock.lock()
         let pipKeyframes = recordingPipPositionKeyframes
         let drawingKeyframes = recordingDrawingKeyframes
+        let photoKeyframes = recordingPhotoOverlayKeyframes
         recordingLock.unlock()
         let outputLayout = recordingLayout
         let outputShape = recordingShape
         let outputSplitOrientation = recordingSplitOrientation
         let outputOffset = recordingPipOffsetFraction
-        let outputWidth = recordingPipWidthFraction
-        let outputPipPhoto = recordingPipPhoto
         let outputImportedVideoURL = recordingImportedVideoURL
         let outputCamerasSwapped = recordingCamerasSwapped
         let outputElements = recordingElements
+        let outputPhotoOverlay = recordingPhotoOverlay
+        let outputPhotoOffset = recordingPhotoOverlayOffsetFraction
+        let outputPhotoWidth = recordingPhotoOverlayWidthFraction
 
         // Склейку выполняем в фоне, чтобы не блокировать очередь сессии.
         Task { [weak self] in
@@ -934,10 +963,13 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                     shape: outputShape,
                     splitOrientation: outputSplitOrientation,
                     pipOffsetFraction: outputOffset,
-                    pipWidthFraction: outputWidth,
+                    pipWidthFraction: 0.3,
                     pipPositionKeyframes: pipKeyframes,
                     drawingKeyframes: drawingKeyframes,
-                    pipPhoto: outputPipPhoto,
+                    photoOverlay: outputPhotoOverlay,
+                    photoOverlayOffsetFraction: outputPhotoOffset,
+                    photoOverlayWidthFraction: outputPhotoWidth,
+                    photoOverlayKeyframes: photoKeyframes,
                     elements: outputElements
                 )
                 // Удаляем исходные клипы — остаётся только объединённый файл.
@@ -962,6 +994,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingError = nil
         recordingPipPositionKeyframes.removeAll()
         recordingDrawingKeyframes.removeAll()
+        recordingPhotoOverlayKeyframes.removeAll()
         expectedRecordingCount = 0
         receivedRecordingCallbacks = 0
         recordingLock.unlock()
@@ -971,7 +1004,9 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingElements = []
         recordingPipOffsetFraction = .zero
         recordingPipWidthFraction = 0.3
-        recordingPipPhoto = nil
+        recordingPhotoOverlay = nil
+        recordingPhotoOverlayOffsetFraction = .zero
+        recordingPhotoOverlayWidthFraction = 0.3
         recordingImportedVideoURL = nil
         recordingLayout = .splitScreen
         recordingShape = .rectangle
@@ -983,7 +1018,9 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     private func startRecordingTimer(initialOffsetFraction: CGSize,
                                      widthFraction: CGFloat,
-                                     elements: [DrawingElement]) {
+                                     elements: [DrawingElement],
+                                     photoOffsetFraction: CGSize,
+                                     photoWidthFraction: CGFloat) {
         recordingStartDate = Date()
         recordingPipWidthFraction = widthFraction
         recordingLock.lock()
@@ -994,6 +1031,13 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         ]
         recordingDrawingKeyframes = [
             DrawingElementsKeyframe(time: 0, elements: elements)
+        ]
+        recordingPhotoOverlayOffsetFraction = photoOffsetFraction
+        recordingPhotoOverlayWidthFraction = photoWidthFraction
+        recordingPhotoOverlayKeyframes = [
+            PhotoOverlayKeyframe(time: 0,
+                                 offsetFraction: photoOffsetFraction,
+                                 widthFraction: photoWidthFraction)
         ]
         recordingLock.unlock()
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in

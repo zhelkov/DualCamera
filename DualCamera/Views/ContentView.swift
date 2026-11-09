@@ -8,9 +8,11 @@ struct ContentView: View {
     @State private var camera = CameraManager()
     @Environment(\.scenePhase) private var scenePhase
     @State private var pipOffset: CGSize = .zero
+    @State private var photoOverlayOffset: CGSize = .zero
     @State private var previewSize: CGSize = .zero
     @State private var importedImageWidthFraction: CGFloat = 0.3
     @State private var pipDragBase: CGSize?
+    @State private var photoOverlayDragBase: CGSize?
     @State private var isZoomSliderVisible = false
     @State private var drawing = DrawingEngine()
     @State private var selectedMediaItems: [PhotosPickerItem] = []
@@ -64,8 +66,7 @@ struct ContentView: View {
         GeometryReader { geo in
             let size = geo.size
             let backIsMain = !camera.isCamerasSwapped
-            let pipWidthFraction = camera.importedPhoto == nil ? 0.3 : importedImageWidthFraction
-            let pip = Self.pipSize(for: camera.pipShape, in: size, widthFraction: pipWidthFraction)
+            let pip = Self.pipSize(for: camera.pipShape, in: size, widthFraction: 0.3)
             let frames = Self.layoutFrames(layout: camera.layout, size: size, pipSize: pip, pipOffset: pipOffset, splitOrientation: camera.splitOrientation)
             let pipRadius = camera.pipShape.cornerRadius(for: pip)
 
@@ -93,6 +94,19 @@ struct ContentView: View {
                         .offset(x: frames.secondary.minX, y: frames.secondary.minY)
                         .gesture(pipDrag)
                 }
+
+                if let photo = camera.importedPhoto {
+                    let frame = photoOverlayFrame(for: photo, in: size)
+                    Image(uiImage: photo)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: frame.width, height: frame.height)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white, lineWidth: 2))
+                        .shadow(color: .black.opacity(0.35), radius: 5)
+                        .offset(x: frame.minX, y: frame.minY)
+                        .gesture(photoOverlayDrag)
+                }
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.layout)
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.isCamerasSwapped)
@@ -104,17 +118,23 @@ struct ContentView: View {
 
     @ViewBuilder
     private var frontCameraContent: some View {
-        if let image = camera.importedPhoto {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-        } else {
-            FrontCameraImageView(store: camera.frontPreviewStore)
-        }
+        FrontCameraImageView(store: camera.frontPreviewStore)
     }
 
     private var pipOffsetFraction: CGSize {
         pipOffsetFraction(for: pipOffset)
+    }
+
+    private var photoOverlayOffsetFraction: CGSize {
+        pipOffsetFraction(for: photoOverlayOffset)
+    }
+
+    private func photoOverlayFrame(for image: UIImage, in size: CGSize) -> CGRect {
+        let width = size.width * importedImageWidthFraction
+        let height = width * image.size.height / max(image.size.width, 1)
+        let x = min(max(0, 16 + photoOverlayOffset.width), size.width - width)
+        let y = min(max(0, 16 + photoOverlayOffset.height), size.height - height)
+        return CGRect(x: x, y: y, width: width, height: height)
     }
 
     private func pipOffsetFraction(for offset: CGSize) -> CGSize {
@@ -140,6 +160,23 @@ struct ContentView: View {
             .onEnded { _ in
                 pipDragBase = nil
                 camera.updatePipOffsetFraction(pipOffsetFraction)
+            }
+    }
+
+    private var photoOverlayDrag: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                let base = photoOverlayDragBase ?? photoOverlayOffset
+                photoOverlayDragBase = base
+                photoOverlayOffset = CGSize(width: base.width + value.translation.width,
+                                            height: base.height + value.translation.height)
+                camera.updatePhotoOverlay(offsetFraction: photoOverlayOffsetFraction,
+                                          widthFraction: importedImageWidthFraction)
+            }
+            .onEnded { _ in
+                photoOverlayDragBase = nil
+                camera.updatePhotoOverlay(offsetFraction: photoOverlayOffsetFraction,
+                                          widthFraction: importedImageWidthFraction)
             }
     }
 
@@ -257,24 +294,25 @@ struct ContentView: View {
                 .frame(width: 150)
                 .padding(.top, 6)
 
-                if camera.importedPhoto != nil {
-                    HStack(spacing: 8) {
-                        Text("Размер фото")
-                            .font(.caption)
-                            .foregroundStyle(.white)
-                        Slider(value: $importedImageWidthFraction, in: 0.15...0.6)
-                            .tint(.white)
-                            .frame(width: 120)
-                        Text("\(Int(importedImageWidthFraction * 100))%")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.white)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
-                    .onChange(of: importedImageWidthFraction) { _, newValue in
-                        camera.updatePipOffsetFraction(pipOffsetFraction,
-                                                       widthFraction: newValue)
-                    }
+            }
+
+            if camera.importedPhoto != nil {
+                HStack(spacing: 8) {
+                    Text("Размер фото")
+                        .font(.caption)
+                        .foregroundStyle(.white)
+                    Slider(value: $importedImageWidthFraction, in: 0.15...0.6)
+                        .tint(.white)
+                        .frame(width: 120)
+                    Text("\(Int(importedImageWidthFraction * 100))%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
+                .onChange(of: importedImageWidthFraction) { _, newValue in
+                    camera.updatePhotoOverlay(offsetFraction: photoOverlayOffsetFraction,
+                                              widthFraction: newValue)
                 }
             }
 
@@ -329,7 +367,8 @@ struct ContentView: View {
                         Button {
                             camera.captureBothCameras(elements: drawing.elements,
                                                       pipOffsetFraction: pipOffsetFraction,
-                                                      pipWidthFraction: camera.importedPhoto == nil ? 0.3 : importedImageWidthFraction)
+                                                      photoOverlayOffsetFraction: photoOverlayOffsetFraction,
+                                                      photoOverlayWidthFraction: importedImageWidthFraction)
                         } label: {
                             Circle()
                                 .fill(.white)
@@ -341,7 +380,8 @@ struct ContentView: View {
                     Button {
                         camera.startRecording(elements: drawing.elements,
                                               pipOffsetFraction: pipOffsetFraction,
-                                              pipWidthFraction: camera.importedPhoto == nil ? 0.3 : importedImageWidthFraction)
+                                              photoOverlayOffsetFraction: photoOverlayOffsetFraction,
+                                              photoOverlayWidthFraction: importedImageWidthFraction)
                     } label: {
                         ZStack {
                             Circle().stroke(.white, lineWidth: 4).frame(width: 72, height: 72)
