@@ -29,6 +29,7 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
 
     let backTrackID: CMPersistentTrackID
     let frontTrackID: CMPersistentTrackID
+    let photoTrackID: CMPersistentTrackID?
     let canvasSize: CGSize
     let layout: CaptureLayout
     let splitOrientation: SplitOrientation
@@ -44,16 +45,19 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
     let frontSourceSize: CGSize
     let backImage: CIImage?
     let frontImage: CIImage?
-    let photoOverlay: CIImage?
 
     var requiredSourceTrackIDs: [NSValue]? {
-        [NSNumber(value: backTrackID) as NSValue,
-         NSNumber(value: frontTrackID) as NSValue]
+        var trackIDs = [NSNumber(value: backTrackID), NSNumber(value: frontTrackID)]
+        if let photoTrackID {
+            trackIDs.append(NSNumber(value: photoTrackID))
+        }
+        return trackIDs.map { $0 as NSValue }
     }
 
     init(timeRange: CMTimeRange,
          backTrackID: CMPersistentTrackID,
          frontTrackID: CMPersistentTrackID,
+         photoTrackID: CMPersistentTrackID?,
          canvasSize: CGSize,
          layout: CaptureLayout,
          splitOrientation: SplitOrientation,
@@ -68,11 +72,11 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
          backSourceSize: CGSize,
          frontSourceSize: CGSize,
          backImage: CIImage?,
-         frontImage: CIImage?,
-         photoOverlay: CIImage?) {
+         frontImage: CIImage?) {
         self.timeRange = timeRange
         self.backTrackID = backTrackID
         self.frontTrackID = frontTrackID
+        self.photoTrackID = photoTrackID
         self.canvasSize = canvasSize
         self.layout = layout
         self.splitOrientation = splitOrientation
@@ -88,7 +92,6 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
         self.frontSourceSize = frontSourceSize
         self.backImage = backImage
         self.frontImage = frontImage
-        self.photoOverlay = photoOverlay
     }
 }
 
@@ -226,7 +229,11 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                     .composited(over: composed)
             }
 
-            if let photo = instruction.photoOverlay {
+            if let photoTrackID = instruction.photoTrackID {
+                guard let photoBuffer = request.sourceFrame(byTrackID: photoTrackID) else {
+                    throw CameraError.videoMergeFailed
+                }
+                let photo = CIImage(cvPixelBuffer: photoBuffer)
                 let photoLayout = photoOverlayLayoutAt(instruction,
                                                        time: request.compositionTime.seconds)
                 let photoExtent = photo.extent
