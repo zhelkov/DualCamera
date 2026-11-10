@@ -17,7 +17,7 @@ targets:
         SWIFT_VERSION: '5.0'
         TARGETED_DEVICE_FAMILY: '1'
         GENERATE_INFOPLIST_FILE: YES
-        CURRENT_PROJECT_VERSION: '23'
+        CURRENT_PROJECT_VERSION: '24'
         MARKETING_VERSION: '1.4.2'
         INFOPLIST_KEY_NSCameraUsageDescription: 'Для одновременной съёмки с передней и задней камер.'
         INFOPLIST_KEY_NSMicrophoneUsageDescription: 'Для записи звука вместе с видео.'

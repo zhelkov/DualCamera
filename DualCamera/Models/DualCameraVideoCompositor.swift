@@ -98,6 +98,7 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
     private let overlayCacheLock = NSLock()
     private var overlayCache: [Int: CIImage] = [:]
     private var overlayCacheOrder: [Int] = []
+    private let photoOverlayCacheLock = NSLock()
     private var photoOverlayCache: [Int: CIImage] = [:]
     private var photoOverlayCacheOrder: [Int] = []
 
