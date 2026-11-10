@@ -44,6 +44,9 @@ struct ContentView: View {
         .onChange(of: drawing.elements) { _, elements in
             camera.updateRecordingElements(elements)
         }
+        .onChange(of: drawing.draftElement) { _, _ in
+            camera.updateRecordingElements(drawing.elementsIncludingDraft)
+        }
         .alert("Ошибка", isPresented: errorBinding) {
             Button("ОК", role: .cancel) {}
         } message: {

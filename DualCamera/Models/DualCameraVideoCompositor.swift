@@ -18,6 +18,8 @@ struct PhotoOverlayKeyframe {
     let time: TimeInterval
     let offsetFraction: CGSize
     let widthFraction: CGFloat
+    let image: UIImage?
+    let imageID: UUID?
 }
 
 final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionInstructionProtocol {

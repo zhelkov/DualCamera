@@ -101,6 +101,11 @@ final class DrawingEngine {
     /// Выбранный элемент (для перемещения/изменения размера).
     private(set) var selectedElementID: UUID?
 
+    var elementsIncludingDraft: [DrawingElement] {
+        guard let draftElement else { return elements }
+        return elements + [draftElement]
+    }
+
     private enum DragMode { case none, move, resize }
     private var dragMode: DragMode = .none
     private var dragStartPoint: CGPoint = .zero

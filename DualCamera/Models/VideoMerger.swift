@@ -6,6 +6,14 @@ import UIKit
 /// Объединяет два записанных клипа (передняя и задняя камеры) в один файл.
 enum VideoMerger {
 
+    private struct PhotoSegment {
+        let id: UUID
+        let image: UIImage
+        let keyframes: [PhotoOverlayKeyframe]
+        let startTime: Double
+        let endTime: Double
+    }
+
     static func merge(back: URL,
                       front: URL,
                       layout: CaptureLayout,
@@ -38,6 +46,16 @@ enum VideoMerger {
         let effectiveDrawingKeyframes = drawingKeyframes.isEmpty
             ? [DrawingElementsKeyframe(time: 0, elements: elements)]
             : drawingKeyframes
+        let effectivePhotoKeyframes: [PhotoOverlayKeyframe]
+        if photoOverlayKeyframes.isEmpty, let photoOverlay {
+            effectivePhotoKeyframes = [PhotoOverlayKeyframe(time: 0,
+                                                              offsetFraction: photoOverlayOffsetFraction,
+                                                              widthFraction: photoOverlayWidthFraction,
+                                                              image: photoOverlay,
+                                                              imageID: UUID())]
+        } else {
+            effectivePhotoKeyframes = photoOverlayKeyframes
+        }
         let normalizedBackImage = Self.normalizedCIImage(backImage)
         let normalizedFrontImage = Self.normalizedCIImage(frontImage)
         guard (backImage == nil || normalizedBackImage != nil),
@@ -108,14 +126,11 @@ enum VideoMerger {
         exporter.outputFileType = .mov
 
         try await Self.runExport(exporter)
-        guard let photoOverlay else { return outputURL }
+        guard effectivePhotoKeyframes.contains(where: { $0.image != nil }) else { return outputURL }
         do {
             let photoURL = try await Self.addPhotoOverlay(
                 to: outputURL,
-                photo: photoOverlay,
-                keyframes: photoOverlayKeyframes,
-                fallbackOffset: photoOverlayOffsetFraction,
-                fallbackWidth: photoOverlayWidthFraction
+                keyframes: effectivePhotoKeyframes
             )
             try? FileManager.default.removeItem(at: outputURL)
             return photoURL
@@ -129,10 +144,7 @@ enum VideoMerger {
     /// This keeps the working custom camera/drawing compositor independent from
     /// the Core Animation photo layer.
     private static func addPhotoOverlay(to sourceURL: URL,
-                                        photo: UIImage,
-                                        keyframes: [PhotoOverlayKeyframe],
-                                        fallbackOffset: CGSize,
-                                        fallbackWidth: CGFloat) async throws -> URL {
+                                        keyframes: [PhotoOverlayKeyframe]) async throws -> URL {
         let asset = AVURLAsset(url: sourceURL)
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
         guard let sourceTrack = videoTracks.first else { throw CameraError.videoMergeFailed }
@@ -188,58 +200,64 @@ enum VideoMerger {
         videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
         videoComposition.instructions = [instruction]
 
-        guard let normalizedPhoto = normalizedUIImage(photo),
-              let photoCGImage = normalizedPhoto.cgImage else {
-            throw CameraError.videoMergeFailed
-        }
-        let photoImage = UIImage(cgImage: photoCGImage, scale: 1, orientation: .up)
-        let photoLayer = CALayer()
-        photoLayer.contents = photoCGImage
-        photoLayer.contentsGravity = .resizeAspectFill
-        photoLayer.masksToBounds = true
-        photoLayer.cornerRadius = 10
-
         let parentLayer = CALayer()
         parentLayer.frame = CGRect(origin: .zero, size: renderSize)
         let videoLayer = CALayer()
         videoLayer.frame = parentLayer.bounds
         parentLayer.addSublayer(videoLayer)
-        parentLayer.addSublayer(photoLayer)
 
-        let rects = photoRects(size: renderSize,
-                               photo: photoImage,
-                               keyframes: keyframes,
-                               fallbackOffset: fallbackOffset,
-                               fallbackWidth: fallbackWidth,
-                               duration: duration)
-        guard let first = rects.first else { throw CameraError.videoMergeFailed }
-        photoLayer.bounds = CGRect(origin: .zero, size: first.rect.size)
-        photoLayer.position = CGPoint(x: first.rect.midX,
-                                      y: renderSize.height - first.rect.midY)
-
-        if rects.count > 1 {
-            let keyTimes = rects.map { NSNumber(value: $0.time / duration.seconds) }
-            let position = CAKeyframeAnimation(keyPath: "position")
-            position.values = rects.map {
-                NSValue(cgPoint: CGPoint(x: $0.rect.midX,
-                                         y: renderSize.height - $0.rect.midY))
+        let segments = photoSegments(from: keyframes, duration: duration.seconds)
+        guard !segments.isEmpty else { throw CameraError.videoMergeFailed }
+        for segment in segments {
+            guard let normalizedPhoto = normalizedUIImage(segment.image),
+                  let photoCGImage = normalizedPhoto.cgImage else {
+                throw CameraError.videoMergeFailed
             }
-            position.keyTimes = keyTimes
-            position.calculationMode = .linear
-            position.beginTime = AVCoreAnimationBeginTimeAtZero
-            position.duration = duration.seconds
-            position.isRemovedOnCompletion = false
+            let photoImage = UIImage(cgImage: photoCGImage, scale: 1, orientation: .up)
+            let photoLayer = CALayer()
+            photoLayer.contents = photoCGImage
+            photoLayer.contentsGravity = .resizeAspectFill
+            photoLayer.masksToBounds = true
+            photoLayer.cornerRadius = 10
+            photoLayer.opacity = 0
+            parentLayer.addSublayer(photoLayer)
 
-            let bounds = CAKeyframeAnimation(keyPath: "bounds")
-            bounds.values = rects.map { NSValue(cgRect: CGRect(origin: .zero, size: $0.rect.size)) }
-            bounds.keyTimes = keyTimes
-            bounds.calculationMode = .linear
-            bounds.beginTime = AVCoreAnimationBeginTimeAtZero
-            bounds.duration = duration.seconds
-            bounds.isRemovedOnCompletion = false
+            let rects = photoRects(size: renderSize, photo: photoImage,
+                                   keyframes: segment.keyframes,
+                                   duration: duration)
+            guard let first = rects.first else { throw CameraError.videoMergeFailed }
+            photoLayer.bounds = CGRect(origin: .zero, size: first.rect.size)
+            photoLayer.position = CGPoint(x: first.rect.midX,
+                                          y: renderSize.height - first.rect.midY)
+            if rects.count > 1 {
+                let keyTimes = rects.map { NSNumber(value: $0.time / duration.seconds) }
+                let position = CAKeyframeAnimation(keyPath: "position")
+                position.values = rects.map {
+                    NSValue(cgPoint: CGPoint(x: $0.rect.midX,
+                                             y: renderSize.height - $0.rect.midY))
+                }
+                position.keyTimes = keyTimes
+                position.calculationMode = .linear
+                position.beginTime = AVCoreAnimationBeginTimeAtZero
+                position.duration = duration.seconds
+                position.fillMode = .both
+                position.isRemovedOnCompletion = false
+                photoLayer.add(position, forKey: "photo.position")
 
-            photoLayer.add(position, forKey: "photo.position")
-            photoLayer.add(bounds, forKey: "photo.bounds")
+                let bounds = CAKeyframeAnimation(keyPath: "bounds")
+                bounds.values = rects.map { NSValue(cgRect: CGRect(origin: .zero, size: $0.rect.size)) }
+                bounds.keyTimes = keyTimes
+                bounds.calculationMode = .linear
+                bounds.beginTime = AVCoreAnimationBeginTimeAtZero
+                bounds.duration = duration.seconds
+                bounds.fillMode = .both
+                bounds.isRemovedOnCompletion = false
+                photoLayer.add(bounds, forKey: "photo.bounds")
+            }
+            addVisibilityAnimation(to: photoLayer,
+                                   start: segment.startTime,
+                                   end: segment.endTime,
+                                   duration: duration.seconds)
         }
 
         videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
@@ -258,19 +276,99 @@ enum VideoMerger {
         return outputURL
     }
 
+    private static func photoSegments(from keyframes: [PhotoOverlayKeyframe],
+                                      duration: Double) -> [PhotoSegment] {
+        var segments: [PhotoSegment] = []
+        var activeID: UUID?
+        var activeImage: UIImage?
+        var activeKeyframes: [PhotoOverlayKeyframe] = []
+        var activeStart = 0.0
+
+        func finishActive(at endTime: Double) {
+            guard let activeID, let activeImage, !activeKeyframes.isEmpty,
+                  endTime > activeStart else { return }
+            segments.append(PhotoSegment(id: activeID,
+                                         image: activeImage,
+                                         keyframes: activeKeyframes,
+                                         startTime: activeStart,
+                                         endTime: endTime))
+        }
+
+        for frame in keyframes {
+            let time = min(max(0, frame.time), duration)
+            if let image = frame.image, let imageID = frame.imageID {
+                if activeID == imageID {
+                    activeKeyframes.append(PhotoOverlayKeyframe(time: time,
+                                                                offsetFraction: frame.offsetFraction,
+                                                                widthFraction: frame.widthFraction,
+                                                                image: image,
+                                                                imageID: imageID))
+                } else {
+                    finishActive(at: time)
+                    activeID = imageID
+                    activeImage = image
+                    activeStart = time
+                    activeKeyframes = [PhotoOverlayKeyframe(time: time,
+                                                            offsetFraction: frame.offsetFraction,
+                                                            widthFraction: frame.widthFraction,
+                                                            image: image,
+                                                            imageID: imageID)]
+                }
+            } else if activeID != nil {
+                finishActive(at: time)
+                activeID = nil
+                activeImage = nil
+                activeKeyframes = []
+            }
+        }
+        finishActive(at: duration)
+        return segments
+    }
+
+    private static func addVisibilityAnimation(to layer: CALayer,
+                                                start: Double,
+                                                end: Double,
+                                                duration: Double) {
+        guard duration > 0 else { return }
+        let startTime = min(max(0, start / duration), 1)
+        let endTime = min(max(startTime, end / duration), 1)
+        let epsilon = min(1, endTime + 0.00001)
+        var values: [NSNumber] = []
+        var keyTimes: [NSNumber] = []
+
+        if startTime > 0 {
+            values.append(0); keyTimes.append(0)
+            values.append(1); keyTimes.append(NSNumber(value: startTime))
+        } else {
+            values.append(1); keyTimes.append(0)
+        }
+        if endTime < 1 {
+            values.append(1); keyTimes.append(NSNumber(value: endTime))
+            values.append(0); keyTimes.append(NSNumber(value: epsilon))
+            if epsilon < 1 {
+                values.append(0); keyTimes.append(1)
+            }
+        } else if keyTimes.last?.doubleValue != 1 {
+            values.append(1); keyTimes.append(1)
+        }
+
+        let opacity = CAKeyframeAnimation(keyPath: "opacity")
+        opacity.values = values
+        opacity.keyTimes = keyTimes
+        opacity.calculationMode = .discrete
+        opacity.beginTime = AVCoreAnimationBeginTimeAtZero
+        opacity.duration = duration
+        opacity.fillMode = .both
+        opacity.isRemovedOnCompletion = false
+        layer.add(opacity, forKey: "photo.opacity")
+    }
+
     private static func photoRects(size: CGSize,
                                    photo: UIImage,
                                    keyframes: [PhotoOverlayKeyframe],
-                                   fallbackOffset: CGSize,
-                                   fallbackWidth: CGFloat,
                                    duration: CMTime) -> [(time: Double, rect: CGRect)] {
-        let frames = keyframes.isEmpty
-            ? [PhotoOverlayKeyframe(time: 0,
-                                    offsetFraction: fallbackOffset,
-                                    widthFraction: fallbackWidth)]
-            : keyframes
         var result: [(time: Double, rect: CGRect)] = []
-        for frame in frames {
+        for frame in keyframes {
             let time = min(max(0, frame.time), duration.seconds)
             let width = size.width * min(max(frame.widthFraction, 0.01), 1)
             let height = width * photo.size.height / max(photo.size.width, 1)
