@@ -671,7 +671,10 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             (backPhotoConnection, backCapture),
             (frontPhotoConnection, frontCapture),
             (backMovieConnection, backCapture),
-            (frontMovieConnection, frontCapture),
+            // Both movie tracks are laid onto one output canvas. Give them the same
+            // capture rotation so their track matrices share a common orientation;
+            // the per-device front angle was leaving the PiP track 90° off.
+            (frontMovieConnection, backCapture),
             (frontVideoDataConnection, frontCapture),
             (backPreviewLayer.connection, previewAngle),
             (frontPreviewLayer.connection, previewAngle)
