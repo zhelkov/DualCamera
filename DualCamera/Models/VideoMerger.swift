@@ -39,10 +39,8 @@ enum VideoMerger {
             : drawingKeyframes
         let normalizedBackImage = Self.normalizedCIImage(backImage)
         let normalizedFrontImage = Self.normalizedCIImage(frontImage)
-        let normalizedPhotoOverlay = Self.normalizedCIImage(photoOverlay)
         guard (backImage == nil || normalizedBackImage != nil),
-              (frontImage == nil || normalizedFrontImage != nil),
-              (photoOverlay == nil || normalizedPhotoOverlay != nil) else {
+              (frontImage == nil || normalizedFrontImage != nil) else {
             throw CameraError.videoMergeFailed
         }
 
@@ -99,7 +97,7 @@ enum VideoMerger {
                 frontSourceSize: frontClip.naturalSize,
                 backImage: normalizedBackImage,
                 frontImage: normalizedFrontImage,
-                photoOverlay: normalizedPhotoOverlay
+                photoOverlay: photoOverlay
             )
         ]
 
