@@ -39,10 +39,8 @@ enum VideoMerger {
             : drawingKeyframes
         let normalizedBackImage = Self.normalizedCIImage(backImage)
         let normalizedFrontImage = Self.normalizedCIImage(frontImage)
-        let normalizedPhotoOverlay = Self.normalizedCIImage(photoOverlay)
         guard (backImage == nil || normalizedBackImage != nil),
-              (frontImage == nil || normalizedFrontImage != nil),
-              (photoOverlay == nil || normalizedPhotoOverlay != nil) else {
+              (frontImage == nil || normalizedFrontImage != nil) else {
             throw CameraError.videoMergeFailed
         }
 
@@ -60,29 +58,6 @@ enum VideoMerger {
         let timeRange = CMTimeRange(start: .zero, duration: duration)
         try backCompTrack.insertTimeRange(timeRange, of: backClip.track, at: .zero)
         try frontCompTrack.insertTimeRange(timeRange, of: frontClip.track, at: .zero)
-
-        var photoTrackID: CMPersistentTrackID?
-        var stillPhotoMovieURL: URL?
-        defer {
-            if let stillPhotoMovieURL {
-                try? FileManager.default.removeItem(at: stillPhotoMovieURL)
-            }
-        }
-        if let normalizedPhotoOverlay {
-            let movieURL = try await Self.createStillPhotoMovie(from: normalizedPhotoOverlay,
-                                                                duration: duration)
-            stillPhotoMovieURL = movieURL
-            let photoAsset = AVURLAsset(url: movieURL)
-            guard let photoSourceTrack = try await photoAsset.loadTracks(withMediaType: .video).first,
-                  let photoCompTrack = composition.addMutableTrack(
-                    withMediaType: .video,
-                    preferredTrackID: kCMPersistentTrackID_Invalid
-                  ) else {
-                throw CameraError.videoMergeFailed
-            }
-            try photoCompTrack.insertTimeRange(timeRange, of: photoSourceTrack, at: .zero)
-            photoTrackID = photoCompTrack.trackID
-        }
 
         // Звук берём из клипа основной камеры (в обоих файлах он одинаковый).
         if let backAudioTrack = try await backAsset.loadTracks(withMediaType: .audio).first,
@@ -103,7 +78,6 @@ enum VideoMerger {
                 timeRange: timeRange,
                 backTrackID: backCompTrack.trackID,
                 frontTrackID: frontCompTrack.trackID,
-                photoTrackID: photoTrackID,
                 canvasSize: canvas,
                 layout: layout,
                 splitOrientation: splitOrientation,
@@ -122,7 +96,8 @@ enum VideoMerger {
                 backSourceSize: backClip.naturalSize,
                 frontSourceSize: frontClip.naturalSize,
                 backImage: normalizedBackImage,
-                frontImage: normalizedFrontImage
+                frontImage: normalizedFrontImage,
+                photoOverlay: photoOverlay
             )
         ]
 
@@ -293,103 +268,6 @@ enum VideoMerger {
     private static func mergedMovieURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("dualcamera-merged-\(UUID().uuidString).mov")
-    }
-
-    private static func createStillPhotoMovie(from image: CIImage,
-                                              duration: CMTime) async throws -> URL {
-        let width = max(2, Int(image.extent.width) / 2 * 2)
-        let height = max(2, Int(image.extent.height) / 2 * 2)
-        let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dualcamera-photo-\(UUID().uuidString).mov")
-        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mov)
-        let input = AVAssetWriterInput(mediaType: .video,
-                                       outputSettings: [AVVideoCodecKey: AVVideoCodecType.h264,
-                                                        AVVideoWidthKey: width,
-                                                        AVVideoHeightKey: height])
-        input.expectsMediaDataInRealTime = false
-        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
-            assetWriterInput: input,
-            sourcePixelBufferAttributes: [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                kCVPixelBufferWidthKey as String: width,
-                kCVPixelBufferHeightKey as String: height,
-                kCVPixelBufferCGImageCompatibilityKey as String: true,
-                kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
-            ]
-        )
-        guard writer.canAdd(input) else { throw CameraError.videoMergeFailed }
-        writer.add(input)
-        guard writer.startWriting() else {
-            throw writer.error ?? CameraError.videoMergeFailed
-        }
-        writer.startSession(atSourceTime: .zero)
-
-        let frameCount = max(1, Int64(ceil(duration.seconds * 30)))
-        let renderRect = CGRect(x: 0, y: 0, width: width, height: height)
-        let scaledImage = image.transformed(by: CGAffineTransform(
-            scaleX: CGFloat(width) / max(image.extent.width, 1),
-            y: CGFloat(height) / max(image.extent.height, 1)
-        )).cropped(to: renderRect)
-        let ciContext = CIContext(options: [.cacheIntermediates: false])
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let queue = DispatchQueue(label: "com.dualcamera.photo-track-writer")
-        var succeeded = false
-        defer {
-            if !succeeded {
-                try? FileManager.default.removeItem(at: outputURL)
-            }
-        }
-
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            var frameIndex: Int64 = 0
-            var didFinish = false
-            input.requestMediaDataWhenReady(on: queue) {
-                guard !didFinish else { return }
-                while input.isReadyForMoreMediaData {
-                    if frameIndex >= frameCount {
-                        didFinish = true
-                        input.markAsFinished()
-                        writer.finishWriting {
-                            if writer.status == .completed {
-                                continuation.resume()
-                            } else {
-                                continuation.resume(throwing: writer.error ?? CameraError.videoMergeFailed)
-                            }
-                        }
-                        return
-                    }
-
-                    guard let pool = adaptor.pixelBufferPool else {
-                        didFinish = true
-                        writer.cancelWriting()
-                        continuation.resume(throwing: CameraError.videoMergeFailed)
-                        return
-                    }
-                    var optionalBuffer: CVPixelBuffer?
-                    let status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &optionalBuffer)
-                    guard status == kCVReturnSuccess, let buffer = optionalBuffer else {
-                        didFinish = true
-                        writer.cancelWriting()
-                        continuation.resume(throwing: CameraError.videoMergeFailed)
-                        return
-                    }
-                    ciContext.render(scaledImage,
-                                     to: buffer,
-                                     bounds: renderRect,
-                                     colorSpace: colorSpace)
-                    let presentationTime = CMTime(value: frameIndex, timescale: 30)
-                    guard adaptor.append(buffer, withPresentationTime: presentationTime) else {
-                        didFinish = true
-                        writer.cancelWriting()
-                        continuation.resume(throwing: writer.error ?? CameraError.videoMergeFailed)
-                        return
-                    }
-                    frameIndex += 1
-                }
-            }
-        }
-        succeeded = true
-        return outputURL
     }
 
     private static func normalizedCIImage(_ image: UIImage?) -> CIImage? {

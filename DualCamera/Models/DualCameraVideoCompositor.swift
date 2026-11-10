@@ -29,7 +29,6 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
 
     let backTrackID: CMPersistentTrackID
     let frontTrackID: CMPersistentTrackID
-    let photoTrackID: CMPersistentTrackID?
     let canvasSize: CGSize
     let layout: CaptureLayout
     let splitOrientation: SplitOrientation
@@ -45,19 +44,16 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
     let frontSourceSize: CGSize
     let backImage: CIImage?
     let frontImage: CIImage?
+    let photoOverlay: UIImage?
 
     var requiredSourceTrackIDs: [NSValue]? {
-        var trackIDs = [NSNumber(value: backTrackID), NSNumber(value: frontTrackID)]
-        if let photoTrackID {
-            trackIDs.append(NSNumber(value: photoTrackID))
-        }
-        return trackIDs.map { $0 as NSValue }
+        [NSNumber(value: backTrackID) as NSValue,
+         NSNumber(value: frontTrackID) as NSValue]
     }
 
     init(timeRange: CMTimeRange,
          backTrackID: CMPersistentTrackID,
          frontTrackID: CMPersistentTrackID,
-         photoTrackID: CMPersistentTrackID?,
          canvasSize: CGSize,
          layout: CaptureLayout,
          splitOrientation: SplitOrientation,
@@ -72,11 +68,11 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
          backSourceSize: CGSize,
          frontSourceSize: CGSize,
          backImage: CIImage?,
-         frontImage: CIImage?) {
+         frontImage: CIImage?,
+         photoOverlay: UIImage?) {
         self.timeRange = timeRange
         self.backTrackID = backTrackID
         self.frontTrackID = frontTrackID
-        self.photoTrackID = photoTrackID
         self.canvasSize = canvasSize
         self.layout = layout
         self.splitOrientation = splitOrientation
@@ -92,6 +88,7 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
         self.frontSourceSize = frontSourceSize
         self.backImage = backImage
         self.frontImage = frontImage
+        self.photoOverlay = photoOverlay
     }
 }
 
@@ -101,6 +98,8 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
     private let overlayCacheLock = NSLock()
     private var overlayCache: [Int: CIImage] = [:]
     private var overlayCacheOrder: [Int] = []
+    private var photoOverlayCache: [Int: CIImage] = [:]
+    private var photoOverlayCacheOrder: [Int] = []
 
     var sourcePixelBufferAttributes: [String: Any]? {
         [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
@@ -229,31 +228,17 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                     .composited(over: composed)
             }
 
-            if let photoTrackID = instruction.photoTrackID {
-                guard let photoBuffer = request.sourceFrame(byTrackID: photoTrackID) else {
-                    throw CameraError.videoMergeFailed
-                }
-                let photo = CIImage(cvPixelBuffer: photoBuffer)
-                let photoLayout = photoOverlayLayoutAt(instruction,
-                                                       time: request.compositionTime.seconds)
-                let photoExtent = photo.extent
-                let width = instruction.canvasSize.width * photoLayout.widthFraction
-                let height = width * photoExtent.height / max(photoExtent.width, 1)
-                let x = min(max(0, 16 + photoLayout.offset.width * instruction.canvasSize.width),
-                            instruction.canvasSize.width - width)
-                let y = min(max(0, 16 + photoLayout.offset.height * instruction.canvasSize.height),
-                            instruction.canvasSize.height - height)
-                let target = CGRect(x: x, y: y, width: width, height: height)
-                    .verticallyMirrored(in: instruction.canvasSize.height)
-                    .horizontallyMirrored(in: instruction.canvasSize.width)
-                let correctedPhoto = photo.transformed(by: CGAffineTransform(a: -1, b: 0,
-                                                                              c: 0, d: -1,
-                                                                              tx: photoExtent.maxX + photoExtent.minX,
-                                                                              ty: photoExtent.maxY + photoExtent.minY))
+            if let photoImage = photoOverlay(at: request.compositionTime.seconds,
+                                             instruction: instruction) {
+                let correctedPhoto = photoImage.transformed(by: CGAffineTransform(
+                    a: -1, b: 0, c: 0, d: -1,
+                    tx: instruction.canvasSize.width,
+                    ty: instruction.canvasSize.height
+                ))
                 let photoLayer = place(correctedPhoto,
-                                       sourceSize: photoExtent.size,
+                                       sourceSize: instruction.canvasSize,
                                        transform: .identity,
-                                       in: target,
+                                       in: canvas,
                                        canvasHeight: instruction.canvasSize.height)
                 composed = photoLayer.composited(over: composed)
             }
@@ -312,25 +297,63 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
         return (last.offsetFraction, last.widthFraction)
     }
 
-    private func photoOverlayLayoutAt(_ instruction: DualCameraVideoCompositionInstruction,
-                                      time: TimeInterval) -> (offset: CGSize, widthFraction: CGFloat) {
-        let keyframes = instruction.photoOverlayKeyframes
-        guard let first = keyframes.first else { return (.zero, 0.3) }
-        guard time > first.time else { return (first.offsetFraction, first.widthFraction) }
-        for index in 1..<keyframes.count {
-            let start = keyframes[index - 1]
-            let end = keyframes[index]
-            guard time <= end.time else { continue }
-            let duration = max(0.0001, end.time - start.time)
-            let progress = CGFloat(min(1, max(0, (time - start.time) / duration)))
-            return (CGSize(width: start.offsetFraction.width
-                            + (end.offsetFraction.width - start.offsetFraction.width) * progress,
-                          height: start.offsetFraction.height
-                            + (end.offsetFraction.height - start.offsetFraction.height) * progress),
-                    start.widthFraction + (end.widthFraction - start.widthFraction) * progress)
+    private func photoOverlay(at time: TimeInterval,
+                              instruction: DualCameraVideoCompositionInstruction) -> CIImage? {
+        guard let photo = instruction.photoOverlay,
+              let index = instruction.photoOverlayKeyframes.lastIndex(where: { $0.time <= time }) else {
+            return nil
         }
-        guard let last = keyframes.last else { return (first.offsetFraction, first.widthFraction) }
-        return (last.offsetFraction, last.widthFraction)
+
+        photoOverlayCacheLock.lock()
+        defer { photoOverlayCacheLock.unlock() }
+        if let cached = photoOverlayCache[index] { return cached }
+
+        let keyframes = instruction.photoOverlayKeyframes
+        let keyframe = keyframes[index]
+        let canvasSize = instruction.canvasSize
+        let width = canvasSize.width * keyframe.widthFraction
+        let height = width * photo.size.height / max(photo.size.width, 1)
+        let x = min(max(0, 16 + keyframe.offsetFraction.width * canvasSize.width),
+                    canvasSize.width - width)
+        let y = min(max(0, 16 + keyframe.offsetFraction.height * canvasSize.height),
+                    canvasSize.height - height)
+        let target = CGRect(x: x, y: y, width: width, height: height)
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: canvasSize, format: format)
+        let renderedPhoto = renderer.image { context in
+            context.cgContext.saveGState()
+            UIBezierPath(roundedRect: target, cornerRadius: 10).addClip()
+            photo.draw(in: photoAspectFillRect(photo, in: target))
+            context.cgContext.restoreGState()
+        }
+        guard let cgImage = renderedPhoto.cgImage else { return nil }
+        let result = CIImage(cgImage: cgImage)
+        photoOverlayCache[index] = result
+        photoOverlayCacheOrder.append(index)
+        while photoOverlayCacheOrder.count > 3 {
+            photoOverlayCache.removeValue(forKey: photoOverlayCacheOrder.removeFirst())
+        }
+        return result
+    }
+
+    private func photoAspectFillRect(_ image: UIImage, in rect: CGRect) -> CGRect {
+        let imageAspect = image.size.width / image.size.height
+        let targetAspect = rect.width / rect.height
+        if imageAspect > targetAspect {
+            let width = rect.height * imageAspect
+            return CGRect(x: rect.midX - width / 2,
+                          y: rect.minY,
+                          width: width,
+                          height: rect.height)
+        }
+        let height = rect.width / imageAspect
+        return CGRect(x: rect.minX,
+                      y: rect.midY - height / 2,
+                      width: rect.width,
+                      height: height)
     }
 
     private func drawingOverlay(at time: TimeInterval,
