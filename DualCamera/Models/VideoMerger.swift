@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreImage
+import QuartzCore
 import UIKit
 
 /// Объединяет два записанных клипа (передняя и задняя камеры) в один файл.
@@ -86,18 +87,12 @@ enum VideoMerger {
                 pipWidthFraction: pipWidthFraction,
                 pipPositionKeyframes: pipPositionKeyframes,
                 drawingKeyframes: effectiveDrawingKeyframes,
-                photoOverlayKeyframes: photoOverlayKeyframes.isEmpty
-                    ? [PhotoOverlayKeyframe(time: 0,
-                                            offsetFraction: photoOverlayOffsetFraction,
-                                            widthFraction: photoOverlayWidthFraction)]
-                    : photoOverlayKeyframes,
                 backTransform: backClip.preferredTransform,
                 frontTransform: frontClip.preferredTransform,
                 backSourceSize: backClip.naturalSize,
                 frontSourceSize: frontClip.naturalSize,
                 backImage: normalizedBackImage,
-                frontImage: normalizedFrontImage,
-                photoOverlay: photoOverlay
+                frontImage: normalizedFrontImage
             )
         ]
 
@@ -113,7 +108,207 @@ enum VideoMerger {
         exporter.outputFileType = .mov
 
         try await Self.runExport(exporter)
+        guard let photoOverlay else { return outputURL }
+        do {
+            let photoURL = try await Self.addPhotoOverlay(
+                to: outputURL,
+                photo: photoOverlay,
+                keyframes: photoOverlayKeyframes,
+                fallbackOffset: photoOverlayOffsetFraction,
+                fallbackWidth: photoOverlayWidthFraction
+            )
+            try? FileManager.default.removeItem(at: outputURL)
+            return photoURL
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw error
+        }
+    }
+
+    /// Applies the still image in a second, standard AVFoundation export pass.
+    /// This keeps the working custom camera/drawing compositor independent from
+    /// the Core Animation photo layer.
+    private static func addPhotoOverlay(to sourceURL: URL,
+                                        photo: UIImage,
+                                        keyframes: [PhotoOverlayKeyframe],
+                                        fallbackOffset: CGSize,
+                                        fallbackWidth: CGFloat) async throws -> URL {
+        let asset = AVURLAsset(url: sourceURL)
+        let videoTracks = try await asset.loadTracks(withMediaType: .video)
+        guard let sourceTrack = videoTracks.first else { throw CameraError.videoMergeFailed }
+
+        let duration = try await asset.load(.duration)
+        let naturalSize = try await sourceTrack.load(.naturalSize)
+        let sourceTransform = try await sourceTrack.load(.preferredTransform)
+        let sourceBounds = CGRect(origin: .zero, size: naturalSize)
+            .applying(sourceTransform)
+            .standardized
+        guard sourceBounds.width > 0, sourceBounds.height > 0,
+              duration.seconds.isFinite, duration.seconds > 0 else {
+            throw CameraError.videoMergeFailed
+        }
+
+        let renderSize = sourceBounds.size
+        let composition = AVMutableComposition()
+        guard let videoTrack = composition.addMutableTrack(
+            withMediaType: .video,
+            preferredTrackID: kCMPersistentTrackID_Invalid
+        ) else { throw CameraError.videoMergeFailed }
+        let timeRange = CMTimeRange(start: .zero, duration: duration)
+        try videoTrack.insertTimeRange(timeRange, of: sourceTrack, at: .zero)
+
+        for audioTrack in try await asset.loadTracks(withMediaType: .audio) {
+            guard let destination = composition.addMutableTrack(
+                withMediaType: .audio,
+                preferredTrackID: kCMPersistentTrackID_Invalid
+            ) else { continue }
+            let audioRange = try await audioTrack.load(.timeRange)
+            let copyDuration = CMTimeMinimum(duration, audioRange.duration)
+            if copyDuration > .zero {
+                try destination.insertTimeRange(CMTimeRange(start: .zero, duration: copyDuration),
+                                                of: audioTrack,
+                                                at: .zero)
+            }
+        }
+
+        let normalizedTransform = CGAffineTransform(a: sourceTransform.a,
+                                                    b: sourceTransform.b,
+                                                    c: sourceTransform.c,
+                                                    d: sourceTransform.d,
+                                                    tx: sourceTransform.tx - sourceBounds.minX,
+                                                    ty: sourceTransform.ty - sourceBounds.minY)
+        let instruction = AVMutableVideoCompositionInstruction()
+        instruction.timeRange = timeRange
+        let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
+        layerInstruction.setTransform(normalizedTransform, at: .zero)
+        instruction.layerInstructions = [layerInstruction]
+
+        let videoComposition = AVMutableVideoComposition()
+        videoComposition.renderSize = renderSize
+        videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
+        videoComposition.instructions = [instruction]
+
+        guard let normalizedPhoto = normalizedUIImage(photo),
+              let photoCGImage = normalizedPhoto.cgImage else {
+            throw CameraError.videoMergeFailed
+        }
+        let photoImage = UIImage(cgImage: photoCGImage, scale: 1, orientation: .up)
+        let photoLayer = CALayer()
+        photoLayer.contents = photoCGImage
+        photoLayer.contentsGravity = .resizeAspectFill
+        photoLayer.masksToBounds = true
+        photoLayer.cornerRadius = 10
+
+        let parentLayer = CALayer()
+        parentLayer.frame = CGRect(origin: .zero, size: renderSize)
+        let videoLayer = CALayer()
+        videoLayer.frame = parentLayer.bounds
+        parentLayer.addSublayer(videoLayer)
+        parentLayer.addSublayer(photoLayer)
+
+        let rects = photoRects(size: renderSize,
+                               photo: photoImage,
+                               keyframes: keyframes,
+                               fallbackOffset: fallbackOffset,
+                               fallbackWidth: fallbackWidth,
+                               duration: duration)
+        guard let first = rects.first else { throw CameraError.videoMergeFailed }
+        photoLayer.bounds = CGRect(origin: .zero, size: first.rect.size)
+        photoLayer.position = CGPoint(x: first.rect.midX,
+                                      y: renderSize.height - first.rect.midY)
+
+        if rects.count > 1 {
+            let keyTimes = rects.map { NSNumber(value: $0.time / duration.seconds) }
+            let position = CAKeyframeAnimation(keyPath: "position")
+            position.values = rects.map {
+                NSValue(cgPoint: CGPoint(x: $0.rect.midX,
+                                         y: renderSize.height - $0.rect.midY))
+            }
+            position.keyTimes = keyTimes
+            position.calculationMode = .linear
+            position.beginTime = AVCoreAnimationBeginTimeAtZero
+            position.duration = duration.seconds
+            position.isRemovedOnCompletion = false
+
+            let bounds = CAKeyframeAnimation(keyPath: "bounds")
+            bounds.values = rects.map { NSValue(cgRect: CGRect(origin: .zero, size: $0.rect.size)) }
+            bounds.keyTimes = keyTimes
+            bounds.calculationMode = .linear
+            bounds.beginTime = AVCoreAnimationBeginTimeAtZero
+            bounds.duration = duration.seconds
+            bounds.isRemovedOnCompletion = false
+
+            photoLayer.add(position, forKey: "photo.position")
+            photoLayer.add(bounds, forKey: "photo.bounds")
+        }
+
+        videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
+            postProcessingAsVideoLayer: videoLayer,
+            in: parentLayer
+        )
+        let outputURL = mergedMovieURL()
+        guard let exporter = AVAssetExportSession(asset: composition,
+                                                   presetName: AVAssetExportPresetHighestQuality) else {
+            throw CameraError.videoMergeFailed
+        }
+        exporter.videoComposition = videoComposition
+        exporter.outputURL = outputURL
+        exporter.outputFileType = .mov
+        try await runExport(exporter)
         return outputURL
+    }
+
+    private static func photoRects(size: CGSize,
+                                   photo: UIImage,
+                                   keyframes: [PhotoOverlayKeyframe],
+                                   fallbackOffset: CGSize,
+                                   fallbackWidth: CGFloat,
+                                   duration: CMTime) -> [(time: Double, rect: CGRect)] {
+        let frames = keyframes.isEmpty
+            ? [PhotoOverlayKeyframe(time: 0,
+                                    offsetFraction: fallbackOffset,
+                                    widthFraction: fallbackWidth)]
+            : keyframes
+        var result: [(time: Double, rect: CGRect)] = []
+        for frame in frames {
+            let time = min(max(0, frame.time), duration.seconds)
+            let width = size.width * min(max(frame.widthFraction, 0.01), 1)
+            let height = width * photo.size.height / max(photo.size.width, 1)
+            guard width > 0, height > 0, height <= size.height else { continue }
+            let x = min(max(0, 16 + frame.offsetFraction.width * size.width), size.width - width)
+            let y = min(max(0, 16 + frame.offsetFraction.height * size.height), size.height - height)
+            let rect = CGRect(x: x, y: y, width: width, height: height)
+            if result.last?.time == time {
+                result[result.count - 1] = (time, rect)
+            } else {
+                result.append((time, rect))
+            }
+        }
+        return result
+    }
+
+    /// UIKit drawing normalizes UIImage orientation the same way as the working
+    /// still-photo path, while limiting the bitmap size for video overlay export.
+    private static func normalizedUIImage(_ image: UIImage) -> UIImage? {
+        guard let cgImage = image.cgImage else { return nil }
+        var pixelWidth = cgImage.width
+        var pixelHeight = cgImage.height
+        switch image.imageOrientation {
+        case .left, .right, .leftMirrored, .rightMirrored:
+            swap(&pixelWidth, &pixelHeight)
+        default:
+            break
+        }
+        let scale = min(1, 1920 / CGFloat(max(pixelWidth, pixelHeight)))
+        let size = CGSize(width: CGFloat(pixelWidth) * scale,
+                          height: CGFloat(pixelHeight) * scale)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
     }
 
     /// Сплит: два клипа друг под другом через layer-инструкции.
