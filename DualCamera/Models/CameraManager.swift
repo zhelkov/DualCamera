@@ -95,6 +95,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var frontRotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var rotationObservation: NSKeyValueObservation?
+    private var frontRotationObservation: NSKeyValueObservation?
     private var backPhotoConnection: AVCaptureConnection?
     private var frontPhotoConnection: AVCaptureConnection?
     private var backMovieConnection: AVCaptureConnection?
@@ -701,8 +702,26 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             guard let self, let previewAngle = change.newValue else { return }
             let backCapture = self.rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? previewAngle
             let frontCapture = self.frontRotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? previewAngle
+            let frontPreviewAngle = self.frontRotationCoordinator?.videoRotationAngleForHorizonLevelPreview ?? previewAngle
             self.sessionQueue.async {
                 self.applyRotation(previewAngle: previewAngle,
+                                   frontPreviewAngle: frontPreviewAngle,
+                                   backCapture: backCapture,
+                                   frontCapture: frontCapture)
+            }
+        }
+
+        frontRotationObservation = frontCoordinator.observe(
+            \.videoRotationAngleForHorizonLevelPreview,
+            options: [.initial, .new]
+        ) { [weak self] _, change in
+            guard let self, let frontPreviewAngle = change.newValue else { return }
+            let backPreviewAngle = self.rotationCoordinator?.videoRotationAngleForHorizonLevelPreview ?? frontPreviewAngle
+            let backCapture = self.rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? backPreviewAngle
+            let frontCapture = self.frontRotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? frontPreviewAngle
+            self.sessionQueue.async {
+                self.applyRotation(previewAngle: backPreviewAngle,
+                                   frontPreviewAngle: frontPreviewAngle,
                                    backCapture: backCapture,
                                    frontCapture: frontCapture)
             }
@@ -710,28 +729,38 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     }
 
     /// Применяет угол поворота к фото/видео-соединениям и обновляет флаг ориентации.
-    private func applyRotation(previewAngle: CGFloat, backCapture: CGFloat, frontCapture: CGFloat) {
+    private func applyRotation(previewAngle: CGFloat,
+                               frontPreviewAngle: CGFloat,
+                               backCapture: CGFloat,
+                               frontCapture: CGFloat) {
         let isPortrait = previewAngle.truncatingRemainder(dividingBy: 180) == 0
         updateOnMain { self.isPortrait = isPortrait }
 
         let pairs: [(AVCaptureConnection?, CGFloat)] = [
             (backPhotoConnection, backCapture),
             (frontPhotoConnection, frontCapture),
-            (backMovieConnection, backCapture),
-            // Both movie tracks are laid onto one output canvas. Give them the same
-            // capture rotation so their track matrices share a common orientation;
-            // the per-device front angle was leaving the PiP track 90° off.
-            (frontMovieConnection, backCapture),
-            // This data-output feed drives the in-app front preview. Match it to the
-            // same orientation used by the front movie track so preview and saved
-            // video use one display coordinate system.
-            (frontVideoDataConnection, backCapture),
+            (frontVideoDataConnection, frontCapture),
             (backPreviewLayer.connection, previewAngle),
-            (frontPreviewLayer.connection, previewAngle)
+            (frontPreviewLayer.connection, frontPreviewAngle)
         ]
         for (connection, angle) in pairs {
             if let connection, connection.isVideoRotationAngleSupported(angle) {
                 connection.videoRotationAngle = angle
+            }
+        }
+
+        // Keep movie track transforms fixed while recording. Changing a
+        // MovieFileOutput connection's rotation mid-recording can fail the
+        // capture; the recording keeps the orientation selected at its start.
+        if !isRecording {
+            let moviePairs: [(AVCaptureConnection?, CGFloat)] = [
+                (backMovieConnection, backCapture),
+                (frontMovieConnection, backCapture)
+            ]
+            for (connection, angle) in moviePairs {
+                if let connection, connection.isVideoRotationAngleSupported(angle) {
+                    connection.videoRotationAngle = angle
+                }
             }
         }
     }
