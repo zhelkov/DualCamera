@@ -805,7 +805,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                                   orientation: AVCaptureVideoOrientation) {
         guard let connection else { return }
         if let coordinator {
-            let angle = coordinator.videoRotationAngleRelative(toDeviceOrientation: orientation)
+            let angle = coordinator.videoRotationAngleForHorizonLevelCapture
             if connection.isVideoRotationAngleSupported(angle) {
                 connection.videoRotationAngle = angle
                 return
