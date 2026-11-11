@@ -92,10 +92,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     // MARK: - Ротация
 
-    private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
-    private var frontRotationCoordinator: AVCaptureDevice.RotationCoordinator?
-    private var rotationObservation: NSKeyValueObservation?
-    private var frontRotationObservation: NSKeyValueObservation?
+    private var orientationObserverRegistered = false
     private var backPhotoConnection: AVCaptureConnection?
     private var frontPhotoConnection: AVCaptureConnection?
     private var backMovieConnection: AVCaptureConnection?
@@ -159,6 +156,15 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         frontPreviewLayer.videoGravity = .resizeAspectFill
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self,
+                                                  name: UIDevice.orientationDidChangeNotification,
+                                                  object: nil)
+        if orientationObserverRegistered {
+            UIDevice.current.endGeneratingDeviceOrientationNotifications()
+        }
+    }
+
     // MARK: - Публичное API
 
     /// Запрашивает доступ к камере и настраивает сессию.
@@ -190,6 +196,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             return
         }
 
+        let initialOrientation = currentInterfaceVideoOrientation()
+        registerOrientationObserver()
         sessionQueue.async { [weak self] in
             guard let self else { return }
 
@@ -201,9 +209,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 try self.configureSession()
                 // Подключаем превью-слои до запуска сессии.
                 self.connectPreviewLayers()
+                self.applyInterfaceOrientation(initialOrientation, forceCaptureOutputs: true)
                 self.session.startRunning()
-                // Ротация превью и соединений под устройство.
-                self.configureRotationCoordinators()
                 // Характеристики читаем на очереди сессии, применяем на главной.
                 let minZoom = self.backCamera?.minAvailableVideoZoomFactor ?? 1
                 let maxZoom = self.backCamera?.maxAvailableVideoZoomFactor ?? 1
@@ -228,10 +235,12 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     }
 
     func startRunning() {
+        let orientation = currentInterfaceVideoOrientation()
         sessionQueue.async { [weak self] in
             guard let self, !self.session.isRunning else { return }
             // Возобновляем аудио-сессию (например, после возврата из фона).
             try? self.configureAudioSession()
+            self.applyInterfaceOrientation(orientation, forceCaptureOutputs: true)
             self.session.startRunning()
             self.updateOnMain { self.isRunning = self.session.isRunning }
         }
@@ -409,6 +418,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                         photoOverlayWidthFraction: CGFloat = 0.3) {
         guard isConfigured, !isRecording else { return }
         let importedPhotoAtStart = importedPhoto
+        let orientationAtStart = currentInterfaceVideoOrientation()
         let swappedAtStart = isCamerasSwapped
         let importedVideoAtStart = importedVideoURL
         let layoutAtStart = layout
@@ -431,6 +441,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
         sessionQueue.async { [weak self] in
             guard let self else { return }
+
+            self.applyInterfaceOrientation(orientationAtStart, forceCaptureOutputs: true)
 
             self.recordingElements = elements
             self.recordingPipOffsetFraction = pipOffsetFraction
@@ -697,81 +709,65 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
     }
 
-    /// Настраивает ротацию превью и отслеживает поворот устройства.
-    private func configureRotationCoordinators() {
-        guard let back = backCamera, let front = frontCamera else { return }
+    private func registerOrientationObserver() {
+        guard !orientationObserverRegistered else { return }
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(deviceOrientationDidChange),
+                                               name: UIDevice.orientationDidChangeNotification,
+                                               object: nil)
+        orientationObserverRegistered = true
+    }
 
-        // Координаторы сами поворачивают превью-слои под устройство.
-        let backCoordinator = AVCaptureDevice.RotationCoordinator(device: back, previewLayer: backPreviewLayer)
-        let frontCoordinator = AVCaptureDevice.RotationCoordinator(device: front, previewLayer: frontPreviewLayer)
-        rotationCoordinator = backCoordinator
-        frontRotationCoordinator = frontCoordinator
-
-        rotationObservation = backCoordinator.observe(
-            \.videoRotationAngleForHorizonLevelPreview,
-            options: [.initial, .new]
-        ) { [weak self] _, change in
-            guard let self, let previewAngle = change.newValue else { return }
-            let backCapture = self.rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? previewAngle
-            let frontCapture = self.frontRotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? previewAngle
-            let frontPreviewAngle = self.frontRotationCoordinator?.videoRotationAngleForHorizonLevelPreview ?? previewAngle
+    @objc private func deviceOrientationDidChange(_ notification: Notification) {
+        // Face-up/face-down readings are ambiguous for a camera preview. Use
+        // the interface orientation after iOS has completed its rotation.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self else { return }
+            let orientation = self.currentInterfaceVideoOrientation()
             self.sessionQueue.async {
-                self.applyRotation(previewAngle: previewAngle,
-                                   frontPreviewAngle: frontPreviewAngle,
-                                   backCapture: backCapture,
-                                   frontCapture: frontCapture)
-            }
-        }
-
-        frontRotationObservation = frontCoordinator.observe(
-            \.videoRotationAngleForHorizonLevelPreview,
-            options: [.initial, .new]
-        ) { [weak self] _, change in
-            guard let self, let frontPreviewAngle = change.newValue else { return }
-            let backPreviewAngle = self.rotationCoordinator?.videoRotationAngleForHorizonLevelPreview ?? frontPreviewAngle
-            let backCapture = self.rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? backPreviewAngle
-            let frontCapture = self.frontRotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? frontPreviewAngle
-            self.sessionQueue.async {
-                self.applyRotation(previewAngle: backPreviewAngle,
-                                   frontPreviewAngle: frontPreviewAngle,
-                                   backCapture: backCapture,
-                                   frontCapture: frontCapture)
+                self.applyInterfaceOrientation(orientation)
             }
         }
     }
 
-    /// Применяет угол поворота к фото/видео-соединениям и обновляет флаг ориентации.
-    private func applyRotation(previewAngle: CGFloat,
-                               frontPreviewAngle: CGFloat,
-                               backCapture: CGFloat,
-                               frontCapture: CGFloat) {
-        let isPortrait = previewAngle.truncatingRemainder(dividingBy: 180) == 0
-        updateOnMain { self.isPortrait = isPortrait }
+    private func currentInterfaceVideoOrientation() -> AVCaptureVideoOrientation {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }
+        switch scene?.interfaceOrientation ?? .unknown {
+        case .landscapeLeft: return .landscapeLeft
+        case .landscapeRight: return .landscapeRight
+        case .portraitUpsideDown: return .portraitUpsideDown
+        case .portrait, .unknown: return .portrait
+        @unknown default: return .portrait
+        }
+    }
 
-        let previewPairs: [(AVCaptureConnection?, CGFloat)] = [
-            (backPreviewLayer.connection, previewAngle),
-            (frontPreviewLayer.connection, frontPreviewAngle)
-        ]
-        for (connection, angle) in previewPairs {
-            if let connection, connection.isVideoRotationAngleSupported(angle) {
-                connection.videoRotationAngle = angle
+    private func applyInterfaceOrientation(_ orientation: AVCaptureVideoOrientation,
+                                           forceCaptureOutputs: Bool = false) {
+        updateOnMain {
+            self.isPortrait = orientation == .portrait || orientation == .portraitUpsideDown
+        }
+
+        let previewConnections = [backPreviewLayer.connection, frontPreviewLayer.connection]
+        for connection in previewConnections {
+            if let connection, connection.isVideoOrientationSupported {
+                connection.videoOrientation = orientation
             }
         }
 
-        // Freeze capture-output rotations while recording so rotating the
-        // device doesn't reconfigure MultiCam outputs during an active capture.
-        if !isRecording {
-            let capturePairs: [(AVCaptureConnection?, CGFloat)] = [
-                (backPhotoConnection, backCapture),
-                (frontPhotoConnection, frontCapture),
-                (frontVideoDataConnection, frontCapture),
-                (backMovieConnection, backCapture),
-                (frontMovieConnection, backCapture)
-            ]
-            for (connection, angle) in capturePairs {
-                if let connection, connection.isVideoRotationAngleSupported(angle) {
-                    connection.videoRotationAngle = angle
-                }
+        guard forceCaptureOutputs || !isRecording else { return }
+        let captureConnections: [AVCaptureConnection?] = [
+            backPhotoConnection,
+            frontPhotoConnection,
+            backMovieConnection,
+            frontMovieConnection,
+            frontVideoDataConnection
+        ]
+        for connection in captureConnections {
+            if let connection, connection.isVideoOrientationSupported {
+                connection.videoOrientation = orientation
             }
         }
     }
