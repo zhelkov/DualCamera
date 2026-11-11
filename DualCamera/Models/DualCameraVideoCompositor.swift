@@ -5,7 +5,7 @@ import UIKit
 
 struct PipPositionKeyframe {
     let time: TimeInterval
-    let positionFraction: CGSize
+    let offsetFraction: CGSize
     let widthFraction: CGFloat
 }
 
@@ -47,7 +47,7 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
     let layout: CaptureLayout
     let splitOrientation: SplitOrientation
     let shape: PipShape
-    let pipPositionFraction: CGSize
+    let pipOffsetFraction: CGSize
     let pipWidthFraction: CGFloat
     let pipPositionKeyframes: [PipPositionKeyframe]
     let drawingKeyframes: [DrawingElementsKeyframe]
@@ -73,7 +73,7 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
          layout: CaptureLayout,
          splitOrientation: SplitOrientation,
          shape: PipShape,
-         pipPositionFraction: CGSize,
+         pipOffsetFraction: CGSize,
          pipWidthFraction: CGFloat,
          pipPositionKeyframes: [PipPositionKeyframe],
          drawingKeyframes: [DrawingElementsKeyframe],
@@ -93,7 +93,7 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
         self.layout = layout
         self.splitOrientation = splitOrientation
         self.shape = shape
-        self.pipPositionFraction = pipPositionFraction
+        self.pipOffsetFraction = pipOffsetFraction
         self.pipWidthFraction = pipWidthFraction
         self.pipPositionKeyframes = pipPositionKeyframes
         self.drawingKeyframes = drawingKeyframes
@@ -147,10 +147,12 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                 let width = min(instruction.canvasSize.width, instruction.canvasSize.height)
                     * layout.widthFraction
                 let height = width * captureLayout.shape.aspectRatio
-                let availableX = max(0, instruction.canvasSize.width - width - 32)
-                let availableY = max(0, instruction.canvasSize.height - height - 32)
-                let x = 16 + min(max(layout.position.width, 0), 1) * availableX
-                let y = 16 + min(max(layout.position.height, 0), 1) * availableY
+                let x = min(max(0, instruction.canvasSize.width - width - 16
+                                + layout.offset.width * instruction.canvasSize.width),
+                            instruction.canvasSize.width - width)
+                let y = min(max(0, instruction.canvasSize.height - height - 16
+                                + layout.offset.height * instruction.canvasSize.height),
+                            instruction.canvasSize.height - height)
                 frontRect = CGRect(x: x,
                                    y: y,
                                    width: width, height: height)
@@ -211,8 +213,8 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
             // Both camera outputs capture the same interface orientation. Use
             // the primary track's orientation matrix for both source frames so
             // the front sensor's native sensor rotation doesn't turn its PiP.
-            let mainTransform = instruction.backTransform
-            let secondaryTransform = instruction.backTransform
+            let mainTransform = swapSources ? instruction.frontTransform : instruction.backTransform
+            let secondaryTransform = swapSources ? instruction.backTransform : instruction.frontTransform
             let main = place(mainSource,
                              sourceSize: instruction.backImage == nil ? mainSize : mainSource.extent.size,
                              transform: instruction.backImage == nil ? mainTransform : .identity,
@@ -310,26 +312,26 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
     }
 
     private func layoutAt(_ instruction: DualCameraVideoCompositionInstruction,
-                          time: TimeInterval) -> (position: CGSize, widthFraction: CGFloat) {
+                          time: TimeInterval) -> (offset: CGSize, widthFraction: CGFloat) {
         let keyframes = instruction.pipPositionKeyframes
         guard let first = keyframes.first else {
-            return (instruction.pipPositionFraction, instruction.pipWidthFraction)
+            return (instruction.pipOffsetFraction, instruction.pipWidthFraction)
         }
-        guard time > first.time else { return (first.positionFraction, first.widthFraction) }
+        guard time > first.time else { return (first.offsetFraction, first.widthFraction) }
         for index in 1..<keyframes.count {
             let start = keyframes[index - 1]
             let end = keyframes[index]
             guard time <= end.time else { continue }
             let interval = max(0.0001, end.time - start.time)
             let progress = CGFloat(min(1, max(0, (time - start.time) / interval)))
-            return (CGSize(width: start.positionFraction.width
-                            + (end.positionFraction.width - start.positionFraction.width) * progress,
-                          height: start.positionFraction.height
-                            + (end.positionFraction.height - start.positionFraction.height) * progress),
+            return (CGSize(width: start.offsetFraction.width
+                            + (end.offsetFraction.width - start.offsetFraction.width) * progress,
+                          height: start.offsetFraction.height
+                            + (end.offsetFraction.height - start.offsetFraction.height) * progress),
                     start.widthFraction + (end.widthFraction - start.widthFraction) * progress)
         }
-        guard let last = keyframes.last else { return (first.positionFraction, first.widthFraction) }
-        return (last.positionFraction, last.widthFraction)
+        guard let last = keyframes.last else { return (first.offsetFraction, first.widthFraction) }
+        return (last.offsetFraction, last.widthFraction)
     }
 
     private func drawingOverlay(at time: TimeInterval,

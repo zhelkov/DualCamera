@@ -13,18 +13,11 @@ final class MovieCaptureDelegate: NSObject, AVCaptureFileOutputRecordingDelegate
     }
 
     let camera: Camera
-    var startCompletion: ((Camera, Date) -> Void)?
     /// Вызывается один раз по завершении записи файла.
     var completion: ((Camera, URL?, Error?) -> Void)?
 
     init(camera: Camera) {
         self.camera = camera
-    }
-
-    func fileOutput(_ output: AVCaptureFileOutput,
-                    didStartRecordingTo fileURL: URL,
-                    from connections: [AVCaptureConnection]) {
-        startCompletion?(camera, Date())
     }
 
     func fileOutput(_ output: AVCaptureFileOutput,

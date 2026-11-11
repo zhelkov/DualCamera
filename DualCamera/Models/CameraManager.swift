@@ -76,6 +76,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     private var backCamera: AVCaptureDevice?
     private var frontCamera: AVCaptureDevice?
+    private var backRotationCoordinator: AVCaptureDevice.RotationCoordinator?
+    private var frontRotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var backInput: AVCaptureDeviceInput?
     private var frontInput: AVCaptureDeviceInput?
     private var audioInput: AVCaptureDeviceInput?
@@ -119,7 +121,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var recordingBackURL: URL?
     private var recordingFrontURL: URL?
     private var recordingElements: [DrawingElement] = []
-    private var recordingPipPositionFraction = CGSize(width: 1, height: 1)
+    private var recordingPipOffsetFraction: CGSize = .zero
     private var recordingPipWidthFraction: CGFloat = 0.3
     private var recordingPipPositionKeyframes: [PipPositionKeyframe] = []
     private var recordingLayoutKeyframes: [CaptureLayoutKeyframe] = []
@@ -143,8 +145,6 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var recordingDelegates: [MovieCaptureDelegate] = []
     private var recordingTimer: Timer?
     private var recordingStartDate: Date?
-    private var recordingTimelineOffset: TimeInterval = 0
-    private var didReceiveRecordingStart = false
 
     // MARK: - Инициализация
 
@@ -348,7 +348,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 return
             }
             let keyframe = CameraSwapKeyframe(
-                time: max(0, Date().timeIntervalSince(start) - self.recordingTimelineOffset),
+                time: Date().timeIntervalSince(start),
                 isSwapped: self.isCamerasSwapped
             )
             if self.recordingCameraSwapKeyframes.last?.isSwapped != keyframe.isSwapped {
@@ -421,7 +421,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     /// Начинает одновременную запись видео с обеих камер.
     /// `elements` — рисунок, который вшивается в видео (снимок на момент старта).
     func startRecording(elements: [DrawingElement] = [],
-                        pipPositionFraction: CGSize = CGSize(width: 1, height: 1),
+                        pipOffsetFraction: CGSize = .zero,
                         photoOverlayOffsetFraction: CGSize = .zero,
                         photoOverlayWidthFraction: CGFloat = 0.3) {
         guard isConfigured, !isRecording else { return }
@@ -435,7 +435,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         updateOnMain {
             self.isRecording = true
             self.recordingDuration = 0
-            self.startRecordingTimer(initialPositionFraction: pipPositionFraction,
+            self.startRecordingTimer(initialOffsetFraction: pipOffsetFraction,
                                      widthFraction: 0.3,
                                      elements: elements,
                                      photoOffsetFraction: photoOverlayOffsetFraction,
@@ -453,7 +453,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             self.applyInterfaceOrientation(orientationAtStart, forceCaptureOutputs: true)
 
             self.recordingElements = elements
-            self.recordingPipPositionFraction = pipPositionFraction
+            self.recordingPipOffsetFraction = pipOffsetFraction
             self.recordingLock.lock()
             self.recordedURLs.removeAll()
             self.recordingError = nil
@@ -468,12 +468,6 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
             let backDelegate = MovieCaptureDelegate(camera: .back)
             let frontDelegate = MovieCaptureDelegate(camera: .front)
-            backDelegate.startCompletion = { [weak self] _, date in
-                self?.handleMovieStarted(at: date)
-            }
-            frontDelegate.startCompletion = { [weak self] _, date in
-                self?.handleMovieStarted(at: date)
-            }
             backDelegate.completion = { [weak self] camera, url, error in
                 self?.handleMovieFinished(camera: camera, url: url, error: error)
             }
@@ -498,9 +492,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         guard isRecording else { return }
         recordingLock.lock()
         let recordingStartDate = self.recordingStartDate ?? Date()
-        let timelineOffset = recordingTimelineOffset
         recordingLock.unlock()
-        let stopTime = max(0, Date().timeIntervalSince(recordingStartDate) - timelineOffset)
+        let stopTime = Date().timeIntervalSince(recordingStartDate)
         sessionQueue.async { [weak self] in
             guard let self else { return }
             if let elements {
@@ -516,24 +509,24 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
     }
 
-    func updatePipPositionFraction(_ positionFraction: CGSize, widthFraction: CGFloat? = nil) {
+    func updatePipOffsetFraction(_ offsetFraction: CGSize, widthFraction: CGFloat? = nil) {
         guard isRecording else { return }
         recordingLock.lock()
         defer { recordingLock.unlock() }
         guard let recordingStartDate else { return }
-        let time = max(0, Date().timeIntervalSince(recordingStartDate) - recordingTimelineOffset)
+        let time = Date().timeIntervalSince(recordingStartDate)
         let width = widthFraction ?? recordingPipWidthFraction
         if let previous = recordingPipPositionKeyframes.last,
            time - previous.time < 0.025,
-           abs(previous.positionFraction.width - positionFraction.width) < 0.0005,
-           abs(previous.positionFraction.height - positionFraction.height) < 0.0005,
+           abs(previous.offsetFraction.width - offsetFraction.width) < 0.0005,
+           abs(previous.offsetFraction.height - offsetFraction.height) < 0.0005,
            abs(previous.widthFraction - width) < 0.0005 {
             return
         }
         recordingPipPositionKeyframes.append(
-            PipPositionKeyframe(time: time, positionFraction: positionFraction, widthFraction: width)
+            PipPositionKeyframe(time: time, offsetFraction: offsetFraction, widthFraction: width)
         )
-        recordingPipPositionFraction = positionFraction
+        recordingPipOffsetFraction = offsetFraction
         recordingPipWidthFraction = width
     }
 
@@ -544,7 +537,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingLock.lock()
         defer { recordingLock.unlock() }
         guard let recordingStartDate else { return }
-        let time = max(0, Date().timeIntervalSince(recordingStartDate) - recordingTimelineOffset)
+        let time = Date().timeIntervalSince(recordingStartDate)
         if let previous = recordingLayoutKeyframes.last,
            previous.layout == layout,
            previous.shape == shape,
@@ -565,7 +558,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             self.recordingLock.lock()
             let updateTime: TimeInterval
             if let start = self.recordingStartDate {
-                updateTime = max(0, Date().timeIntervalSince(start) - self.recordingTimelineOffset)
+                updateTime = Date().timeIntervalSince(start)
             } else {
                 updateTime = 0
             }
@@ -583,7 +576,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingLock.lock()
         defer { recordingLock.unlock() }
         guard let recordingStartDate else { return }
-        let time = max(0, Date().timeIntervalSince(recordingStartDate) - recordingTimelineOffset)
+        let time = Date().timeIntervalSince(recordingStartDate)
         if let previous = recordingPhotoOverlayKeyframes.last,
            previous.imageID == recordingPhotoOverlayID,
            time - previous.time < 0.025,
@@ -608,7 +601,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingLock.lock()
         defer { recordingLock.unlock() }
         guard let recordingStartDate else { return }
-        let time = max(0, Date().timeIntervalSince(recordingStartDate) - recordingTimelineOffset)
+        let time = Date().timeIntervalSince(recordingStartDate)
         let imageID = image == nil ? nil : UUID()
         recordingPhotoOverlay = image
         recordingPhotoOverlayID = imageID
@@ -637,6 +630,10 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
         backCamera = back
         frontCamera = front
+        backRotationCoordinator = AVCaptureDevice.RotationCoordinator(device: back,
+                                                                        previewLayer: backPreviewLayer)
+        frontRotationCoordinator = AVCaptureDevice.RotationCoordinator(device: front,
+                                                                         previewLayer: frontPreviewLayer)
 
         // 2. Подбираем форматы: задняя 1080p, передняя минимальный 480p для диагностики.
         try configureFormat(for: back, target: CGSize(width: 1920, height: 1080))
@@ -787,14 +784,35 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         let captureConnections: [AVCaptureConnection?] = [
             backPhotoConnection,
             frontPhotoConnection,
-            backMovieConnection,
-            frontMovieConnection,
             frontVideoDataConnection
         ]
         for connection in captureConnections {
             if let connection, connection.isVideoOrientationSupported {
                 connection.videoOrientation = orientation
             }
+        }
+
+        setMovieRotation(backMovieConnection,
+                         coordinator: backRotationCoordinator,
+                         orientation: orientation)
+        setMovieRotation(frontMovieConnection,
+                         coordinator: frontRotationCoordinator,
+                         orientation: orientation)
+    }
+
+    private func setMovieRotation(_ connection: AVCaptureConnection?,
+                                  coordinator: AVCaptureDevice.RotationCoordinator?,
+                                  orientation: AVCaptureVideoOrientation) {
+        guard let connection else { return }
+        if let coordinator {
+            let angle = coordinator.videoRotationAngleRelative(toDeviceOrientation: orientation)
+            if connection.isVideoRotationAngleSupported(angle) {
+                connection.videoRotationAngle = angle
+                return
+            }
+        }
+        if connection.isVideoOrientationSupported {
+            connection.videoOrientation = orientation
         }
     }
 
@@ -1011,40 +1029,6 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     // MARK: - Завершение видеозаписи
 
-    private func handleMovieStarted(at date: Date) {
-        recordingLock.lock()
-        defer { recordingLock.unlock() }
-        guard !didReceiveRecordingStart, let requestedStart = recordingStartDate else { return }
-        didReceiveRecordingStart = true
-        recordingTimelineOffset = max(0, date.timeIntervalSince(requestedStart))
-        let offset = recordingTimelineOffset
-
-        recordingPipPositionKeyframes = recordingPipPositionKeyframes.map {
-            PipPositionKeyframe(time: max(0, $0.time - offset),
-                                positionFraction: $0.positionFraction,
-                                widthFraction: $0.widthFraction)
-        }
-        recordingLayoutKeyframes = recordingLayoutKeyframes.map {
-            CaptureLayoutKeyframe(time: max(0, $0.time - offset),
-                                  layout: $0.layout,
-                                  shape: $0.shape,
-                                  splitOrientation: $0.splitOrientation)
-        }
-        recordingCameraSwapKeyframes = recordingCameraSwapKeyframes.map {
-            CameraSwapKeyframe(time: max(0, $0.time - offset), isSwapped: $0.isSwapped)
-        }
-        recordingDrawingKeyframes = recordingDrawingKeyframes.map {
-            DrawingElementsKeyframe(time: max(0, $0.time - offset), elements: $0.elements)
-        }
-        recordingPhotoOverlayKeyframes = recordingPhotoOverlayKeyframes.map {
-            PhotoOverlayKeyframe(time: max(0, $0.time - offset),
-                                 offsetFraction: $0.offsetFraction,
-                                 widthFraction: $0.widthFraction,
-                                 image: $0.image,
-                                 imageID: $0.imageID)
-        }
-    }
-
     private func handleMovieFinished(camera: MovieCaptureDelegate.Camera, url: URL?, error: Error?) {
         recordingLock.lock()
         receivedRecordingCallbacks += 1
@@ -1129,7 +1113,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         let outputLayout = recordingLayout
         let outputShape = recordingShape
         let outputSplitOrientation = recordingSplitOrientation
-        let outputPosition = recordingPipPositionFraction
+        let outputOffset = recordingPipOffsetFraction
         let outputImportedVideoURL = recordingImportedVideoURL
         let outputCamerasSwapped = recordingCamerasSwapped
         let outputElements = recordingElements
@@ -1147,7 +1131,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                     layout: outputLayout,
                     shape: outputShape,
                     splitOrientation: outputSplitOrientation,
-                    pipPositionFraction: outputPosition,
+                    pipOffsetFraction: outputOffset,
                     pipWidthFraction: 0.3,
                     pipPositionKeyframes: pipKeyframes,
                     layoutKeyframes: layoutKeyframes,
@@ -1180,8 +1164,6 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingLock.lock()
         recordedURLs.removeAll()
         recordingError = nil
-        recordingTimelineOffset = 0
-        didReceiveRecordingStart = false
         recordingPipPositionKeyframes.removeAll()
         recordingLayoutKeyframes.removeAll()
         recordingCameraSwapKeyframes.removeAll()
@@ -1198,7 +1180,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingBackURL = nil
         recordingFrontURL = nil
         recordingElements = []
-        recordingPipPositionFraction = CGSize(width: 1, height: 1)
+        recordingPipOffsetFraction = .zero
         recordingPipWidthFraction = 0.3
         recordingImportedVideoURL = nil
         recordingLayout = .splitScreen
@@ -1209,7 +1191,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     // MARK: - Таймер записи (главный поток)
 
-    private func startRecordingTimer(initialPositionFraction: CGSize,
+    private func startRecordingTimer(initialOffsetFraction: CGSize,
                                      widthFraction: CGFloat,
                                      elements: [DrawingElement],
                                      photoOffsetFraction: CGSize,
@@ -1220,13 +1202,11 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                                      shape: PipShape,
                                      splitOrientation: SplitOrientation) {
         recordingStartDate = Date()
-        recordingTimelineOffset = 0
-        didReceiveRecordingStart = false
         recordingPipWidthFraction = widthFraction
         recordingLock.lock()
         recordingPipPositionKeyframes = [
             PipPositionKeyframe(time: 0,
-                                positionFraction: initialPositionFraction,
+                                offsetFraction: initialOffsetFraction,
                                 widthFraction: widthFraction)
         ]
         recordingLayoutKeyframes = [

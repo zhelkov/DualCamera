@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @State private var camera = CameraManager()
     @Environment(\.scenePhase) private var scenePhase
-    @State private var pipPosition = CGSize(width: 1, height: 1)
+    @State private var pipOffset: CGSize = .zero
     @State private var photoOverlayOffset: CGSize = .zero
     @State private var previewSize: CGSize = .zero
     @State private var importedImageWidthFraction: CGFloat = 0.3
@@ -86,7 +86,7 @@ struct ContentView: View {
             let backIsMain = !camera.isCamerasSwapped
             let pip = Self.pipSize(for: camera.pipShape, in: size, widthFraction: 0.3)
             let frames = Self.layoutFrames(layout: camera.layout, size: size, pipSize: pip,
-                                           pipPosition: pipPosition,
+                                           pipOffset: pipOffset,
                                            splitOrientation: camera.splitOrientation)
             let pipRadius = camera.pipShape.cornerRadius(for: pip)
 
@@ -141,19 +141,8 @@ struct ContentView: View {
         FrontCameraImageView(store: camera.frontPreviewStore)
     }
 
-    private var pipPhotoOffsetFraction: CGSize {
-        guard previewSize.width > 0, previewSize.height > 0 else { return .zero }
-        let pip = Self.pipSize(for: camera.pipShape, in: previewSize, widthFraction: 0.3)
-        let x = 16 + min(max(pipPosition.width, 0), 1)
-            * max(0, previewSize.width - pip.width - 32)
-        let y = 16 + min(max(pipPosition.height, 0), 1)
-            * max(0, previewSize.height - pip.height - 32)
-        return CGSize(width: (x - (previewSize.width - pip.width - 16)) / previewSize.width,
-                      height: (y - (previewSize.height - pip.height - 16)) / previewSize.height)
-    }
-
-    private var pipVideoPositionFraction: CGSize {
-        pipPosition
+    private var pipOffsetFraction: CGSize {
+        pipOffsetFraction(for: pipOffset)
     }
 
     private var photoOverlayOffsetFraction: CGSize {
@@ -174,28 +163,29 @@ struct ContentView: View {
                       height: offset.height / previewSize.height)
     }
 
+    private func pipOffsetFraction(for offset: CGSize) -> CGSize {
+        guard previewSize.width > 0, previewSize.height > 0 else { return .zero }
+        return CGSize(width: offset.width / previewSize.width,
+                      height: offset.height / previewSize.height)
+    }
+
     /// Перетаскивание окна PiP (работает только в раскладке «картинка в картинке»).
     private var pipDrag: some Gesture {
         DragGesture()
             .onChanged { value in
                 guard camera.layout == .pip else { return }
                 if pipDragBase == nil {
-                    pipDragBase = pipPosition
+                    pipDragBase = pipOffset
                 }
                 guard let base = pipDragBase else { return }
-                let pip = Self.pipSize(for: camera.pipShape, in: previewSize, widthFraction: 0.3)
-                let travelX = max(1, previewSize.width - pip.width - 32)
-                let travelY = max(1, previewSize.height - pip.height - 32)
-                let nextPosition = CGSize(
-                    width: min(max(base.width + value.translation.width / travelX, 0), 1),
-                    height: min(max(base.height + value.translation.height / travelY, 0), 1)
-                )
-                pipPosition = nextPosition
-                camera.updatePipPositionFraction(nextPosition)
+                let nextOffset = CGSize(width: base.width + value.translation.width,
+                                        height: base.height + value.translation.height)
+                pipOffset = nextOffset
+                camera.updatePipOffsetFraction(pipOffsetFraction(for: nextOffset))
             }
             .onEnded { _ in
                 pipDragBase = nil
-                camera.updatePipPositionFraction(pipPosition)
+                camera.updatePipOffsetFraction(pipOffsetFraction)
             }
     }
 
@@ -237,7 +227,7 @@ struct ContentView: View {
     private static func layoutFrames(layout: CaptureLayout,
                                      size: CGSize,
                                      pipSize: CGSize,
-                                     pipPosition: CGSize,
+                                     pipOffset: CGSize,
                                      splitOrientation: SplitOrientation) -> (main: CGRect, secondary: CGRect) {
         switch layout {
         case .splitScreen:
@@ -254,10 +244,10 @@ struct ContentView: View {
             }
         case .pip:
             let inset: CGFloat = 16
-            let travelX = max(0, size.width - pipSize.width - inset * 2)
-            let travelY = max(0, size.height - pipSize.height - inset * 2)
-            let x = inset + min(max(pipPosition.width, 0), 1) * travelX
-            let y = inset + min(max(pipPosition.height, 0), 1) * travelY
+            let maxX = max(0, size.width - pipSize.width)
+            let maxY = max(0, size.height - pipSize.height)
+            let x = min(max(0, size.width - pipSize.width - inset + pipOffset.width), maxX)
+            let y = min(max(0, size.height - pipSize.height - inset + pipOffset.height), maxY)
             return (
                 CGRect(origin: .zero, size: size),
                 CGRect(x: x, y: y, width: pipSize.width, height: pipSize.height)
@@ -402,7 +392,7 @@ struct ContentView: View {
                     } else {
                         Button {
                             camera.captureBothCameras(elements: drawing.elements,
-                                                      pipOffsetFraction: pipPhotoOffsetFraction,
+                                                      pipOffsetFraction: pipOffsetFraction,
                                                       photoOverlayOffsetFraction: photoOverlayOffsetFraction,
                                                       photoOverlayWidthFraction: importedImageWidthFraction)
                         } label: {
@@ -415,7 +405,7 @@ struct ContentView: View {
 
                     Button {
                         camera.startRecording(elements: drawing.elements,
-                                              pipPositionFraction: pipVideoPositionFraction,
+                                              pipOffsetFraction: pipOffsetFraction,
                                               photoOverlayOffsetFraction: photoOverlayOffsetFraction,
                                               photoOverlayWidthFraction: importedImageWidthFraction)
                     } label: {
