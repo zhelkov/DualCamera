@@ -736,28 +736,27 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         let isPortrait = previewAngle.truncatingRemainder(dividingBy: 180) == 0
         updateOnMain { self.isPortrait = isPortrait }
 
-        let pairs: [(AVCaptureConnection?, CGFloat)] = [
-            (backPhotoConnection, backCapture),
-            (frontPhotoConnection, frontCapture),
-            (frontVideoDataConnection, frontCapture),
+        let previewPairs: [(AVCaptureConnection?, CGFloat)] = [
             (backPreviewLayer.connection, previewAngle),
             (frontPreviewLayer.connection, frontPreviewAngle)
         ]
-        for (connection, angle) in pairs {
+        for (connection, angle) in previewPairs {
             if let connection, connection.isVideoRotationAngleSupported(angle) {
                 connection.videoRotationAngle = angle
             }
         }
 
-        // Keep movie track transforms fixed while recording. Changing a
-        // MovieFileOutput connection's rotation mid-recording can fail the
-        // capture; the recording keeps the orientation selected at its start.
+        // Freeze capture-output rotations while recording so rotating the
+        // device doesn't reconfigure MultiCam outputs during an active capture.
         if !isRecording {
-            let moviePairs: [(AVCaptureConnection?, CGFloat)] = [
+            let capturePairs: [(AVCaptureConnection?, CGFloat)] = [
+                (backPhotoConnection, backCapture),
+                (frontPhotoConnection, frontCapture),
+                (frontVideoDataConnection, frontCapture),
                 (backMovieConnection, backCapture),
                 (frontMovieConnection, backCapture)
             ]
-            for (connection, angle) in moviePairs {
+            for (connection, angle) in capturePairs {
                 if let connection, connection.isVideoRotationAngleSupported(angle) {
                     connection.videoRotationAngle = angle
                 }
@@ -974,7 +973,19 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingLock.lock()
         receivedRecordingCallbacks += 1
         if let error {
-            recordingError = error
+            let nsError = error as NSError
+            let cameraName: String
+            switch camera {
+            case .back: cameraName = "задней"
+            case .front: cameraName = "фронтальной"
+            }
+            recordingError = NSError(
+                domain: "DualCamera.MovieCapture.\(nsError.domain)",
+                code: nsError.code,
+                userInfo: [NSLocalizedDescriptionKey:
+                            "Сбой записи \(cameraName) камеры: \(nsError.localizedDescription) (\(nsError.domain), код \(nsError.code))",
+                           NSUnderlyingErrorKey: nsError]
+            )
         } else if let url {
             recordedURLs[camera] = url
         }
@@ -998,8 +1009,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         if let error {
             updateOnMain {
                 self.isRecording = false
-                self.errorMessage = (error as? LocalizedError)?.errorDescription
-                    ?? "Не удалось записать видео."
+                self.errorMessage = error.localizedDescription
             }
             resetRecordingState()
             return
