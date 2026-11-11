@@ -119,7 +119,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var recordingBackURL: URL?
     private var recordingFrontURL: URL?
     private var recordingElements: [DrawingElement] = []
-    private var recordingPipOffsetFraction: CGSize = .zero
+    private var recordingPipPositionFraction = CGSize(width: 1, height: 1)
     private var recordingPipWidthFraction: CGFloat = 0.3
     private var recordingPipPositionKeyframes: [PipPositionKeyframe] = []
     private var recordingLayoutKeyframes: [CaptureLayoutKeyframe] = []
@@ -413,7 +413,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     /// Начинает одновременную запись видео с обеих камер.
     /// `elements` — рисунок, который вшивается в видео (снимок на момент старта).
     func startRecording(elements: [DrawingElement] = [],
-                        pipOffsetFraction: CGSize = .zero,
+                        pipPositionFraction: CGSize = CGSize(width: 1, height: 1),
                         photoOverlayOffsetFraction: CGSize = .zero,
                         photoOverlayWidthFraction: CGFloat = 0.3) {
         guard isConfigured, !isRecording else { return }
@@ -427,7 +427,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         updateOnMain {
             self.isRecording = true
             self.recordingDuration = 0
-            self.startRecordingTimer(initialOffsetFraction: pipOffsetFraction,
+            self.startRecordingTimer(initialPositionFraction: pipPositionFraction,
                                      widthFraction: 0.3,
                                      elements: elements,
                                      photoOffsetFraction: photoOverlayOffsetFraction,
@@ -445,7 +445,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             self.applyInterfaceOrientation(orientationAtStart, forceCaptureOutputs: true)
 
             self.recordingElements = elements
-            self.recordingPipOffsetFraction = pipOffsetFraction
+            self.recordingPipPositionFraction = pipPositionFraction
             self.recordingLock.lock()
             self.recordedURLs.removeAll()
             self.recordingError = nil
@@ -498,7 +498,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
     }
 
-    func updatePipOffsetFraction(_ offsetFraction: CGSize, widthFraction: CGFloat? = nil) {
+    func updatePipPositionFraction(_ positionFraction: CGSize, widthFraction: CGFloat? = nil) {
         guard isRecording else { return }
         recordingLock.lock()
         defer { recordingLock.unlock() }
@@ -507,14 +507,15 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         let width = widthFraction ?? recordingPipWidthFraction
         if let previous = recordingPipPositionKeyframes.last,
            time - previous.time < 0.025,
-           abs(previous.offsetFraction.width - offsetFraction.width) < 0.0005,
-           abs(previous.offsetFraction.height - offsetFraction.height) < 0.0005,
+           abs(previous.positionFraction.width - positionFraction.width) < 0.0005,
+           abs(previous.positionFraction.height - positionFraction.height) < 0.0005,
            abs(previous.widthFraction - width) < 0.0005 {
             return
         }
         recordingPipPositionKeyframes.append(
-            PipPositionKeyframe(time: time, offsetFraction: offsetFraction, widthFraction: width)
+            PipPositionKeyframe(time: time, positionFraction: positionFraction, widthFraction: width)
         )
+        recordingPipPositionFraction = positionFraction
         recordingPipWidthFraction = width
     }
 
@@ -648,8 +649,10 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         try connect(frontDeviceInput, to: frontPhotoOutput, mirrored: true)
 
         // 7. Вручную соединяем входы с видео-выходами.
-        try connect(backDeviceInput, to: backMovieOutput, mirrored: false)
-        try connect(frontDeviceInput, to: frontMovieOutput, mirrored: true)
+        try connect(backDeviceInput, to: backMovieOutput, camera: .back, mirrored: false)
+        // Keep the recorded front-camera track unmirrored; the preview remains
+        // mirrored independently on its own connection.
+        try connect(frontDeviceInput, to: frontMovieOutput, camera: .front, mirrored: false)
 
         // Диагностический путь в обход AVCaptureVideoPreviewLayer.
         frontVideoDataOutput.alwaysDiscardsLateVideoFrames = true
@@ -851,6 +854,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     private func connect(_ input: AVCaptureDeviceInput,
                          to output: AVCaptureMovieFileOutput,
+                         camera: MovieCaptureDelegate.Camera,
                          mirrored: Bool) throws {
         guard let port = input.ports.first else {
             throw CameraError.connectionFailed
@@ -859,8 +863,15 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         guard session.canAddConnection(connection) else {
             throw CameraError.connectionFailed
         }
+        if connection.isVideoMirroringSupported {
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = mirrored
+        }
         session.addConnection(connection)
-        if mirrored { frontMovieConnection = connection } else { backMovieConnection = connection }
+        switch camera {
+        case .back: backMovieConnection = connection
+        case .front: frontMovieConnection = connection
+        }
     }
 
     /// Подключает аудио-порт к видео-выходу (добавляет звуковую дорожку).
@@ -1045,7 +1056,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         let outputLayout = recordingLayout
         let outputShape = recordingShape
         let outputSplitOrientation = recordingSplitOrientation
-        let outputOffset = recordingPipOffsetFraction
+        let outputPosition = recordingPipPositionFraction
         let outputImportedVideoURL = recordingImportedVideoURL
         let outputCamerasSwapped = recordingCamerasSwapped
         let outputElements = recordingElements
@@ -1063,14 +1074,12 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                     layout: outputLayout,
                     shape: outputShape,
                     splitOrientation: outputSplitOrientation,
-                    pipOffsetFraction: outputOffset,
+                    pipPositionFraction: outputPosition,
                     pipWidthFraction: 0.3,
                     pipPositionKeyframes: pipKeyframes,
                     layoutKeyframes: layoutKeyframes,
                     cameraSwapKeyframes: cameraSwapKeyframes,
                     initialCamerasSwapped: outputCamerasSwapped,
-                    backSourceIsFrontCamera: outputCamerasSwapped && outputImportedVideoURL == nil,
-                    frontSourceIsFrontCamera: !outputCamerasSwapped && outputImportedVideoURL == nil,
                     drawingKeyframes: drawingKeyframes,
                     photoOverlay: outputPhotoOverlay,
                     photoOverlayOffsetFraction: outputPhotoOffset,
@@ -1114,7 +1123,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingBackURL = nil
         recordingFrontURL = nil
         recordingElements = []
-        recordingPipOffsetFraction = .zero
+        recordingPipPositionFraction = CGSize(width: 1, height: 1)
         recordingPipWidthFraction = 0.3
         recordingImportedVideoURL = nil
         recordingLayout = .splitScreen
@@ -1125,7 +1134,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     // MARK: - Таймер записи (главный поток)
 
-    private func startRecordingTimer(initialOffsetFraction: CGSize,
+    private func startRecordingTimer(initialPositionFraction: CGSize,
                                      widthFraction: CGFloat,
                                      elements: [DrawingElement],
                                      photoOffsetFraction: CGSize,
@@ -1140,7 +1149,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingLock.lock()
         recordingPipPositionKeyframes = [
             PipPositionKeyframe(time: 0,
-                                offsetFraction: initialOffsetFraction,
+                                positionFraction: initialPositionFraction,
                                 widthFraction: widthFraction)
         ]
         recordingLayoutKeyframes = [

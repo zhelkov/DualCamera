@@ -19,14 +19,12 @@ enum VideoMerger {
                       layout: CaptureLayout,
                       shape: PipShape,
                       splitOrientation: SplitOrientation = .vertical,
-                      pipOffsetFraction: CGSize = .zero,
+                      pipPositionFraction: CGSize = CGSize(width: 1, height: 1),
                       pipWidthFraction: CGFloat = 0.3,
                       pipPositionKeyframes: [PipPositionKeyframe] = [],
                       layoutKeyframes: [CaptureLayoutKeyframe] = [],
                       cameraSwapKeyframes: [CameraSwapKeyframe] = [],
                       initialCamerasSwapped: Bool = false,
-                      backSourceIsFrontCamera: Bool = false,
-                      frontSourceIsFrontCamera: Bool = false,
                       drawingKeyframes: [DrawingElementsKeyframe] = [],
                       photoOverlay: UIImage? = nil,
                       photoOverlayOffsetFraction: CGSize = .zero,
@@ -112,7 +110,7 @@ enum VideoMerger {
                 layout: layout,
                 splitOrientation: splitOrientation,
                 shape: shape,
-                pipOffsetFraction: pipOffsetFraction,
+                pipPositionFraction: pipPositionFraction,
                 pipWidthFraction: pipWidthFraction,
                 pipPositionKeyframes: pipPositionKeyframes,
                 drawingKeyframes: effectiveDrawingKeyframes,
@@ -124,9 +122,7 @@ enum VideoMerger {
                 frontImage: normalizedFrontImage,
                 layoutKeyframes: effectiveLayoutKeyframes,
                 cameraSwapKeyframes: cameraSwapKeyframes,
-                initialCamerasSwapped: initialCamerasSwapped,
-                backSourceIsFrontCamera: backSourceIsFrontCamera,
-                frontSourceIsFrontCamera: frontSourceIsFrontCamera
+                initialCamerasSwapped: initialCamerasSwapped
             )
         ]
 
