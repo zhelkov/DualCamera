@@ -126,6 +126,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var recordingPipWidthFraction: CGFloat = 0.3
     private var recordingPipPositionKeyframes: [PipPositionKeyframe] = []
     private var recordingLayoutKeyframes: [CaptureLayoutKeyframe] = []
+    private var recordingCameraSwapKeyframes: [CameraSwapKeyframe] = []
     private var recordingDrawingKeyframes: [DrawingElementsKeyframe] = []
     private var recordingPhotoOverlay: UIImage?
     private var recordingPhotoOverlayID: UUID?
@@ -327,7 +328,17 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     /// Меняет местами переднюю и заднюю камеры (основная ↔ вторичная).
     func swapCameras() {
-        updateOnMain { self.isCamerasSwapped.toggle() }
+        updateOnMain {
+            self.isCamerasSwapped.toggle()
+            guard self.isRecording, let start = self.recordingStartDate else { return }
+            let keyframe = CameraSwapKeyframe(time: Date().timeIntervalSince(start),
+                                              isSwapped: self.isCamerasSwapped)
+            self.recordingLock.lock()
+            if self.recordingCameraSwapKeyframes.last?.isSwapped != keyframe.isSwapped {
+                self.recordingCameraSwapKeyframes.append(keyframe)
+            }
+            self.recordingLock.unlock()
+        }
     }
 
     // MARK: - Зум, фонарик, фокус
@@ -412,6 +423,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                                      photoOffsetFraction: photoOverlayOffsetFraction,
                                      photoWidthFraction: photoOverlayWidthFraction,
                                      photo: importedPhotoAtStart,
+                                     camerasSwapped: swappedAtStart,
                                      layout: layoutAtStart,
                                      shape: shapeAtStart,
                                      splitOrientation: splitOrientationAtStart)
@@ -1027,6 +1039,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingLock.lock()
         let pipKeyframes = recordingPipPositionKeyframes
         let layoutKeyframes = recordingLayoutKeyframes
+        let cameraSwapKeyframes = recordingCameraSwapKeyframes
         let drawingKeyframes = recordingDrawingKeyframes
         let photoKeyframes = recordingPhotoOverlayKeyframes
         let outputPhotoOverlay = recordingPhotoOverlay
@@ -1058,6 +1071,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                     pipWidthFraction: 0.3,
                     pipPositionKeyframes: pipKeyframes,
                     layoutKeyframes: layoutKeyframes,
+                    cameraSwapKeyframes: cameraSwapKeyframes,
+                    initialCamerasSwapped: outputCamerasSwapped,
                     backSourceIsFrontCamera: outputCamerasSwapped && outputImportedVideoURL == nil,
                     frontSourceIsFrontCamera: !outputCamerasSwapped && outputImportedVideoURL == nil,
                     drawingKeyframes: drawingKeyframes,
@@ -1089,6 +1104,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingError = nil
         recordingPipPositionKeyframes.removeAll()
         recordingLayoutKeyframes.removeAll()
+        recordingCameraSwapKeyframes.removeAll()
         recordingDrawingKeyframes.removeAll()
         recordingPhotoOverlayKeyframes.removeAll()
         recordingPhotoOverlay = nil
@@ -1119,6 +1135,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                                      photoOffsetFraction: CGSize,
                                      photoWidthFraction: CGFloat,
                                      photo: UIImage?,
+                                     camerasSwapped: Bool,
                                      layout: CaptureLayout,
                                      shape: PipShape,
                                      splitOrientation: SplitOrientation) {
@@ -1135,6 +1152,9 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                                   layout: layout,
                                   shape: shape,
                                   splitOrientation: splitOrientation)
+        ]
+        recordingCameraSwapKeyframes = [
+            CameraSwapKeyframe(time: 0, isSwapped: camerasSwapped)
         ]
         recordingDrawingKeyframes = [
             DrawingElementsKeyframe(time: 0, elements: elements)

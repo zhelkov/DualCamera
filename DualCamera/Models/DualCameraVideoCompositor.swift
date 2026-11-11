@@ -16,6 +16,11 @@ struct CaptureLayoutKeyframe {
     let splitOrientation: SplitOrientation
 }
 
+struct CameraSwapKeyframe {
+    let time: TimeInterval
+    let isSwapped: Bool
+}
+
 struct DrawingElementsKeyframe {
     let time: TimeInterval
     let elements: [DrawingElement]
@@ -53,6 +58,8 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
     let backImage: CIImage?
     let frontImage: CIImage?
     let layoutKeyframes: [CaptureLayoutKeyframe]
+    let cameraSwapKeyframes: [CameraSwapKeyframe]
+    let initialCamerasSwapped: Bool
     let backSourceIsFrontCamera: Bool
     let frontSourceIsFrontCamera: Bool
 
@@ -79,6 +86,8 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
          backImage: CIImage?,
          frontImage: CIImage?,
          layoutKeyframes: [CaptureLayoutKeyframe],
+         cameraSwapKeyframes: [CameraSwapKeyframe],
+         initialCamerasSwapped: Bool,
          backSourceIsFrontCamera: Bool,
          frontSourceIsFrontCamera: Bool) {
         self.timeRange = timeRange
@@ -99,6 +108,8 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
         self.backImage = backImage
         self.frontImage = frontImage
         self.layoutKeyframes = layoutKeyframes
+        self.cameraSwapKeyframes = cameraSwapKeyframes
+        self.initialCamerasSwapped = initialCamerasSwapped
         self.backSourceIsFrontCamera = backSourceIsFrontCamera
         self.frontSourceIsFrontCamera = frontSourceIsFrontCamera
     }
@@ -139,7 +150,8 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
             switch captureLayout.layout {
             case .pip:
                 let layout = layoutAt(instruction, time: request.compositionTime.seconds)
-                let width = instruction.canvasSize.width * layout.widthFraction
+                let width = min(instruction.canvasSize.width, instruction.canvasSize.height)
+                    * layout.widthFraction
                 let height = width * captureLayout.shape.aspectRatio
                 let x = min(max(0, instruction.canvasSize.width - width - 16
                                 + layout.offset.width * instruction.canvasSize.width),
@@ -204,18 +216,36 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
             let correctedFrontSource = instruction.frontSourceIsFrontCamera
                 ? rotate180(frontSource)
                 : frontSource
-            let back = place(correctedBackSource,
-                             sourceSize: instruction.backImage == nil ? instruction.backSourceSize : backSource.extent.size,
-                             transform: instruction.backImage == nil ? instruction.backTransform : .identity,
+            let swapState = cameraSwapAt(instruction, time: request.compositionTime.seconds)
+            let swapSources = swapState.isSwapped != instruction.initialCamerasSwapped
+            let mainSource = swapSources ? correctedFrontSource : correctedBackSource
+            let secondarySource = swapSources ? correctedBackSource : correctedFrontSource
+            let mainIsFrontCamera = swapSources
+                ? instruction.frontSourceIsFrontCamera
+                : instruction.backSourceIsFrontCamera
+            let secondaryIsFrontCamera = swapSources
+                ? instruction.backSourceIsFrontCamera
+                : instruction.frontSourceIsFrontCamera
+            let mainSize = swapSources ? instruction.frontSourceSize : instruction.backSourceSize
+            let secondarySize = swapSources ? instruction.backSourceSize : instruction.frontSourceSize
+            let mainTransform = swapSources ? instruction.frontTransform : instruction.backTransform
+            let secondaryTransform = swapSources ? instruction.backTransform : instruction.frontTransform
+            let alignedMainTransform = mainIsFrontCamera ? instruction.backTransform : mainTransform
+            let alignedSecondaryTransform = secondaryIsFrontCamera
+                ? instruction.backTransform
+                : secondaryTransform
+            let main = place(mainSource,
+                             sourceSize: instruction.backImage == nil ? mainSize : mainSource.extent.size,
+                             transform: instruction.backImage == nil ? alignedMainTransform : .identity,
                              in: backRect,
                              canvasHeight: instruction.canvasSize.height)
-            let front = place(correctedFrontSource,
-                              sourceSize: instruction.frontImage == nil ? instruction.frontSourceSize : frontSource.extent.size,
-                              transform: instruction.frontImage == nil ? instruction.frontTransform : .identity,
+            let front = place(secondarySource,
+                              sourceSize: instruction.frontImage == nil ? secondarySize : secondarySource.extent.size,
+                              transform: instruction.frontImage == nil ? alignedSecondaryTransform : .identity,
                               in: frontRect,
                               canvasHeight: instruction.canvasSize.height)
 
-            var composed = back.cropped(to: canvas)
+            var composed = main.cropped(to: canvas)
             if captureLayout.layout == .pip, captureLayout.shape == .circle {
                 let frontBottomRect = CGRect(x: frontRect.minX,
                                              y: instruction.canvasSize.height - frontRect.maxY,
@@ -292,6 +322,16 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                                            shape: instruction.shape,
                                            splitOrientation: instruction.splitOrientation)
         for keyframe in instruction.layoutKeyframes {
+            guard keyframe.time <= time else { break }
+            result = keyframe
+        }
+        return result
+    }
+
+    private func cameraSwapAt(_ instruction: DualCameraVideoCompositionInstruction,
+                              time: TimeInterval) -> CameraSwapKeyframe {
+        var result = CameraSwapKeyframe(time: 0, isSwapped: instruction.initialCamerasSwapped)
+        for keyframe in instruction.cameraSwapKeyframes {
             guard keyframe.time <= time else { break }
             result = keyframe
         }

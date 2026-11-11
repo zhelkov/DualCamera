@@ -211,7 +211,7 @@ struct ContentView: View {
 
     /// Размер окна PiP в зависимости от выбранной формы.
     private static func pipSize(for shape: PipShape, in size: CGSize, widthFraction: CGFloat) -> CGSize {
-        let width = size.width * widthFraction
+        let width = min(size.width, size.height) * widthFraction
         return CGSize(width: width, height: width * shape.aspectRatio)
     }
 
