@@ -124,6 +124,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var recordingPipOffsetFraction: CGSize = .zero
     private var recordingPipWidthFraction: CGFloat = 0.3
     private var recordingPipPositionKeyframes: [PipPositionKeyframe] = []
+    private var recordingLayoutKeyframes: [CaptureLayoutKeyframe] = []
     private var recordingDrawingKeyframes: [DrawingElementsKeyframe] = []
     private var recordingPhotoOverlay: UIImage?
     private var recordingPhotoOverlayID: UUID?
@@ -409,7 +410,10 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                                      elements: elements,
                                      photoOffsetFraction: photoOverlayOffsetFraction,
                                      photoWidthFraction: photoOverlayWidthFraction,
-                                     photo: importedPhotoAtStart)
+                                     photo: importedPhotoAtStart,
+                                     layout: layoutAtStart,
+                                     shape: shapeAtStart,
+                                     splitOrientation: splitOrientationAtStart)
         }
 
         sessionQueue.async { [weak self] in
@@ -487,6 +491,26 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             PipPositionKeyframe(time: time, offsetFraction: offsetFraction, widthFraction: width)
         )
         recordingPipWidthFraction = width
+    }
+
+    func updateRecordingLayout(layout: CaptureLayout,
+                               shape: PipShape,
+                               splitOrientation: SplitOrientation) {
+        guard isRecording else { return }
+        recordingLock.lock()
+        defer { recordingLock.unlock() }
+        guard let recordingStartDate else { return }
+        let time = Date().timeIntervalSince(recordingStartDate)
+        if let previous = recordingLayoutKeyframes.last,
+           previous.layout == layout,
+           previous.shape == shape,
+           previous.splitOrientation == splitOrientation {
+            return
+        }
+        recordingLayoutKeyframes.append(CaptureLayoutKeyframe(time: time,
+                                                              layout: layout,
+                                                              shape: shape,
+                                                              splitOrientation: splitOrientation))
     }
 
     func updateRecordingElements(_ elements: [DrawingElement]) {
@@ -963,6 +987,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
         recordingLock.lock()
         let pipKeyframes = recordingPipPositionKeyframes
+        let layoutKeyframes = recordingLayoutKeyframes
         let drawingKeyframes = recordingDrawingKeyframes
         let photoKeyframes = recordingPhotoOverlayKeyframes
         let outputPhotoOverlay = recordingPhotoOverlay
@@ -993,6 +1018,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                     pipOffsetFraction: outputOffset,
                     pipWidthFraction: 0.3,
                     pipPositionKeyframes: pipKeyframes,
+                    layoutKeyframes: layoutKeyframes,
                     drawingKeyframes: drawingKeyframes,
                     photoOverlay: outputPhotoOverlay,
                     photoOverlayOffsetFraction: outputPhotoOffset,
@@ -1021,6 +1047,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordedURLs.removeAll()
         recordingError = nil
         recordingPipPositionKeyframes.removeAll()
+        recordingLayoutKeyframes.removeAll()
         recordingDrawingKeyframes.removeAll()
         recordingPhotoOverlayKeyframes.removeAll()
         recordingPhotoOverlay = nil
@@ -1050,7 +1077,10 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                                      elements: [DrawingElement],
                                      photoOffsetFraction: CGSize,
                                      photoWidthFraction: CGFloat,
-                                     photo: UIImage?) {
+                                     photo: UIImage?,
+                                     layout: CaptureLayout,
+                                     shape: PipShape,
+                                     splitOrientation: SplitOrientation) {
         recordingStartDate = Date()
         recordingPipWidthFraction = widthFraction
         recordingLock.lock()
@@ -1058,6 +1088,12 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             PipPositionKeyframe(time: 0,
                                 offsetFraction: initialOffsetFraction,
                                 widthFraction: widthFraction)
+        ]
+        recordingLayoutKeyframes = [
+            CaptureLayoutKeyframe(time: 0,
+                                  layout: layout,
+                                  shape: shape,
+                                  splitOrientation: splitOrientation)
         ]
         recordingDrawingKeyframes = [
             DrawingElementsKeyframe(time: 0, elements: elements)

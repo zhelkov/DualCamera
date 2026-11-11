@@ -47,6 +47,21 @@ struct ContentView: View {
         .onChange(of: drawing.draftElement) { _, _ in
             camera.updateRecordingElements(drawing.elementsIncludingDraft)
         }
+        .onChange(of: camera.layout) { _, _ in
+            camera.updateRecordingLayout(layout: camera.layout,
+                                         shape: camera.pipShape,
+                                         splitOrientation: camera.splitOrientation)
+        }
+        .onChange(of: camera.pipShape) { _, _ in
+            camera.updateRecordingLayout(layout: camera.layout,
+                                         shape: camera.pipShape,
+                                         splitOrientation: camera.splitOrientation)
+        }
+        .onChange(of: camera.splitOrientation) { _, _ in
+            camera.updateRecordingLayout(layout: camera.layout,
+                                         shape: camera.pipShape,
+                                         splitOrientation: camera.splitOrientation)
+        }
         .alert("Ошибка", isPresented: errorBinding) {
             Button("ОК", role: .cancel) {}
         } message: {

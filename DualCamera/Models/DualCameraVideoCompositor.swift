@@ -9,6 +9,13 @@ struct PipPositionKeyframe {
     let widthFraction: CGFloat
 }
 
+struct CaptureLayoutKeyframe {
+    let time: TimeInterval
+    let layout: CaptureLayout
+    let shape: PipShape
+    let splitOrientation: SplitOrientation
+}
+
 struct DrawingElementsKeyframe {
     let time: TimeInterval
     let elements: [DrawingElement]
@@ -45,6 +52,7 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
     let frontSourceSize: CGSize
     let backImage: CIImage?
     let frontImage: CIImage?
+    let layoutKeyframes: [CaptureLayoutKeyframe]
 
     var requiredSourceTrackIDs: [NSValue]? {
         [NSNumber(value: backTrackID) as NSValue,
@@ -67,7 +75,8 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
          backSourceSize: CGSize,
          frontSourceSize: CGSize,
          backImage: CIImage?,
-         frontImage: CIImage?) {
+         frontImage: CIImage?,
+         layoutKeyframes: [CaptureLayoutKeyframe]) {
         self.timeRange = timeRange
         self.backTrackID = backTrackID
         self.frontTrackID = frontTrackID
@@ -85,6 +94,7 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
         self.frontSourceSize = frontSourceSize
         self.backImage = backImage
         self.frontImage = frontImage
+        self.layoutKeyframes = layoutKeyframes
     }
 }
 
@@ -118,11 +128,13 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
             let canvas = CGRect(origin: .zero, size: instruction.canvasSize)
             var backRect: CGRect
             var frontRect: CGRect
-            switch instruction.layout {
+            let captureLayout = captureLayoutAt(instruction,
+                                                time: request.compositionTime.seconds)
+            switch captureLayout.layout {
             case .pip:
                 let layout = layoutAt(instruction, time: request.compositionTime.seconds)
                 let width = instruction.canvasSize.width * layout.widthFraction
-                let height = width * instruction.shape.aspectRatio
+                let height = width * captureLayout.shape.aspectRatio
                 let x = min(max(0, instruction.canvasSize.width - width - 16
                                 + layout.offset.width * instruction.canvasSize.width),
                             instruction.canvasSize.width - width)
@@ -136,7 +148,7 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                     .horizontallyMirrored(in: instruction.canvasSize.width)
                 backRect = canvas
             case .splitScreen:
-                if instruction.splitOrientation == .horizontal {
+                if captureLayout.splitOrientation == .horizontal {
                     backRect = CGRect(x: 0, y: 0,
                                       width: instruction.canvasSize.width / 2,
                                       height: instruction.canvasSize.height)
@@ -192,7 +204,7 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                               canvasHeight: instruction.canvasSize.height)
 
             var composed = back.cropped(to: canvas)
-            if instruction.layout == .pip, instruction.shape == .circle {
+            if captureLayout.layout == .pip, captureLayout.shape == .circle {
                 let frontBottomRect = CGRect(x: frontRect.minX,
                                              y: instruction.canvasSize.height - frontRect.maxY,
                                              width: frontRect.width,
@@ -252,6 +264,19 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
     }
 
     func cancelAllPendingVideoCompositionRequests() {}
+
+    private func captureLayoutAt(_ instruction: DualCameraVideoCompositionInstruction,
+                                 time: TimeInterval) -> CaptureLayoutKeyframe {
+        var result = CaptureLayoutKeyframe(time: 0,
+                                           layout: instruction.layout,
+                                           shape: instruction.shape,
+                                           splitOrientation: instruction.splitOrientation)
+        for keyframe in instruction.layoutKeyframes {
+            guard keyframe.time <= time else { break }
+            result = keyframe
+        }
+        return result
+    }
 
     private func layoutAt(_ instruction: DualCameraVideoCompositionInstruction,
                           time: TimeInterval) -> (offset: CGSize, widthFraction: CGFloat) {
