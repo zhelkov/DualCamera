@@ -1019,6 +1019,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                     pipWidthFraction: 0.3,
                     pipPositionKeyframes: pipKeyframes,
                     layoutKeyframes: layoutKeyframes,
+                    backSourceIsFrontCamera: outputCamerasSwapped && outputImportedVideoURL == nil,
+                    frontSourceIsFrontCamera: !outputCamerasSwapped && outputImportedVideoURL == nil,
                     drawingKeyframes: drawingKeyframes,
                     photoOverlay: outputPhotoOverlay,
                     photoOverlayOffsetFraction: outputPhotoOffset,

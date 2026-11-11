@@ -53,6 +53,8 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
     let backImage: CIImage?
     let frontImage: CIImage?
     let layoutKeyframes: [CaptureLayoutKeyframe]
+    let backSourceIsFrontCamera: Bool
+    let frontSourceIsFrontCamera: Bool
 
     var requiredSourceTrackIDs: [NSValue]? {
         [NSNumber(value: backTrackID) as NSValue,
@@ -76,7 +78,9 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
          frontSourceSize: CGSize,
          backImage: CIImage?,
          frontImage: CIImage?,
-         layoutKeyframes: [CaptureLayoutKeyframe]) {
+         layoutKeyframes: [CaptureLayoutKeyframe],
+         backSourceIsFrontCamera: Bool,
+         frontSourceIsFrontCamera: Bool) {
         self.timeRange = timeRange
         self.backTrackID = backTrackID
         self.frontTrackID = frontTrackID
@@ -95,6 +99,8 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
         self.backImage = backImage
         self.frontImage = frontImage
         self.layoutKeyframes = layoutKeyframes
+        self.backSourceIsFrontCamera = backSourceIsFrontCamera
+        self.frontSourceIsFrontCamera = frontSourceIsFrontCamera
     }
 }
 
@@ -192,12 +198,18 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                                             "Не получены видеокадры источников \(instruction.backTrackID) и \(instruction.frontTrackID) в момент \(request.compositionTime.seconds) с."])
             }
 
-            let back = place(backSource,
+            let correctedBackSource = instruction.backSourceIsFrontCamera
+                ? rotate180(backSource)
+                : backSource
+            let correctedFrontSource = instruction.frontSourceIsFrontCamera
+                ? rotate180(frontSource)
+                : frontSource
+            let back = place(correctedBackSource,
                              sourceSize: instruction.backImage == nil ? instruction.backSourceSize : backSource.extent.size,
                              transform: instruction.backImage == nil ? instruction.backTransform : .identity,
                              in: backRect,
                              canvasHeight: instruction.canvasSize.height)
-            let front = place(frontSource,
+            let front = place(correctedFrontSource,
                               sourceSize: instruction.frontImage == nil ? instruction.frontSourceSize : frontSource.extent.size,
                               transform: instruction.frontImage == nil ? instruction.frontTransform : .identity,
                               in: frontRect,
@@ -264,6 +276,14 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
     }
 
     func cancelAllPendingVideoCompositionRequests() {}
+
+    private func rotate180(_ image: CIImage) -> CIImage {
+        let extent = image.extent
+        return image.transformed(by: CGAffineTransform(a: -1, b: 0,
+                                                       c: 0, d: -1,
+                                                       tx: extent.minX + extent.maxX,
+                                                       ty: extent.minY + extent.maxY))
+    }
 
     private func captureLayoutAt(_ instruction: DualCameraVideoCompositionInstruction,
                                  time: TimeInterval) -> CaptureLayoutKeyframe {

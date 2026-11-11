@@ -23,6 +23,8 @@ enum VideoMerger {
                       pipWidthFraction: CGFloat = 0.3,
                       pipPositionKeyframes: [PipPositionKeyframe] = [],
                       layoutKeyframes: [CaptureLayoutKeyframe] = [],
+                      backSourceIsFrontCamera: Bool = false,
+                      frontSourceIsFrontCamera: Bool = false,
                       drawingKeyframes: [DrawingElementsKeyframe] = [],
                       photoOverlay: UIImage? = nil,
                       photoOverlayOffsetFraction: CGSize = .zero,
@@ -118,7 +120,9 @@ enum VideoMerger {
                 frontSourceSize: frontClip.naturalSize,
                 backImage: normalizedBackImage,
                 frontImage: normalizedFrontImage,
-                layoutKeyframes: effectiveLayoutKeyframes
+                layoutKeyframes: effectiveLayoutKeyframes,
+                backSourceIsFrontCamera: backSourceIsFrontCamera,
+                frontSourceIsFrontCamera: frontSourceIsFrontCamera
             )
         ]
 
