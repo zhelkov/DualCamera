@@ -13,6 +13,7 @@ final class MovieCaptureDelegate: NSObject, AVCaptureFileOutputRecordingDelegate
     }
 
     let camera: Camera
+    var startCompletion: ((Camera, Date) -> Void)?
     /// Вызывается один раз по завершении записи файла.
     var completion: ((Camera, URL?, Error?) -> Void)?
 
@@ -21,15 +22,19 @@ final class MovieCaptureDelegate: NSObject, AVCaptureFileOutputRecordingDelegate
     }
 
     func fileOutput(_ output: AVCaptureFileOutput,
+                    didStartRecordingTo fileURL: URL,
+                    from connections: [AVCaptureConnection]) {
+        startCompletion?(camera, Date())
+    }
+
+    func fileOutput(_ output: AVCaptureFileOutput,
                     didFinishRecordingTo outputFileURL: URL,
                     from connections: [AVCaptureConnection],
                     error: Error?) {
         let completion = self.completion
         self.completion = nil
-        if let error {
-            completion?(camera, nil, error)
-        } else {
-            completion?(camera, outputFileURL, nil)
-        }
+        // Keep the URL with the error: AVFoundation may report a stop error
+        // while also marking the movie as successfully finished.
+        completion?(camera, outputFileURL, error)
     }
 }

@@ -143,6 +143,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var recordingDelegates: [MovieCaptureDelegate] = []
     private var recordingTimer: Timer?
     private var recordingStartDate: Date?
+    private var recordingTimelineOffset: TimeInterval = 0
+    private var didReceiveRecordingStart = false
 
     // MARK: - Инициализация
 
@@ -339,10 +341,16 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     func swapCameras() {
         updateOnMain {
             self.isCamerasSwapped.toggle()
-            guard self.isRecording, let start = self.recordingStartDate else { return }
-            let keyframe = CameraSwapKeyframe(time: Date().timeIntervalSince(start),
-                                              isSwapped: self.isCamerasSwapped)
+            guard self.isRecording else { return }
             self.recordingLock.lock()
+            guard let start = self.recordingStartDate else {
+                self.recordingLock.unlock()
+                return
+            }
+            let keyframe = CameraSwapKeyframe(
+                time: max(0, Date().timeIntervalSince(start) - self.recordingTimelineOffset),
+                isSwapped: self.isCamerasSwapped
+            )
             if self.recordingCameraSwapKeyframes.last?.isSwapped != keyframe.isSwapped {
                 self.recordingCameraSwapKeyframes.append(keyframe)
             }
@@ -460,6 +468,12 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
             let backDelegate = MovieCaptureDelegate(camera: .back)
             let frontDelegate = MovieCaptureDelegate(camera: .front)
+            backDelegate.startCompletion = { [weak self] _, date in
+                self?.handleMovieStarted(at: date)
+            }
+            frontDelegate.startCompletion = { [weak self] _, date in
+                self?.handleMovieStarted(at: date)
+            }
             backDelegate.completion = { [weak self] camera, url, error in
                 self?.handleMovieFinished(camera: camera, url: url, error: error)
             }
@@ -482,7 +496,11 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     /// Останавливает запись и склеивает оба клипа в один файл.
     func stopRecording(elements: [DrawingElement]? = nil) {
         guard isRecording else { return }
-        let stopTime = Date().timeIntervalSince(recordingStartDate ?? Date())
+        recordingLock.lock()
+        let recordingStartDate = self.recordingStartDate ?? Date()
+        let timelineOffset = recordingTimelineOffset
+        recordingLock.unlock()
+        let stopTime = max(0, Date().timeIntervalSince(recordingStartDate) - timelineOffset)
         sessionQueue.async { [weak self] in
             guard let self else { return }
             if let elements {
@@ -503,7 +521,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingLock.lock()
         defer { recordingLock.unlock() }
         guard let recordingStartDate else { return }
-        let time = Date().timeIntervalSince(recordingStartDate)
+        let time = max(0, Date().timeIntervalSince(recordingStartDate) - recordingTimelineOffset)
         let width = widthFraction ?? recordingPipWidthFraction
         if let previous = recordingPipPositionKeyframes.last,
            time - previous.time < 0.025,
@@ -526,7 +544,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingLock.lock()
         defer { recordingLock.unlock() }
         guard let recordingStartDate else { return }
-        let time = Date().timeIntervalSince(recordingStartDate)
+        let time = max(0, Date().timeIntervalSince(recordingStartDate) - recordingTimelineOffset)
         if let previous = recordingLayoutKeyframes.last,
            previous.layout == layout,
            previous.shape == shape,
@@ -541,11 +559,16 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     func updateRecordingElements(_ elements: [DrawingElement]) {
         guard isRecording else { return }
-        let updateTime = Date().timeIntervalSince(recordingStartDate ?? Date())
         sessionQueue.async { [weak self] in
             guard let self else { return }
             self.recordingElements = elements
             self.recordingLock.lock()
+            let updateTime: TimeInterval
+            if let start = self.recordingStartDate {
+                updateTime = max(0, Date().timeIntervalSince(start) - self.recordingTimelineOffset)
+            } else {
+                updateTime = 0
+            }
             if self.recordingDrawingKeyframes.last?.elements != elements {
                 self.recordingDrawingKeyframes.append(
                     DrawingElementsKeyframe(time: updateTime, elements: elements)
@@ -560,7 +583,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingLock.lock()
         defer { recordingLock.unlock() }
         guard let recordingStartDate else { return }
-        let time = Date().timeIntervalSince(recordingStartDate)
+        let time = max(0, Date().timeIntervalSince(recordingStartDate) - recordingTimelineOffset)
         if let previous = recordingPhotoOverlayKeyframes.last,
            previous.imageID == recordingPhotoOverlayID,
            time - previous.time < 0.025,
@@ -585,7 +608,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingLock.lock()
         defer { recordingLock.unlock() }
         guard let recordingStartDate else { return }
-        let time = Date().timeIntervalSince(recordingStartDate)
+        let time = max(0, Date().timeIntervalSince(recordingStartDate) - recordingTimelineOffset)
         let imageID = image == nil ? nil : UUID()
         recordingPhotoOverlay = image
         recordingPhotoOverlayID = imageID
@@ -988,23 +1011,73 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     // MARK: - Завершение видеозаписи
 
+    private func handleMovieStarted(at date: Date) {
+        recordingLock.lock()
+        defer { recordingLock.unlock() }
+        guard !didReceiveRecordingStart, let requestedStart = recordingStartDate else { return }
+        didReceiveRecordingStart = true
+        recordingTimelineOffset = max(0, date.timeIntervalSince(requestedStart))
+        let offset = recordingTimelineOffset
+
+        recordingPipPositionKeyframes = recordingPipPositionKeyframes.map {
+            PipPositionKeyframe(time: max(0, $0.time - offset),
+                                positionFraction: $0.positionFraction,
+                                widthFraction: $0.widthFraction)
+        }
+        recordingLayoutKeyframes = recordingLayoutKeyframes.map {
+            CaptureLayoutKeyframe(time: max(0, $0.time - offset),
+                                  layout: $0.layout,
+                                  shape: $0.shape,
+                                  splitOrientation: $0.splitOrientation)
+        }
+        recordingCameraSwapKeyframes = recordingCameraSwapKeyframes.map {
+            CameraSwapKeyframe(time: max(0, $0.time - offset), isSwapped: $0.isSwapped)
+        }
+        recordingDrawingKeyframes = recordingDrawingKeyframes.map {
+            DrawingElementsKeyframe(time: max(0, $0.time - offset), elements: $0.elements)
+        }
+        recordingPhotoOverlayKeyframes = recordingPhotoOverlayKeyframes.map {
+            PhotoOverlayKeyframe(time: max(0, $0.time - offset),
+                                 offsetFraction: $0.offsetFraction,
+                                 widthFraction: $0.widthFraction,
+                                 image: $0.image,
+                                 imageID: $0.imageID)
+        }
+    }
+
     private func handleMovieFinished(camera: MovieCaptureDelegate.Camera, url: URL?, error: Error?) {
         recordingLock.lock()
         receivedRecordingCallbacks += 1
         if let error {
             let nsError = error as NSError
+            let finishedSuccessfully = (nsError.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? NSNumber)?.boolValue == true
+            let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? NSError
             let cameraName: String
             switch camera {
             case .back: cameraName = "задней"
             case .front: cameraName = "фронтальной"
             }
-            recordingError = NSError(
-                domain: "DualCamera.MovieCapture.\(nsError.domain)",
-                code: nsError.code,
-                userInfo: [NSLocalizedDescriptionKey:
-                            "Сбой записи \(cameraName) камеры: \(nsError.localizedDescription) (\(nsError.domain), код \(nsError.code))",
-                           NSUnderlyingErrorKey: nsError]
-            )
+            if finishedSuccessfully, let url,
+               FileManager.default.fileExists(atPath: url.path) {
+                recordedURLs[camera] = url
+            } else {
+                let details = [
+                    nsError.localizedFailureReason,
+                    nsError.localizedRecoverySuggestion,
+                    underlyingError?.localizedDescription,
+                    underlyingError.map { "\($0.domain), код \($0.code)" }
+                ].compactMap { $0 }.joined(separator: "; ")
+                let message = [
+                    "Сбой записи \(cameraName) камеры: \(nsError.localizedDescription) (\(nsError.domain), код \(nsError.code))",
+                    details.isEmpty ? nil : details
+                ].compactMap { $0 }.joined(separator: ". ")
+                recordingError = NSError(
+                    domain: "DualCamera.MovieCapture.\(nsError.domain)",
+                    code: nsError.code,
+                    userInfo: [NSLocalizedDescriptionKey: message,
+                               NSUnderlyingErrorKey: nsError]
+                )
+            }
         } else if let url {
             recordedURLs[camera] = url
         }
@@ -1107,6 +1180,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingLock.lock()
         recordedURLs.removeAll()
         recordingError = nil
+        recordingTimelineOffset = 0
+        didReceiveRecordingStart = false
         recordingPipPositionKeyframes.removeAll()
         recordingLayoutKeyframes.removeAll()
         recordingCameraSwapKeyframes.removeAll()
@@ -1145,6 +1220,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                                      shape: PipShape,
                                      splitOrientation: SplitOrientation) {
         recordingStartDate = Date()
+        recordingTimelineOffset = 0
+        didReceiveRecordingStart = false
         recordingPipWidthFraction = widthFraction
         recordingLock.lock()
         recordingPipPositionKeyframes = [

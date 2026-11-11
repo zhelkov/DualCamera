@@ -208,8 +208,11 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
             let secondarySource = swapSources ? backSource : frontSource
             let mainSize = swapSources ? instruction.frontSourceSize : instruction.backSourceSize
             let secondarySize = swapSources ? instruction.backSourceSize : instruction.frontSourceSize
-            let mainTransform = swapSources ? instruction.frontTransform : instruction.backTransform
-            let secondaryTransform = swapSources ? instruction.backTransform : instruction.frontTransform
+            // Both camera outputs capture the same interface orientation. Use
+            // the primary track's orientation matrix for both source frames so
+            // the front sensor's native sensor rotation doesn't turn its PiP.
+            let mainTransform = instruction.backTransform
+            let secondaryTransform = instruction.backTransform
             let main = place(mainSource,
                              sourceSize: instruction.backImage == nil ? mainSize : mainSource.extent.size,
                              transform: instruction.backImage == nil ? mainTransform : .identity,
