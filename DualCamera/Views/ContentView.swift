@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var isZoomSliderVisible = false
     @State private var drawing = DrawingEngine()
     @State private var selectedMediaItems: [PhotosPickerItem] = []
+    @State private var useFrontPreviewLayer = true
 
     var body: some View {
         @Bindable var camera = camera
@@ -138,7 +139,13 @@ struct ContentView: View {
 
     @ViewBuilder
     private var frontCameraContent: some View {
-        FrontCameraImageView(store: camera.frontPreviewStore)
+        Group {
+            if useFrontPreviewLayer {
+                CameraPreviewView(previewLayer: camera.frontPreviewLayer, isMirrored: true)
+            } else {
+                FrontCameraImageView(store: camera.frontPreviewStore)
+            }
+        }
     }
 
     private var pipOffsetFraction: CGSize {
@@ -309,6 +316,21 @@ struct ContentView: View {
             }
             .padding(.horizontal)
             .padding(.top, 8)
+
+            // Временный A/B переключатель для проверки двух независимых путей превью.
+            Button {
+                useFrontPreviewLayer.toggle()
+            } label: {
+                Text(useFrontPreviewLayer
+                     ? "Тест фронтального превью: AVFoundation Layer"
+                     : "Тест фронтального превью: кадры (резервный режим)")
+                    .font(.caption2)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(.black.opacity(0.45), in: Capsule())
+            }
+            .padding(.top, 3)
 
             if camera.layout == .pip {
                 Picker("Форма окна", selection: $camera.pipShape) {

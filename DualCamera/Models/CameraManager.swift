@@ -209,10 +209,9 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
             do {
                 try self.configureSession()
-                // Подключаем превью-слои до запуска сессии.
-                self.connectPreviewLayers()
                 self.applyInterfaceOrientation(initialOrientation, forceCaptureOutputs: true)
                 self.session.startRunning()
+                self.checkPreviewLayersAfterStart()
                 // Характеристики читаем на очереди сессии, применяем на главной.
                 let minZoom = self.backCamera?.minAvailableVideoZoomFactor ?? 1
                 let maxZoom = self.backCamera?.maxAvailableVideoZoomFactor ?? 1
@@ -692,6 +691,10 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
         // 7а. Микрофон: добавляем вход и подключаем звук к обоим видео-выходам.
         try addAudioInput()
+
+        // Подключаем preview-layer к конкретным портам внутри той же транзакции,
+        // где добавлены inputs/outputs, как в примере Apple AVMultiCamPiP.
+        try connectPreviewLayers()
     }
 
     /// Добавляет микрофон и подключает его к обоим видео-выходам.
@@ -714,15 +717,15 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     // MARK: - Ротация
 
     /// Подключает превью-слои к сессии и проверяет активность соединений.
-    private func connectPreviewLayers() {
-        guard let back = backInput, let front = frontInput else { return }
-        do {
-            try connect(back, to: backPreviewLayer, mirrored: false)
-            try connect(front, to: frontPreviewLayer, mirrored: true)
-        } catch {
-            updateOnMain { self.errorMessage = "Превью не подключилось: \(error)" }
-            return
+    private func connectPreviewLayers() throws {
+        guard let back = backInput, let front = frontInput else {
+            throw CameraError.connectionFailed
         }
+        try connect(back, to: backPreviewLayer, mirrored: false)
+        try connect(front, to: frontPreviewLayer, mirrored: true)
+    }
+
+    private func checkPreviewLayersAfterStart() {
         // Через 2 секунды проверяем, получает ли превью видео.
         sessionQueue.asyncAfter(deadline: .now() + 2) { [weak self] in
             guard let self else { return }
