@@ -807,6 +807,15 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                                   coordinator: AVCaptureDevice.RotationCoordinator?,
                                   orientation: AVCaptureVideoOrientation) {
         guard let connection else { return }
+        // Landscape capture should follow the active interface orientation.
+        // The horizon-level coordinator angle can choose the opposite landscape
+        // direction for the recorded track, making both merged cameras upside down.
+        // Keep the already-correct portrait path unchanged.
+        if orientation == .landscapeLeft || orientation == .landscapeRight,
+           connection.isVideoOrientationSupported {
+            connection.videoOrientation = orientation
+            return
+        }
         if let coordinator {
             let angle = coordinator.videoRotationAngleForHorizonLevelCapture
             if connection.isVideoRotationAngleSupported(angle) {
