@@ -227,20 +227,37 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                               canvasHeight: instruction.canvasSize.height)
 
             var composed = main.cropped(to: canvas)
-            if captureLayout.layout == .pip, captureLayout.shape == .circle {
+            if captureLayout.layout == .pip {
                 let frontBottomRect = CGRect(x: frontRect.minX,
                                              y: instruction.canvasSize.height - frontRect.maxY,
                                              width: frontRect.width,
                                              height: frontRect.height)
-                let center = CGPoint(x: frontBottomRect.midX, y: frontBottomRect.midY)
-                let radius = min(frontBottomRect.width, frontBottomRect.height) / 2
-                let mask = CIFilter.radialGradient()
-                mask.center = center
-                mask.radius0 = Float(max(0, radius - 0.5))
-                mask.radius1 = Float(radius + 0.5)
-                mask.color0 = CIColor.white
-                mask.color1 = CIColor.black
-                guard let maskImage = mask.outputImage?.cropped(to: canvas) else {
+                let maskImage: CIImage?
+                switch captureLayout.shape {
+                case .circle:
+                    let center = CGPoint(x: frontBottomRect.midX, y: frontBottomRect.midY)
+                    let radius = min(frontBottomRect.width, frontBottomRect.height) / 2
+                    let mask = CIFilter.radialGradient()
+                    mask.center = center
+                    mask.radius0 = Float(max(0, radius - 0.5))
+                    mask.radius1 = Float(radius + 0.5)
+                    mask.color0 = CIColor.white
+                    mask.color1 = CIColor.black
+                    maskImage = mask.outputImage?.cropped(to: canvas)
+                case .rectangle, .square:
+                    let radiusFraction: CGFloat = captureLayout.shape == .rectangle ? 0.137 : 0.103
+                    let portraitScale = min(instruction.canvasSize.width,
+                                            instruction.canvasSize.height)
+                        / max(instruction.canvasSize.width, 1)
+                    let radius = min(frontBottomRect.width * radiusFraction * portraitScale,
+                                     frontBottomRect.height / 2)
+                    let mask = CIFilter.roundedRectangleGenerator()
+                    mask.extent = frontBottomRect
+                    mask.radius = Float(radius)
+                    mask.color = CIColor.white
+                    maskImage = mask.outputImage?.cropped(to: canvas)
+                }
+                guard let maskImage else {
                     throw CameraError.videoMergeFailed
                 }
                 let blend = CIFilter.blendWithMask()
