@@ -457,16 +457,13 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
     private func mirrorForFinalVideo(_ image: CIImage,
                                     inside rect: CGRect,
                                     isLandscape: Bool) -> CIImage {
-        let transform: CGAffineTransform
-        if isLandscape {
-            transform = CGAffineTransform(a: -1, b: 0,
+        // Portrait tracks already receive the horizontal mirror through the
+        // composition's final coordinate normalization. An extra vertical flip
+        // here turns that into a 180° rotation, so only landscape needs this step.
+        guard isLandscape else { return image.cropped(to: rect) }
+        let transform = CGAffineTransform(a: -1, b: 0,
                                           c: 0, d: 1,
                                           tx: rect.minX + rect.maxX, ty: 0)
-        } else {
-            transform = CGAffineTransform(a: 1, b: 0,
-                                          c: 0, d: -1,
-                                          tx: 0, ty: rect.minY + rect.maxY)
-        }
         return image.transformed(by: transform).cropped(to: rect)
     }
 }
