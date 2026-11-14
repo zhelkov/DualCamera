@@ -22,7 +22,7 @@ struct CameraPreviewView: UIViewRepresentable {
 /// UIView, который размещает превью-слой на весь свой размер.
 final class PreviewContainerView: UIView {
     var isMirrored: Bool {
-        didSet { transform = isMirrored ? CGAffineTransform(scaleX: -1, y: 1) : .identity }
+        didSet { updatePreviewLayerTransform() }
     }
 
     var previewLayer: AVCaptureVideoPreviewLayer {
@@ -31,6 +31,7 @@ final class PreviewContainerView: UIView {
             oldValue.removeFromSuperlayer()
             layer.addSublayer(previewLayer)
             previewLayer.frame = bounds
+            updatePreviewLayerTransform()
         }
     }
 
@@ -38,9 +39,10 @@ final class PreviewContainerView: UIView {
         self.previewLayer = previewLayer
         self.isMirrored = isMirrored
         super.init(frame: .zero)
-        transform = isMirrored ? CGAffineTransform(scaleX: -1, y: 1) : .identity
         backgroundColor = .black
         layer.addSublayer(previewLayer)
+        previewLayer.frame = bounds
+        updatePreviewLayerTransform()
     }
 
     @available(*, unavailable)
@@ -51,6 +53,13 @@ final class PreviewContainerView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         previewLayer.frame = bounds
+        updatePreviewLayerTransform()
+    }
+
+    private func updatePreviewLayerTransform() {
+        previewLayer.setAffineTransform(
+            isMirrored ? CGAffineTransform(scaleX: -1, y: 1) : .identity
+        )
     }
 }
 
