@@ -215,16 +215,33 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
             // the front sensor's native sensor rotation doesn't turn its PiP.
             let mainTransform = swapSources ? instruction.frontTransform : instruction.backTransform
             let secondaryTransform = swapSources ? instruction.backTransform : instruction.frontTransform
-            let main = place(mainSource,
-                             sourceSize: instruction.backImage == nil ? mainSize : mainSource.extent.size,
-                             transform: instruction.backImage == nil ? mainTransform : .identity,
-                             in: backRect,
-                             canvasHeight: instruction.canvasSize.height)
-            let front = place(secondarySource,
-                              sourceSize: instruction.frontImage == nil ? secondarySize : secondarySource.extent.size,
-                              transform: instruction.frontImage == nil ? secondaryTransform : .identity,
-                              in: frontRect,
-                              canvasHeight: instruction.canvasSize.height)
+            let mainIsCameraVideo = swapSources
+                ? instruction.frontImage == nil
+                : instruction.backImage == nil
+            let secondaryIsCameraVideo = swapSources
+                ? instruction.backImage == nil
+                : instruction.frontImage == nil
+            let placedMain = place(mainSource,
+                                   sourceSize: instruction.backImage == nil ? mainSize : mainSource.extent.size,
+                                   transform: instruction.backImage == nil ? mainTransform : .identity,
+                                   in: backRect,
+                                   canvasHeight: instruction.canvasSize.height)
+            let placedFront = place(secondarySource,
+                                    sourceSize: instruction.frontImage == nil ? secondarySize : secondarySource.extent.size,
+                                    transform: instruction.frontImage == nil ? secondaryTransform : .identity,
+                                    in: frontRect,
+                                    canvasHeight: instruction.canvasSize.height)
+            let isLandscape = instruction.canvasSize.width > instruction.canvasSize.height
+            let main = isLandscape && mainIsCameraVideo
+                ? rotateHalfTurn(placedMain,
+                                 inside: frontRectForCoreImage(backRect,
+                                                               canvasHeight: instruction.canvasSize.height))
+                : placedMain
+            let front = isLandscape && secondaryIsCameraVideo
+                ? rotateHalfTurn(placedFront,
+                                 inside: frontRectForCoreImage(frontRect,
+                                                               canvasHeight: instruction.canvasSize.height))
+                : placedFront
 
             var composed = main.cropped(to: canvas)
             if captureLayout.layout == .pip {
@@ -412,6 +429,15 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                y: canvasHeight - rect.maxY,
                width: rect.width,
                height: rect.height)
+    }
+
+    /// Corrects a landscape camera frame in place without moving its layout rectangle.
+    private func rotateHalfTurn(_ image: CIImage, inside rect: CGRect) -> CIImage {
+        let transform = CGAffineTransform(a: -1, b: 0,
+                                          c: 0, d: -1,
+                                          tx: rect.minX + rect.maxX,
+                                          ty: rect.minY + rect.maxY)
+        return image.transformed(by: transform).cropped(to: rect)
     }
 }
 
