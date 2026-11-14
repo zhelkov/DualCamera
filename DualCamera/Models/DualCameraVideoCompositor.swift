@@ -243,10 +243,10 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                                     canvasHeight: instruction.canvasSize.height)
             let isLandscape = instruction.canvasSize.width > instruction.canvasSize.height
             let mainWithMirror = mainIsFrontCamera
-                ? mirrorForFinalVideo(placedMain, inside: mainCell, isLandscape: isLandscape)
+                ? mirrorForFinalVideo(placedMain, inside: mainCell)
                 : placedMain
             let frontWithMirror = secondaryIsFrontCamera
-                ? mirrorForFinalVideo(placedFront, inside: frontCell, isLandscape: isLandscape)
+                ? mirrorForFinalVideo(placedFront, inside: frontCell)
                 : placedFront
             let main = isLandscape && mainIsCameraVideo
                 ? rotateHalfTurn(mainWithMirror, inside: mainCell)
@@ -452,15 +452,8 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
         return image.transformed(by: transform).cropped(to: rect)
     }
 
-    /// Accounts for the compositor's final 180° coordinate correction so the
-    /// front-camera image is mirrored in the exported video without moving its cell.
-    private func mirrorForFinalVideo(_ image: CIImage,
-                                    inside rect: CGRect,
-                                    isLandscape: Bool) -> CIImage {
-        // Portrait tracks already receive the horizontal mirror through the
-        // composition's final coordinate normalization. An extra vertical flip
-        // here turns that into a 180° rotation, so only landscape needs this step.
-        guard isLandscape else { return image.cropped(to: rect) }
+    /// Mirrors the front camera left-to-right without changing its orientation or cell.
+    private func mirrorForFinalVideo(_ image: CIImage, inside rect: CGRect) -> CIImage {
         let transform = CGAffineTransform(a: -1, b: 0,
                                           c: 0, d: 1,
                                           tx: rect.minX + rect.maxX, ty: 0)
