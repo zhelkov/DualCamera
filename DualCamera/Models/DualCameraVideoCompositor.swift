@@ -47,6 +47,7 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
     let layout: CaptureLayout
     let splitOrientation: SplitOrientation
     let shape: PipShape
+    let mirrorFrontCamera: Bool
     let pipOffsetFraction: CGSize
     let pipWidthFraction: CGFloat
     let pipPositionKeyframes: [PipPositionKeyframe]
@@ -73,6 +74,7 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
          layout: CaptureLayout,
          splitOrientation: SplitOrientation,
          shape: PipShape,
+         mirrorFrontCamera: Bool,
          pipOffsetFraction: CGSize,
          pipWidthFraction: CGFloat,
          pipPositionKeyframes: [PipPositionKeyframe],
@@ -93,6 +95,7 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
         self.layout = layout
         self.splitOrientation = splitOrientation
         self.shape = shape
+        self.mirrorFrontCamera = mirrorFrontCamera
         self.pipOffsetFraction = pipOffsetFraction
         self.pipWidthFraction = pipWidthFraction
         self.pipPositionKeyframes = pipPositionKeyframes
@@ -221,6 +224,13 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
             let secondaryIsCameraVideo = swapSources
                 ? instruction.backImage == nil
                 : instruction.frontImage == nil
+            let mainIsFrontCamera = instruction.mirrorFrontCamera
+                && (swapSources ? !instruction.initialCamerasSwapped : instruction.initialCamerasSwapped)
+            let secondaryIsFrontCamera = instruction.mirrorFrontCamera && !mainIsFrontCamera
+            let mainCell = frontRectForCoreImage(backRect,
+                                                  canvasHeight: instruction.canvasSize.height)
+            let frontCell = frontRectForCoreImage(frontRect,
+                                                   canvasHeight: instruction.canvasSize.height)
             let placedMain = place(mainSource,
                                    sourceSize: instruction.backImage == nil ? mainSize : mainSource.extent.size,
                                    transform: instruction.backImage == nil ? mainTransform : .identity,
@@ -232,16 +242,18 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                                     in: frontRect,
                                     canvasHeight: instruction.canvasSize.height)
             let isLandscape = instruction.canvasSize.width > instruction.canvasSize.height
-            let main = isLandscape && mainIsCameraVideo
-                ? rotateHalfTurn(placedMain,
-                                 inside: frontRectForCoreImage(backRect,
-                                                               canvasHeight: instruction.canvasSize.height))
+            let mainWithMirror = mainIsFrontCamera
+                ? mirrorForFinalVideo(placedMain, inside: mainCell, isLandscape: isLandscape)
                 : placedMain
-            let front = isLandscape && secondaryIsCameraVideo
-                ? rotateHalfTurn(placedFront,
-                                 inside: frontRectForCoreImage(frontRect,
-                                                               canvasHeight: instruction.canvasSize.height))
+            let frontWithMirror = secondaryIsFrontCamera
+                ? mirrorForFinalVideo(placedFront, inside: frontCell, isLandscape: isLandscape)
                 : placedFront
+            let main = isLandscape && mainIsCameraVideo
+                ? rotateHalfTurn(mainWithMirror, inside: mainCell)
+                : mainWithMirror
+            let front = isLandscape && secondaryIsCameraVideo
+                ? rotateHalfTurn(frontWithMirror, inside: frontCell)
+                : frontWithMirror
 
             var composed = main.cropped(to: canvas)
             if captureLayout.layout == .pip {
@@ -437,6 +449,24 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                                           c: 0, d: -1,
                                           tx: rect.minX + rect.maxX,
                                           ty: rect.minY + rect.maxY)
+        return image.transformed(by: transform).cropped(to: rect)
+    }
+
+    /// Accounts for the compositor's final 180° coordinate correction so the
+    /// front-camera image is mirrored in the exported video without moving its cell.
+    private func mirrorForFinalVideo(_ image: CIImage,
+                                    inside rect: CGRect,
+                                    isLandscape: Bool) -> CIImage {
+        let transform: CGAffineTransform
+        if isLandscape {
+            transform = CGAffineTransform(a: -1, b: 0,
+                                          c: 0, d: 1,
+                                          tx: rect.minX + rect.maxX, ty: 0)
+        } else {
+            transform = CGAffineTransform(a: 1, b: 0,
+                                          c: 0, d: -1,
+                                          tx: 0, ty: rect.minY + rect.maxY)
+        }
         return image.transformed(by: transform).cropped(to: rect)
     }
 }

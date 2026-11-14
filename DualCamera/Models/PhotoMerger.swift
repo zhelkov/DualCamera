@@ -3,6 +3,18 @@ import UIKit
 /// Склеивает снимки передней и задней камер в одно изображение.
 enum PhotoMerger {
 
+    /// Mirrors a captured front-camera image while preserving its displayed orientation.
+    static func mirrorHorizontally(_ image: UIImage) -> UIImage {
+        let image = normalized(image)
+        let size = image.size
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { context in
+            context.cgContext.translateBy(x: size.width, y: 0)
+            context.cgContext.scaleBy(x: -1, y: 1)
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+    }
+
     static func merge(back: UIImage,
                       front: UIImage,
                       layout: CaptureLayout,

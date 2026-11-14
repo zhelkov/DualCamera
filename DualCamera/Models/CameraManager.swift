@@ -988,8 +988,9 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             throw CameraError.captureFailed
         }
 
-        let primary = isCamerasSwapped ? frontImage : backImage
-        let secondary = isCamerasSwapped ? backImage : frontImage
+        let mirroredFrontImage = PhotoMerger.mirrorHorizontally(frontImage)
+        let primary = isCamerasSwapped ? mirroredFrontImage : backImage
+        let secondary = isCamerasSwapped ? backImage : mirroredFrontImage
         return PhotoMerger.merge(back: primary,
                                  front: secondary,
                                  layout: layout,
@@ -1142,6 +1143,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                     layout: outputLayout,
                     shape: outputShape,
                     splitOrientation: outputSplitOrientation,
+                    mirrorFrontCamera: outputImportedVideoURL == nil,
                     pipOffsetFraction: outputOffset,
                     pipWidthFraction: 0.3,
                     pipPositionKeyframes: pipKeyframes,
