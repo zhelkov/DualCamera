@@ -721,8 +721,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         guard let back = backInput, let front = frontInput else {
             throw CameraError.connectionFailed
         }
-        try connect(back, to: backPreviewLayer, mirrored: false)
-        try connect(front, to: frontPreviewLayer, mirrored: true)
+        try connect(back, to: backPreviewLayer)
+        try connect(front, to: frontPreviewLayer)
     }
 
     private func checkPreviewLayersAfterStart() {
@@ -938,8 +938,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     }
 
     private func connect(_ input: AVCaptureDeviceInput,
-                         to layer: AVCaptureVideoPreviewLayer,
-                         mirrored: Bool) throws {
+                         to layer: AVCaptureVideoPreviewLayer) throws {
         guard let port = input.ports(for: .video,
                                      sourceDeviceType: input.device.deviceType,
                                      sourceDevicePosition: input.device.position).first else {

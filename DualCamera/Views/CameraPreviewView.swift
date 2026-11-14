@@ -85,7 +85,6 @@ final class FrontCameraImageContainerView: UIView {
 
         imageView.contentMode = .scaleAspectFill
         imageView.clipsToBounds = true
-        imageView.transform = CGAffineTransform(scaleX: -1, y: 1)
         imageView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(imageView)
 

@@ -141,7 +141,7 @@ struct ContentView: View {
     private var frontCameraContent: some View {
         Group {
             if useFrontPreviewLayer {
-                CameraPreviewView(previewLayer: camera.frontPreviewLayer, isMirrored: true)
+                CameraPreviewView(previewLayer: camera.frontPreviewLayer, isMirrored: false)
             } else {
                 FrontCameraImageView(store: camera.frontPreviewStore)
             }
