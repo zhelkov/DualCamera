@@ -86,8 +86,15 @@ final class RealtimeCompositeRecorder {
                      state: FrameState) {
         lock.lock()
         defer { lock.unlock() }
-        guard !stopped, writer.status == .writing, videoInput.isReadyForMoreMediaData,
-              let pool = adaptor.pixelBufferPool else { return }
+        guard !stopped, writer.status == .writing, videoInput.isReadyForMoreMediaData else { return }
+
+        if !started {
+            writer.startSession(atSourceTime: time)
+            sessionStartTime = time
+            started = true
+        }
+        // AVAssetWriter doesn't create the adaptor's pool until the writing session starts.
+        guard let pool = adaptor.pixelBufferPool else { return }
 
         var outputBuffer: CVPixelBuffer?
         guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &outputBuffer) == kCVReturnSuccess,
@@ -96,11 +103,6 @@ final class RealtimeCompositeRecorder {
                                   front: CIImage(cvPixelBuffer: front),
                                   state: state) else { return }
 
-        if !started {
-            writer.startSession(atSourceTime: time)
-            sessionStartTime = time
-            started = true
-        }
         ciContext.render(image, to: outputBuffer,
                          bounds: CGRect(origin: .zero, size: renderSize),
                          colorSpace: colorSpace)
