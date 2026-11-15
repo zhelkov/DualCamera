@@ -15,6 +15,7 @@
 - Experimental mode synchronizes both live camera outputs, composites each frame with the current split/PiP layout, photo overlay, and drawing, then writes the result to a temporary MOV as capture proceeds. Stop only finalizes the file; the existing result screen then saves it to Photos.
 - Selecting experimental mode prepares the synchronized capture outputs before recording starts; switching back to standard mode removes them. This keeps session reconfiguration away from the Record/Stop interval.
 - The live compositor retains the latest usable frame from each camera when the synchronizer reports a dropped or absent sample, and reports per-camera synchronization statistics if no composite frames reach the writer.
+- The live writer emits at most one composite frame for each new, non-dropped sample from the synchronizer's main back-camera output. This avoids turning secondary-camera callbacks into extra high-frame-rate output frames.
 - The writer uses the later valid presentation timestamp from the synchronized camera samples. This behavior is retained based on device playback testing.
 - The result screen reads the video samples and displays their PTS span, frame count, minimum/average/maximum PTS step, long-step count, nominal frame rate, QuickTime full-frame-rate playback intent, and audio duration.
 - Timing diagnostics are overlaid on the preview, report read progress, and show an explicit reader error if sample reading fails.

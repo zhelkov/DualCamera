@@ -104,6 +104,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     // camera so one missed sample doesn't discard the entire composite frame.
     private var latestRealtimeBackBuffer: CVPixelBuffer?
     private var latestRealtimeFrontBuffer: CVPixelBuffer?
+    private var lastRealtimeSubmittedBackPTS = CMTime.invalid
     private let frontProbeImageContext = CIContext()
     let frontPreviewStore = FrontCameraPreviewStore()
     private var lastFrontProbeImageUpdate: UInt64 = 0
@@ -739,6 +740,10 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     private func configureRealtimeOutputs() throws {
         guard !realtimeVideoOutputsReady, let backInput else { return }
+
+        latestRealtimeBackBuffer = nil
+        latestRealtimeFrontBuffer = nil
+        lastRealtimeSubmittedBackPTS = .invalid
 
         session.beginConfiguration()
         defer { session.commitConfiguration() }
@@ -1542,7 +1547,6 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         )
 
         var backPTS = CMTime.invalid
-        var frontPTS = CMTime.invalid
         if let backData, !backDropped,
            let buffer = CMSampleBufferGetImageBuffer(backData.sampleBuffer) {
             latestRealtimeBackBuffer = buffer
@@ -1551,7 +1555,6 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         if let frontData, !frontDropped,
            let buffer = CMSampleBufferGetImageBuffer(frontData.sampleBuffer) {
             latestRealtimeFrontBuffer = buffer
-            frontPTS = CMSampleBufferGetPresentationTimeStamp(frontData.sampleBuffer)
         }
 
         if let frontData, !frontDropped, let connection = frontVideoDataConnection {
@@ -1566,19 +1569,17 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         guard let recorder = activeRecorder,
               let backBuffer = latestRealtimeBackBuffer,
               let frontBuffer = latestRealtimeFrontBuffer,
-              backPTS.isValid || frontPTS.isValid else { return }
+              backPTS.isValid,
+              !lastRealtimeSubmittedBackPTS.isValid
+                || CMTimeCompare(backPTS, lastRealtimeSubmittedBackPTS) > 0 else { return }
         recordingLock.lock()
         let state = realtimeFrameStateLocked()
         recordingLock.unlock()
-        // Keep the later timestamp from the two synchronized camera samples.
-        // Device playback testing showed that using only the main output's PTS
-        // caused a slow-motion regression in Photos.
-        let time = CMTimeMaximum(backPTS.isValid ? backPTS : .zero,
-                                 frontPTS.isValid ? frontPTS : .zero)
         guard realtimeWriterSlots.wait(timeout: .now()) == .success else { return }
+        lastRealtimeSubmittedBackPTS = backPTS
         realtimeWriterQueue.async { [realtimeWriterSlots] in
             defer { realtimeWriterSlots.signal() }
-            recorder.appendVideo(back: backBuffer, front: frontBuffer, time: time, state: state)
+            recorder.appendVideo(back: backBuffer, front: frontBuffer, time: backPTS, state: state)
         }
     }
 

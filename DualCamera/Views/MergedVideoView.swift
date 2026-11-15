@@ -128,6 +128,7 @@ struct MergedVideoView: View {
         var minStep = Double.greatestFiniteMagnitude
         var maxStep = 0.0
         var totalStep = 0.0
+        var positiveStepCount = 0
         var longSteps = 0
 
         do {
@@ -150,6 +151,7 @@ struct MergedVideoView: View {
                         minStep = min(minStep, step)
                         maxStep = max(maxStep, step)
                         totalStep += step
+                        positiveStepCount += 1
                         if step > 0.05 { longSteps += 1 }
                     }
                 }
@@ -177,7 +179,7 @@ struct MergedVideoView: View {
         } else {
             ptsSpan = 0
         }
-        let averageStep = frameCount > 1 ? totalStep / Double(frameCount - 1) : 0
+        let averageStep = positiveStepCount > 0 ? totalStep / Double(positiveStepCount) : 0
         let minStepValue = minStep.isFinite ? minStep : 0
         let audioDuration = asset.tracks(withMediaType: .audio).first?.timeRange.duration.seconds ?? 0
 
