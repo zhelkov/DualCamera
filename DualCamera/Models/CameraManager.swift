@@ -1570,10 +1570,11 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingLock.lock()
         let state = realtimeFrameStateLocked()
         recordingLock.unlock()
-        // The back output is first in AVCaptureDataOutputSynchronizer's array,
-        // so it defines the callback timeline. Prefer its timestamp to avoid
-        // advancing the writer based on a later timestamp from the front camera.
-        let time = backPTS.isValid ? backPTS : frontPTS
+        // Keep the later timestamp from the two synchronized camera samples.
+        // Device playback testing showed that using only the main output's PTS
+        // caused a slow-motion regression in Photos.
+        let time = CMTimeMaximum(backPTS.isValid ? backPTS : .zero,
+                                 frontPTS.isValid ? frontPTS : .zero)
         guard realtimeWriterSlots.wait(timeout: .now()) == .success else { return }
         realtimeWriterQueue.async { [realtimeWriterSlots] in
             defer { realtimeWriterSlots.signal() }

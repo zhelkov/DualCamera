@@ -29,10 +29,8 @@ final class RealtimeCompositeRecorder {
     private var started = false
     private var stopped = false
     private var sessionStartTime = CMTime.invalid
-    private var lastVideoTime = CMTime.invalid
     private var receivedVideoFrames = 0
     private var appendedVideoFrames = 0
-    private var nonMonotonicVideoFrames = 0
     private var lastVideoError: String?
     private var synchronizationCallbacks = 0
     private var backSamplesPresent = 0
@@ -112,10 +110,6 @@ final class RealtimeCompositeRecorder {
         defer { lock.unlock() }
         guard !stopped, writer.status == .writing else { return }
         receivedVideoFrames += 1
-        if lastVideoTime.isValid && CMTimeCompare(time, lastVideoTime) <= 0 {
-            nonMonotonicVideoFrames += 1
-            return
-        }
 
         if !started {
             writer.startSession(atSourceTime: time)
@@ -144,7 +138,6 @@ final class RealtimeCompositeRecorder {
                          colorSpace: colorSpace)
         if adaptor.append(outputBuffer, withPresentationTime: time) {
             appendedVideoFrames += 1
-            lastVideoTime = time
         } else {
             lastVideoError = writer.error?.localizedDescription ?? "AVAssetWriter не принял собранный видеокадр."
         }
@@ -176,7 +169,7 @@ final class RealtimeCompositeRecorder {
             if writer.status == .completed, self.appendedVideoFrames > 0 {
                 completion(.success(writer.outputURL))
             } else {
-                let details = "Экспериментальная запись: синхронизатор вызван \(self.synchronizationCallbacks) раз; получено кадров — \(self.receivedVideoFrames), записано — \(self.appendedVideoFrames), отброшено из-за времени — \(self.nonMonotonicVideoFrames); образцы задней камеры — \(self.backSamplesPresent) (пропуски \(self.backSamplesDropped)), передней — \(self.frontSamplesPresent) (пропуски \(self.frontSamplesDropped))."
+                let details = "Экспериментальная запись: синхронизатор вызван \(self.synchronizationCallbacks) раз; получено кадров — \(self.receivedVideoFrames), записано — \(self.appendedVideoFrames); образцы задней камеры — \(self.backSamplesPresent) (пропуски \(self.backSamplesDropped)), передней — \(self.frontSamplesPresent) (пропуски \(self.frontSamplesDropped))."
                 let message = [writer.error?.localizedDescription, self.lastVideoError, details]
                     .compactMap { $0 }
                     .joined(separator: " ")
