@@ -1570,8 +1570,10 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingLock.lock()
         let state = realtimeFrameStateLocked()
         recordingLock.unlock()
-        let time = CMTimeMaximum(backPTS.isValid ? backPTS : .zero,
-                                 frontPTS.isValid ? frontPTS : .zero)
+        // The back output is first in AVCaptureDataOutputSynchronizer's array,
+        // so it defines the callback timeline. Prefer its timestamp to avoid
+        // advancing the writer based on a later timestamp from the front camera.
+        let time = backPTS.isValid ? backPTS : frontPTS
         guard realtimeWriterSlots.wait(timeout: .now()) == .success else { return }
         realtimeWriterQueue.async { [realtimeWriterSlots] in
             defer { realtimeWriterSlots.signal() }
