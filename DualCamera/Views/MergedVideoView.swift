@@ -88,37 +88,84 @@ struct MergedVideoView: View {
     }
 
     private func inspectVideoTracks() {
-        Task { @MainActor in
-            let asset = AVURLAsset(url: videoURL)
-            do {
-                let assetDuration = try await asset.load(.duration).seconds
-                let videoTracks = try await asset.loadTracks(withMediaType: .video)
-                let audioTracks = try await asset.loadTracks(withMediaType: .audio)
-
-                var videoDuration: Double = 0
-                var frameRate: Float = 0
-                if let track = videoTracks.first {
-                    videoDuration = try await track.load(.timeRange).duration.seconds
-                    frameRate = try await track.load(.nominalFrameRate)
-                }
-
-                var audioDurationText = "нет"
-                if let track = audioTracks.first {
-                    let range = try await track.load(.timeRange)
-                    audioDurationText = String(format: "%.2f с", range.duration.seconds)
-                }
-
-                videoDiagnostics = String(
-                    format: "Файл %.2f с · видео %.2f с · звук %@ · %.1f кадр/с",
-                    assetDuration,
-                    videoDuration,
-                    audioDurationText,
-                    frameRate
-                )
-            } catch {
-                videoDiagnostics = "Не удалось прочитать параметры видео: \(error.localizedDescription)"
+        let url = videoURL
+        DispatchQueue.global(qos: .utility).async {
+            let diagnostics = Self.readVideoDiagnostics(url: url)
+            DispatchQueue.main.async {
+                self.videoDiagnostics = diagnostics
             }
         }
+    }
+
+    private static func readVideoDiagnostics(url: URL) -> String {
+        let asset = AVURLAsset(url: url)
+        guard let videoTrack = asset.tracks(withMediaType: .video).first else {
+            return "Видеодорожка не найдена"
+        }
+
+        let videoRangeDuration = videoTrack.timeRange.duration.seconds
+        let frameRate = videoTrack.nominalFrameRate
+        var frameCount = 0
+        var firstPTS: CMTime?
+        var lastPTS: CMTime?
+        var previousPTS: CMTime?
+        var minStep = Double.greatestFiniteMagnitude
+        var maxStep = 0.0
+        var totalStep = 0.0
+        var longSteps = 0
+
+        do {
+            let reader = try AVAssetReader(asset: asset)
+            let output = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: nil)
+            guard reader.canAdd(output) else { return "Не удалось прочитать видеокадры" }
+            reader.add(output)
+            guard reader.startReading() else {
+                return "Не удалось начать чтение временных меток видео"
+            }
+
+            while let sampleBuffer = output.copyNextSampleBuffer() {
+                let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                guard pts.isValid, pts.seconds.isFinite else { continue }
+                frameCount += 1
+                if firstPTS == nil { firstPTS = pts }
+                if let previousPTS {
+                    let step = CMTimeSubtract(pts, previousPTS).seconds
+                    if step > 0, step.isFinite {
+                        minStep = min(minStep, step)
+                        maxStep = max(maxStep, step)
+                        totalStep += step
+                        if step > 0.05 { longSteps += 1 }
+                    }
+                }
+                previousPTS = pts
+                lastPTS = pts
+            }
+        } catch {
+            return "Не удалось прочитать временные метки видео: \(error.localizedDescription)"
+        }
+
+        let ptsSpan: Double
+        if let firstPTS, let lastPTS {
+            ptsSpan = CMTimeSubtract(lastPTS, firstPTS).seconds
+        } else {
+            ptsSpan = 0
+        }
+        let averageStep = frameCount > 1 ? totalStep / Double(frameCount - 1) : 0
+        let minStepValue = minStep.isFinite ? minStep : 0
+        let audioDuration = asset.tracks(withMediaType: .audio).first?.timeRange.duration.seconds ?? 0
+
+        return String(
+            format: "Видео: %.2f с · PTS %.2f с · %d кадров · шаг %.3f/%.3f/%.3f с (мин/сред/макс), >0.05 с: %d · звук %.2f с · %.1f кадр/с",
+            videoRangeDuration,
+            ptsSpan,
+            frameCount,
+            minStepValue,
+            averageStep,
+            maxStep,
+            longSteps,
+            audioDuration,
+            frameRate
+        )
     }
 
     private func save() {
