@@ -1,5 +1,21 @@
 # DualCamera
 
+## Stable rollback point
+
+- **Stable release before the real-time recording experiment:** `v1.7.12`.
+- Commit: `7102fce` (`Mirror front video horizontally in portrait`).
+- This release keeps the existing workflow: record the front and rear camera clips separately, then merge them after Stop.
+- The real-time composite recorder must remain selectable as an experiment; the legacy workflow remains the rollback option until device testing confirms the new path.
+- To return the source tree to the stable release, use `git checkout v1.7.12` (or revert the experimental commits if newer work must be retained).
+
+## Recording experiment
+
+- The on-screen `Стандартная запись` / `Эксперимент: запись сразу` switch selects between the v1.7.12 recorder and the experimental live compositor.
+- Standard mode continues recording both camera files and merging them after Stop.
+- Experimental mode synchronizes both live camera outputs, composites each frame with the current split/PiP layout, photo overlay, and drawing, then writes the result to a temporary MOV as capture proceeds. Stop only finalizes the file; the existing result screen then saves it to Photos.
+- Imported video is not supported by the live compositor yet; use standard mode when a video has been picked from Photos.
+- Keep the experiment opt-in and test it on the iPhone 12 for output orientation, PiP placement/shape, overlays, audio, dropped frames, and long recordings before considering it a replacement.
+
 Нативное iOS-приложение (аналог MixCam) для одновременной съёмки с передней и задней камер через `AVCaptureMultiCamSession`.
 
 ## Что внутри

@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var drawing = DrawingEngine()
     @State private var selectedMediaItems: [PhotosPickerItem] = []
     @State private var useFrontPreviewLayer = true
+    @State private var useRealtimeCompositeRecording = false
 
     var body: some View {
         @Bindable var camera = camera
@@ -332,6 +333,21 @@ struct ContentView: View {
             }
             .padding(.top, 3)
 
+            Button {
+                useRealtimeCompositeRecording.toggle()
+            } label: {
+                Text(useRealtimeCompositeRecording
+                     ? "Эксперимент: запись сразу"
+                     : "Стандартная запись")
+                    .font(.caption2)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(useRealtimeCompositeRecording ? .orange.opacity(0.75) : .black.opacity(0.45),
+                                in: Capsule())
+            }
+            .disabled(camera.isRecording)
+
             if camera.layout == .pip {
                 Picker("Форма окна", selection: $camera.pipShape) {
                     ForEach(PipShape.allCases) { shape in
@@ -429,7 +445,8 @@ struct ContentView: View {
                         camera.startRecording(elements: drawing.elements,
                                               pipOffsetFraction: pipOffsetFraction,
                                               photoOverlayOffsetFraction: photoOverlayOffsetFraction,
-                                              photoOverlayWidthFraction: importedImageWidthFraction)
+                                              photoOverlayWidthFraction: importedImageWidthFraction,
+                                              useRealtimeComposite: useRealtimeCompositeRecording)
                     } label: {
                         ZStack {
                             Circle().stroke(.white, lineWidth: 4).frame(width: 72, height: 72)
