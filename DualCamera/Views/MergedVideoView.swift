@@ -20,6 +20,18 @@ struct MergedVideoView: View {
                     VideoPlayer(player: player)
                         .frame(height: 320)
                         .padding()
+                        .overlay(alignment: .top) {
+                            Text(videoDiagnostics)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.white)
+                                .multilineTextAlignment(.leading)
+                                .lineLimit(5)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(8)
+                                .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 8))
+                                .padding(.horizontal, 20)
+                                .padding(.top, 8)
+                        }
                 } else {
                     Rectangle()
                         .fill(.black)
@@ -37,13 +49,6 @@ struct MergedVideoView: View {
                         .font(.subheadline)
                 }
                 .padding()
-
-                Text(videoDiagnostics)
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .textSelection(.enabled)
-                    .padding(.horizontal)
 
                 if saveErrorMessage != nil {
                     Button("Повторить сохранение") {
@@ -88,14 +93,19 @@ struct MergedVideoView: View {
     private func inspectVideoTracks() {
         let url = videoURL
         DispatchQueue.global(qos: .utility).async {
-            let diagnostics = Self.readVideoDiagnostics(url: url)
+            let diagnostics = Self.readVideoDiagnostics(url: url) { progress in
+                DispatchQueue.main.async {
+                    self.videoDiagnostics = progress
+                }
+            }
             DispatchQueue.main.async {
                 self.videoDiagnostics = diagnostics
             }
         }
     }
 
-    private static func readVideoDiagnostics(url: URL) -> String {
+    private static func readVideoDiagnostics(url: URL,
+                                             progress: @escaping (String) -> Void) -> String {
         let asset = AVURLAsset(url: url)
         guard let videoTrack = asset.tracks(withMediaType: .video).first else {
             return "Видеодорожка не найдена"
@@ -103,6 +113,14 @@ struct MergedVideoView: View {
 
         let videoRangeDuration = videoTrack.timeRange.duration.seconds
         let frameRate = videoTrack.nominalFrameRate
+        var fullFrameRateIntent = "недоступен"
+        if #available(iOS 18.0, *) {
+            let metadata = asset.metadata(forFormat: .quickTimeMetadata)
+            let intentItem = metadata.first {
+                $0.identifier == .quickTimeMetadataFullFrameRatePlaybackIntent
+            }
+            fullFrameRateIntent = intentItem?.stringValue ?? "отсутствует"
+        }
         var frameCount = 0
         var firstPTS: CMTime?
         var lastPTS: CMTime?
@@ -137,6 +155,17 @@ struct MergedVideoView: View {
                 }
                 previousPTS = pts
                 lastPTS = pts
+                if frameCount.isMultiple(of: 300) {
+                    let span = firstPTS.flatMap { start in
+                        lastPTS.map { CMTimeSubtract($0, start).seconds }
+                    } ?? 0
+                    let spanText = String(format: "%.2f", span)
+                    progress("Читаю кадры: \(frameCount), диапазон PTS: \(spanText) с")
+                }
+            }
+
+            if reader.status == .failed {
+                return "Ошибка чтения кадров: \(reader.error?.localizedDescription ?? "неизвестная ошибка")"
             }
         } catch {
             return "Не удалось прочитать временные метки видео: \(error.localizedDescription)"
@@ -153,7 +182,7 @@ struct MergedVideoView: View {
         let audioDuration = asset.tracks(withMediaType: .audio).first?.timeRange.duration.seconds ?? 0
 
         return String(
-            format: "Видео: %.2f с · PTS %.2f с · %d кадров · шаг %.3f/%.3f/%.3f с (мин/сред/макс), >0.05 с: %d · звук %.2f с · %.1f кадр/с",
+            format: "Видео: %.2f с · PTS %.2f с · %d кадров · шаг %.3f/%.3f/%.3f с · >0.05 с: %d · FPS %.1f · FullFrameRateIntent: %@ · звук %.2f с",
             videoRangeDuration,
             ptsSpan,
             frameCount,
@@ -161,8 +190,9 @@ struct MergedVideoView: View {
             averageStep,
             maxStep,
             longSteps,
-            audioDuration,
-            frameRate
+            frameRate,
+            fullFrameRateIntent,
+            audioDuration
         )
     }
 
