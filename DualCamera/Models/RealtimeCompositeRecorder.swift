@@ -29,6 +29,9 @@ final class RealtimeCompositeRecorder {
     private var started = false
     private var stopped = false
     private var sessionStartTime = CMTime.invalid
+    private var receivedVideoFrames = 0
+    private var appendedVideoFrames = 0
+    private var lastVideoError: String?
 
     init(url: URL, renderSize: CGSize) throws {
         self.renderSize = renderSize
@@ -86,7 +89,8 @@ final class RealtimeCompositeRecorder {
                      state: FrameState) {
         lock.lock()
         defer { lock.unlock() }
-        guard !stopped, writer.status == .writing, videoInput.isReadyForMoreMediaData else { return }
+        guard !stopped, writer.status == .writing else { return }
+        receivedVideoFrames += 1
 
         if !started {
             writer.startSession(atSourceTime: time)
@@ -94,19 +98,30 @@ final class RealtimeCompositeRecorder {
             started = true
         }
         // AVAssetWriter doesn't create the adaptor's pool until the writing session starts.
-        guard let pool = adaptor.pixelBufferPool else { return }
+        guard videoInput.isReadyForMoreMediaData, let pool = adaptor.pixelBufferPool else {
+            lastVideoError = "Writer не готов принять кадр или буферный пул недоступен."
+            return
+        }
 
         var outputBuffer: CVPixelBuffer?
-        guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &outputBuffer) == kCVReturnSuccess,
+        let poolStatus = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &outputBuffer)
+        guard poolStatus == kCVReturnSuccess,
               let outputBuffer,
               let image = compose(back: CIImage(cvPixelBuffer: back),
                                   front: CIImage(cvPixelBuffer: front),
-                                  state: state) else { return }
+                                  state: state) else {
+            lastVideoError = "Не удалось подготовить кадр (код буферного пула \(poolStatus))."
+            return
+        }
 
         ciContext.render(image, to: outputBuffer,
                          bounds: CGRect(origin: .zero, size: renderSize),
                          colorSpace: colorSpace)
-        _ = adaptor.append(outputBuffer, withPresentationTime: time)
+        if adaptor.append(outputBuffer, withPresentationTime: time) {
+            appendedVideoFrames += 1
+        } else {
+            lastVideoError = writer.error?.localizedDescription ?? "AVAssetWriter не принял собранный видеокадр."
+        }
     }
 
     func finish(completion: @escaping (Result<URL, Error>) -> Void) {
@@ -118,9 +133,13 @@ final class RealtimeCompositeRecorder {
         }
         stopped = true
         guard started else {
+            let error = NSError(domain: "DualCamera.RealtimeRecorder",
+                                code: 1,
+                                userInfo: [NSLocalizedDescriptionKey:
+                                    "Синхронный захват передал кадров до запуска writer: \(receivedVideoFrames)."])
             lock.unlock()
             writer.cancelWriting()
-            completion(.failure(CameraError.videoMergeFailed))
+            completion(.failure(error))
             return
         }
         videoInput.markAsFinished()
@@ -128,10 +147,16 @@ final class RealtimeCompositeRecorder {
         lock.unlock()
 
         writer.finishWriting { [writer] in
-            if writer.status == .completed {
+            if writer.status == .completed, self.appendedVideoFrames > 0 {
                 completion(.success(writer.outputURL))
             } else {
-                completion(.failure(writer.error ?? CameraError.videoMergeFailed))
+                let details = "Экспериментальная запись: получено кадров — \(self.receivedVideoFrames), записано — \(self.appendedVideoFrames)."
+                let message = [writer.error?.localizedDescription, self.lastVideoError, details]
+                    .compactMap { $0 }
+                    .joined(separator: " ")
+                completion(.failure(NSError(domain: "DualCamera.RealtimeRecorder",
+                                            code: 2,
+                                            userInfo: [NSLocalizedDescriptionKey: message])))
             }
         }
     }

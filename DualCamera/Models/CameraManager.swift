@@ -316,6 +316,29 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         updateOnMain { self.errorMessage = nil }
     }
 
+    func showError(_ message: String) {
+        updateOnMain { self.errorMessage = message }
+    }
+
+    func setRealtimeRecordingMode(_ enabled: Bool, completion: @escaping (Error?) -> Void) {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            do {
+                if enabled {
+                    try self.configureRealtimeOutputs()
+                    guard self.realtimeVideoOutputsReady else {
+                        throw CameraError.outputFailed
+                    }
+                } else {
+                    self.removeRealtimeOutputs()
+                }
+                self.updateOnMain { completion(nil) }
+            } catch {
+                self.updateOnMain { completion(error) }
+            }
+        }
+    }
+
     func clearMergedPhoto() {
         updateOnMain { self.lastMergedPhoto = nil }
     }
@@ -465,18 +488,6 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         sessionQueue.async { [weak self] in
             guard let self else { return }
 
-            if useRealtimeComposite {
-                do {
-                    try self.configureRealtimeOutputs()
-                } catch {
-                    self.updateOnMain {
-                        self.isRecording = false
-                        self.stopRecordingTimer()
-                        self.errorMessage = error.localizedDescription
-                    }
-                    return
-                }
-            }
             guard !useRealtimeComposite || self.realtimeVideoOutputsReady else {
                 self.updateOnMain {
                     self.isRecording = false
@@ -520,7 +531,6 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                         self.stopRecordingTimer()
                         self.errorMessage = error.localizedDescription
                     }
-                    self.removeRealtimeOutputs()
                     return
                 }
                 return
@@ -580,7 +590,6 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                         self.stopRecordingTimer()
                         self.errorMessage = CameraError.videoMergeFailed.errorDescription
                     }
-                    self.removeRealtimeOutputs()
                     self.sessionQueue.async { self.resetRecordingState() }
                     return
                 }
@@ -600,10 +609,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                             self.errorMessage = error.localizedDescription
                         }
                     }
-                    self.sessionQueue.async {
-                        self.removeRealtimeOutputs()
-                        self.resetRecordingState()
-                    }
+                    self.sessionQueue.async { self.resetRecordingState() }
                 }
                 return
             }

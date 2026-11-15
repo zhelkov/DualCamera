@@ -18,6 +18,7 @@ struct ContentView: View {
     @State private var selectedMediaItems: [PhotosPickerItem] = []
     @State private var useFrontPreviewLayer = true
     @State private var useRealtimeCompositeRecording = false
+    @State private var isPreparingRealtimeMode = false
 
     var body: some View {
         @Bindable var camera = camera
@@ -334,11 +335,22 @@ struct ContentView: View {
             .padding(.top, 3)
 
             Button {
-                useRealtimeCompositeRecording.toggle()
+                let enableRealtime = !useRealtimeCompositeRecording
+                isPreparingRealtimeMode = true
+                camera.setRealtimeRecordingMode(enableRealtime) { error in
+                    isPreparingRealtimeMode = false
+                    if let error {
+                        camera.showError(error.localizedDescription)
+                    } else {
+                        useRealtimeCompositeRecording = enableRealtime
+                    }
+                }
             } label: {
-                Text(useRealtimeCompositeRecording
-                     ? "Эксперимент: запись сразу"
-                     : "Стандартная запись")
+                Text(isPreparingRealtimeMode
+                     ? "Подготовка камер…"
+                     : (useRealtimeCompositeRecording
+                        ? "Эксперимент: запись сразу"
+                        : "Стандартная запись"))
                     .font(.caption2)
                     .foregroundStyle(.white)
                     .padding(.horizontal, 10)
@@ -346,7 +358,7 @@ struct ContentView: View {
                     .background(useRealtimeCompositeRecording ? .orange.opacity(0.75) : .black.opacity(0.45),
                                 in: Capsule())
             }
-            .disabled(camera.isRecording)
+            .disabled(camera.isRecording || isPreparingRealtimeMode)
 
             if camera.layout == .pip {
                 Picker("Форма окна", selection: $camera.pipShape) {
@@ -442,6 +454,7 @@ struct ContentView: View {
                     }
 
                     Button {
+                        guard !isPreparingRealtimeMode else { return }
                         camera.startRecording(elements: drawing.elements,
                                               pipOffsetFraction: pipOffsetFraction,
                                               photoOverlayOffsetFraction: photoOverlayOffsetFraction,
