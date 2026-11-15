@@ -16,6 +16,7 @@
 - Selecting experimental mode prepares the synchronized capture outputs before recording starts; switching back to standard mode removes them. This keeps session reconfiguration away from the Record/Stop interval.
 - The live compositor retains the latest usable frame from each camera when the synchronizer reports a dropped or absent sample, and reports per-camera synchronization statistics if no composite frames reach the writer.
 - The writer uses the later valid presentation timestamp from the synchronized camera samples. This behavior is retained based on device playback testing.
+- The result screen displays the MOV, video-track, and audio-track durations plus the nominal frame rate to diagnose differences between in-app preview and Photos playback.
 - Imported video is not supported by the live compositor yet; use standard mode when a video has been picked from Photos.
 - Keep the experiment opt-in and test it on the iPhone 12 for output orientation, PiP placement/shape, overlays, audio, dropped frames, and long recordings before considering it a replacement.
 

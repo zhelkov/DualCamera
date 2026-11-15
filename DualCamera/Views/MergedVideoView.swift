@@ -11,6 +11,7 @@ struct MergedVideoView: View {
     @State private var saveStatus = "Сохраняем видео в Фото…"
     @State private var isSaving = true
     @State private var didStartSaving = false
+    @State private var videoDiagnostics: String?
 
     var body: some View {
         NavigationStack {
@@ -37,6 +38,15 @@ struct MergedVideoView: View {
                 }
                 .padding()
 
+                if let videoDiagnostics {
+                    Text(videoDiagnostics)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .textSelection(.enabled)
+                        .padding(.horizontal)
+                }
+
                 if saveErrorMessage != nil {
                     Button("Повторить сохранение") {
                         save()
@@ -54,6 +64,7 @@ struct MergedVideoView: View {
             }
             .onAppear {
                 player = AVPlayer(url: videoURL)
+                inspectVideoTracks()
                 guard !didStartSaving else { return }
                 didStartSaving = true
                 save()
@@ -74,6 +85,40 @@ struct MergedVideoView: View {
             get: { saveErrorMessage != nil },
             set: { if !$0 { saveErrorMessage = nil } }
         )
+    }
+
+    private func inspectVideoTracks() {
+        Task { @MainActor in
+            let asset = AVURLAsset(url: videoURL)
+            do {
+                let assetDuration = try await asset.load(.duration).seconds
+                let videoTracks = try await asset.loadTracks(withMediaType: .video)
+                let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+
+                var videoDuration: Double = 0
+                var frameRate: Float = 0
+                if let track = videoTracks.first {
+                    videoDuration = try await track.load(.timeRange).duration.seconds
+                    frameRate = try await track.load(.nominalFrameRate)
+                }
+
+                var audioDurationText = "нет"
+                if let track = audioTracks.first {
+                    let range = try await track.load(.timeRange)
+                    audioDurationText = String(format: "%.2f с", range.duration.seconds)
+                }
+
+                videoDiagnostics = String(
+                    format: "Файл %.2f с · видео %.2f с · звук %@ · %.1f кадр/с",
+                    assetDuration,
+                    videoDuration,
+                    audioDurationText,
+                    frameRate
+                )
+            } catch {
+                videoDiagnostics = "Не удалось прочитать параметры видео: \(error.localizedDescription)"
+            }
+        }
     }
 
     private func save() {
