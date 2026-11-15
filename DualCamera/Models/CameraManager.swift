@@ -94,10 +94,16 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private let frontVideoOutputQueue = DispatchQueue(label: "com.dualcamera.front-probe", qos: .userInitiated)
     private let realtimeCaptureQueue = DispatchQueue(label: "com.dualcamera.realtime-capture", qos: .userInitiated)
     private let realtimeWriterQueue = DispatchQueue(label: "com.dualcamera.realtime-writer", qos: .userInitiated)
+    private let realtimeWriterSlots = DispatchSemaphore(value: 2)
     private var videoDataSynchronizer: AVCaptureDataOutputSynchronizer?
     private var realtimeVideoOutputsReady = false
     private var realtimeRecorder: RealtimeCompositeRecorder?
     private var isUsingRealtimeRecorder = false
+    // AVCaptureDataOutputSynchronizer can report a dropped or absent sample for
+    // one camera at a timestamp. Keep the most recent usable image from each
+    // camera so one missed sample doesn't discard the entire composite frame.
+    private var latestRealtimeBackBuffer: CVPixelBuffer?
+    private var latestRealtimeFrontBuffer: CVPixelBuffer?
     private let frontProbeImageContext = CIContext()
     let frontPreviewStore = FrontCameraPreviewStore()
     private var lastFrontProbeImageUpdate: UInt64 = 0
@@ -593,23 +599,29 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                     self.sessionQueue.async { self.resetRecordingState() }
                     return
                 }
-                recorder.finish { [weak self] result in
-                    guard let self else { return }
-                    switch result {
-                    case .success(let url):
-                        self.updateOnMain {
-                            self.lastMergedVideoURL = url
-                            self.isRecording = false
-                            self.stopRecordingTimer()
+                self.recordingLock.lock()
+                self.isUsingRealtimeRecorder = false
+                self.recordingLock.unlock()
+                self.realtimeCaptureQueue.sync {}
+                self.realtimeWriterQueue.async { [weak self] in
+                    recorder.finish { [weak self] result in
+                        guard let self else { return }
+                        switch result {
+                        case .success(let url):
+                            self.updateOnMain {
+                                self.lastMergedVideoURL = url
+                                self.isRecording = false
+                                self.stopRecordingTimer()
+                            }
+                        case .failure(let error):
+                            self.updateOnMain {
+                                self.isRecording = false
+                                self.stopRecordingTimer()
+                                self.errorMessage = error.localizedDescription
+                            }
                         }
-                    case .failure(let error):
-                        self.updateOnMain {
-                            self.isRecording = false
-                            self.stopRecordingTimer()
-                            self.errorMessage = error.localizedDescription
-                        }
+                        self.sessionQueue.async { self.resetRecordingState() }
                     }
-                    self.sessionQueue.async { self.resetRecordingState() }
                 }
                 return
             }
@@ -731,6 +743,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         session.beginConfiguration()
         defer { session.commitConfiguration() }
         backVideoDataOutput.alwaysDiscardsLateVideoFrames = true
+        frontVideoDataOutput.alwaysDiscardsLateVideoFrames = true
         backVideoDataOutput.videoSettings = [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         ]
@@ -801,6 +814,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         session.commitConfiguration()
         frontVideoDataOutput.setSampleBufferDelegate(self, queue: frontVideoOutputQueue)
         realtimeVideoOutputsReady = false
+        latestRealtimeBackBuffer = nil
+        latestRealtimeFrontBuffer = nil
     }
 
     private func configureSession() throws {
@@ -1509,28 +1524,59 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     func dataOutputSynchronizer(_ synchronizer: AVCaptureDataOutputSynchronizer,
                                 didOutput synchronizedDataCollection: AVCaptureSynchronizedDataCollection) {
-        guard let backData = synchronizedDataCollection.synchronizedData(for: backVideoDataOutput)
-                as? AVCaptureSynchronizedSampleBufferData,
-              let frontData = synchronizedDataCollection.synchronizedData(for: frontVideoDataOutput)
-                as? AVCaptureSynchronizedSampleBufferData,
-              !backData.sampleBufferWasDropped,
-              !frontData.sampleBufferWasDropped,
-              let backBuffer = CMSampleBufferGetImageBuffer(backData.sampleBuffer),
-              let frontBuffer = CMSampleBufferGetImageBuffer(frontData.sampleBuffer) else { return }
-
-        if let connection = frontVideoDataConnection {
-            captureOutput(frontVideoDataOutput,
-                          didOutput: frontData.sampleBuffer,
-                          from: connection)
-        }
+        let backData = synchronizedDataCollection.synchronizedData(for: backVideoDataOutput)
+            as? AVCaptureSynchronizedSampleBufferData
+        let frontData = synchronizedDataCollection.synchronizedData(for: frontVideoDataOutput)
+            as? AVCaptureSynchronizedSampleBufferData
+        let backDropped = backData?.sampleBufferWasDropped ?? true
+        let frontDropped = frontData?.sampleBufferWasDropped ?? true
 
         recordingLock.lock()
-        let recorder = isUsingRealtimeRecorder ? realtimeRecorder : nil
-        let state = recorder == nil ? nil : realtimeFrameStateLocked()
+        let activeRecorder = isUsingRealtimeRecorder ? realtimeRecorder : nil
         recordingLock.unlock()
-        guard let recorder, let state else { return }
-        let time = CMSampleBufferGetPresentationTimeStamp(backData.sampleBuffer)
-        recorder.appendVideo(back: backBuffer, front: frontBuffer, time: time, state: state)
+        activeRecorder?.recordSynchronizationEvent(
+            backPresent: backData != nil,
+            frontPresent: frontData != nil,
+            backDropped: backDropped,
+            frontDropped: frontDropped
+        )
+
+        var backPTS = CMTime.invalid
+        var frontPTS = CMTime.invalid
+        if let backData, !backDropped,
+           let buffer = CMSampleBufferGetImageBuffer(backData.sampleBuffer) {
+            latestRealtimeBackBuffer = buffer
+            backPTS = CMSampleBufferGetPresentationTimeStamp(backData.sampleBuffer)
+        }
+        if let frontData, !frontDropped,
+           let buffer = CMSampleBufferGetImageBuffer(frontData.sampleBuffer) {
+            latestRealtimeFrontBuffer = buffer
+            frontPTS = CMSampleBufferGetPresentationTimeStamp(frontData.sampleBuffer)
+        }
+
+        if let frontData, !frontDropped, let connection = frontVideoDataConnection {
+            let sampleBuffer = frontData.sampleBuffer
+            frontVideoOutputQueue.async { [weak self] in
+                guard let self else { return }
+                self.captureOutput(self.frontVideoDataOutput,
+                                   didOutput: sampleBuffer,
+                                   from: connection)
+            }
+        }
+        guard let recorder = activeRecorder,
+              let backBuffer = latestRealtimeBackBuffer,
+              let frontBuffer = latestRealtimeFrontBuffer,
+              backPTS.isValid || frontPTS.isValid else { return }
+        recordingLock.lock()
+        let state = realtimeFrameStateLocked()
+        recordingLock.unlock()
+        let time = CMTimeMaximum(backPTS.isValid ? backPTS : .zero,
+                                 frontPTS.isValid ? frontPTS : .zero)
+        guard realtimeWriterSlots.wait(timeout: .now()) == .success else { return }
+        realtimeWriterQueue.async { [realtimeWriterSlots] in
+            defer { realtimeWriterSlots.signal() }
+            recorder.appendVideo(back: backBuffer, front: frontBuffer, time: time, state: state)
+        }
     }
 
     private func realtimeFrameStateLocked() -> RealtimeCompositeRecorder.FrameState {

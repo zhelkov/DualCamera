@@ -14,6 +14,7 @@
 - Standard mode continues recording both camera files and merging them after Stop.
 - Experimental mode synchronizes both live camera outputs, composites each frame with the current split/PiP layout, photo overlay, and drawing, then writes the result to a temporary MOV as capture proceeds. Stop only finalizes the file; the existing result screen then saves it to Photos.
 - Selecting experimental mode prepares the synchronized capture outputs before recording starts; switching back to standard mode removes them. This keeps session reconfiguration away from the Record/Stop interval.
+- The live compositor retains the latest usable frame from each camera when the synchronizer reports a dropped or absent sample, and reports per-camera synchronization statistics if no composite frames reach the writer.
 - Imported video is not supported by the live compositor yet; use standard mode when a video has been picked from Photos.
 - Keep the experiment opt-in and test it on the iPhone 12 for output orientation, PiP placement/shape, overlays, audio, dropped frames, and long recordings before considering it a replacement.
 

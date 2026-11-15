@@ -32,6 +32,11 @@ final class RealtimeCompositeRecorder {
     private var receivedVideoFrames = 0
     private var appendedVideoFrames = 0
     private var lastVideoError: String?
+    private var synchronizationCallbacks = 0
+    private var backSamplesPresent = 0
+    private var frontSamplesPresent = 0
+    private var backSamplesDropped = 0
+    private var frontSamplesDropped = 0
 
     init(url: URL, renderSize: CGSize) throws {
         self.renderSize = renderSize
@@ -81,6 +86,20 @@ final class RealtimeCompositeRecorder {
               CMSampleBufferGetPresentationTimeStamp(sampleBuffer) >= sessionStartTime,
               writer.status == .writing else { return }
         _ = audioInput.append(sampleBuffer)
+    }
+
+    func recordSynchronizationEvent(backPresent: Bool,
+                                    frontPresent: Bool,
+                                    backDropped: Bool,
+                                    frontDropped: Bool) {
+        lock.lock()
+        guard !stopped else { lock.unlock(); return }
+        synchronizationCallbacks += 1
+        if backPresent { backSamplesPresent += 1 }
+        if frontPresent { frontSamplesPresent += 1 }
+        if backDropped { backSamplesDropped += 1 }
+        if frontDropped { frontSamplesDropped += 1 }
+        lock.unlock()
     }
 
     func appendVideo(back: CVPixelBuffer,
@@ -133,10 +152,10 @@ final class RealtimeCompositeRecorder {
         }
         stopped = true
         guard started else {
+            let syncDetails = "Synchronizer callbacks: \(synchronizationCallbacks); back samples: \(backSamplesPresent), dropped: \(backSamplesDropped); front samples: \(frontSamplesPresent), dropped: \(frontSamplesDropped)."
             let error = NSError(domain: "DualCamera.RealtimeRecorder",
                                 code: 1,
-                                userInfo: [NSLocalizedDescriptionKey:
-                                    "Синхронный захват передал кадров до запуска writer: \(receivedVideoFrames)."])
+                                userInfo: [NSLocalizedDescriptionKey: "Синхронный захват передал кадров до запуска writer: \(receivedVideoFrames). \(syncDetails)"])
             lock.unlock()
             writer.cancelWriting()
             completion(.failure(error))
@@ -150,7 +169,7 @@ final class RealtimeCompositeRecorder {
             if writer.status == .completed, self.appendedVideoFrames > 0 {
                 completion(.success(writer.outputURL))
             } else {
-                let details = "Экспериментальная запись: получено кадров — \(self.receivedVideoFrames), записано — \(self.appendedVideoFrames)."
+                let details = "Экспериментальная запись: синхронизатор вызван \(self.synchronizationCallbacks) раз; получено кадров — \(self.receivedVideoFrames), записано — \(self.appendedVideoFrames); образцы задней камеры — \(self.backSamplesPresent) (пропуски \(self.backSamplesDropped)), передней — \(self.frontSamplesPresent) (пропуски \(self.frontSamplesDropped))."
                 let message = [writer.error?.localizedDescription, self.lastVideoError, details]
                     .compactMap { $0 }
                     .joined(separator: " ")
