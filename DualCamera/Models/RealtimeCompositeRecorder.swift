@@ -126,8 +126,8 @@ final class RealtimeCompositeRecorder {
         lock.unlock()
 
         writer.finishWriting { [writer] in
-            if writer.status == .completed, let url = writer.outputURL {
-                completion(.success(url))
+            if writer.status == .completed {
+                completion(.success(writer.outputURL))
             } else {
                 completion(.failure(writer.error ?? CameraError.videoMergeFailed))
             }

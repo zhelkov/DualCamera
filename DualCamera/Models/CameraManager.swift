@@ -91,6 +91,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private let backVideoDataOutput = AVCaptureVideoDataOutput()
     private let frontVideoDataOutput = AVCaptureVideoDataOutput()
     private let audioDataOutput = AVCaptureAudioDataOutput()
+    private let frontVideoOutputQueue = DispatchQueue(label: "com.dualcamera.front-probe", qos: .userInitiated)
     private let realtimeCaptureQueue = DispatchQueue(label: "com.dualcamera.realtime-capture", qos: .userInitiated)
     private let realtimeWriterQueue = DispatchQueue(label: "com.dualcamera.realtime-writer", qos: .userInitiated)
     private var videoDataSynchronizer: AVCaptureDataOutputSynchronizer?
