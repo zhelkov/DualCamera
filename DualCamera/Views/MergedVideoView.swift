@@ -11,7 +11,7 @@ struct MergedVideoView: View {
     @State private var saveStatus = "Сохраняем видео в Фото…"
     @State private var isSaving = true
     @State private var didStartSaving = false
-    @State private var videoDiagnostics: String?
+    @State private var videoDiagnostics = "Читаю временные метки видео…"
 
     var body: some View {
         NavigationStack {
@@ -38,14 +38,12 @@ struct MergedVideoView: View {
                 }
                 .padding()
 
-                if let videoDiagnostics {
-                    Text(videoDiagnostics)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .textSelection(.enabled)
-                        .padding(.horizontal)
-                }
+                Text(videoDiagnostics)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
+                    .padding(.horizontal)
 
                 if saveErrorMessage != nil {
                     Button("Повторить сохранение") {

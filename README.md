@@ -17,6 +17,7 @@
 - The live compositor retains the latest usable frame from each camera when the synchronizer reports a dropped or absent sample, and reports per-camera synchronization statistics if no composite frames reach the writer.
 - The writer uses the later valid presentation timestamp from the synchronized camera samples. This behavior is retained based on device playback testing.
 - The result screen reads the video samples and displays their PTS span, frame count, minimum/average/maximum PTS step, long-step count, audio duration, and nominal frame rate to diagnose playback timing.
+- Timing diagnostics show a visible loading state immediately and then replace it with the sample timing results or an explicit reader error.
 - Imported video is not supported by the live compositor yet; use standard mode when a video has been picked from Photos.
 - Keep the experiment opt-in and test it on the iPhone 12 for output orientation, PiP placement/shape, overlays, audio, dropped frames, and long recordings before considering it a replacement.
 
