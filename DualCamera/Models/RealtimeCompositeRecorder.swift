@@ -74,6 +74,13 @@ final class RealtimeCompositeRecorder {
         }
         writer.add(videoInput)
         writer.add(audioInput)
+        if #available(iOS 18.0, *) {
+            let playbackIntent = AVMutableMetadataItem()
+            playbackIntent.identifier = .quickTimeMetadataFullFrameRatePlaybackIntent
+            playbackIntent.dataType = kCMMetadataBaseDataType_UInt8 as String
+            playbackIntent.value = NSNumber(value: 1)
+            writer.metadata = [playbackIntent]
+        }
         guard writer.startWriting() else {
             throw writer.error ?? CameraError.videoMergeFailed
         }
