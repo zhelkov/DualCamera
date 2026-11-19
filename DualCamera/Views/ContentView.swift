@@ -267,72 +267,68 @@ struct ContentView: View {
     // MARK: - Управление
 
     private var controls: some View {
-        VStack {
-            HStack(spacing: 12) {
-                Picker("Раскладка", selection: $camera.layout) {
-                    ForEach(CaptureLayout.allCases) { layout in
-                        Text(layout.title).tag(layout)
+        GeometryReader { geometry in
+            HUDOverlayView(
+                size: geometry.size,
+                safeTop: geometry.safeAreaInsets.top,
+                safeBottom: geometry.safeAreaInsets.bottom,
+                isLandscape: geometry.size.width > geometry.size.height,
+                topControls: TopControlsView(
+                    layout: $camera.layout,
+                    splitOrientation: $camera.splitOrientation,
+                    pipShape: $camera.pipShape,
+                    isDrawingEnabled: $drawing.isDrawingEnabled,
+                    selectedMediaItems: $selectedMediaItems,
+                    hasImportedMedia: camera.hasImportedMedia,
+                    isLandscape: geometry.size.width > geometry.size.height,
+                    onClearImportedMedia: { camera.clearImportedMedia() }
+                ),
+                captureBar: CaptureBarView(
+                    isLandscape: geometry.size.width > geometry.size.height,
+                    hasTorch: camera.hasTorch,
+                    isTorchOn: camera.isTorchOn,
+                    isRecording: camera.isRecording,
+                    isCapturing: camera.isCapturing,
+                    recordingDuration: durationString(camera.recordingDuration),
+                    onToggleTorch: { camera.toggleTorch() },
+                    onStopRecording: { camera.stopRecording(elements: drawing.elements) },
+                    onCapturePhoto: {
+                        camera.captureBothCameras(elements: drawing.elements,
+                                                  pipOffsetFraction: pipOffsetFraction,
+                                                  photoOverlayOffsetFraction: photoOverlayOffsetFraction,
+                                                  photoOverlayWidthFraction: importedImageWidthFraction)
+                    },
+                    onStartRecording: {
+                        guard !isPreparingRealtimeMode else { return }
+                        camera.startRecording(elements: drawing.elements,
+                                              pipOffsetFraction: pipOffsetFraction,
+                                              photoOverlayOffsetFraction: photoOverlayOffsetFraction,
+                                              photoOverlayWidthFraction: importedImageWidthFraction,
+                                              useRealtimeComposite: useRealtimeCompositeRecording)
+                    },
+                    onSwapCameras: { camera.swapCameras() }
+                ),
+                zoomControls: AnyView(zoomControls),
+                drawingPalette: AnyView(
+                    VStack(spacing: 8) {
+                        if drawing.isDrawingEnabled { drawingToolbar }
+                        if camera.importedPhoto != nil { importedPhotoSizeControl }
                     }
-                }
-                .pickerStyle(.segmented)
+                ),
+                debugControls: AnyView(debugControls)
+            )
+        }
+    }
 
-                Button {
-                    camera.swapCameras()
-                } label: {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
-                        .background(.black.opacity(0.4), in: Circle())
-                }
-
-                Button {
-                    drawing.isDrawingEnabled.toggle()
-                } label: {
-                    Image(systemName: drawing.isDrawingEnabled ? "pencil.circle.fill" : "pencil")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(drawing.isDrawingEnabled ? .yellow : .white)
-                        .frame(width: 44, height: 44)
-                        .background(.black.opacity(0.4), in: Circle())
-                }
-
-                if camera.hasImportedMedia {
-                    Button {
-                        camera.clearImportedMedia()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 44, height: 44)
-                            .background(.black.opacity(0.4), in: Circle())
-                    }
-                } else {
-                    PhotosPicker(selection: $selectedMediaItems, maxSelectionCount: 1, matching: .any(of: [.images, .videos])) {
-                        Image(systemName: "photo.on.rectangle")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 44, height: 44)
-                            .background(.black.opacity(0.4), in: Circle())
-                    }
-                }
-            }
-            .padding(.horizontal)
-            .padding(.top, 8)
-
-            // Временный A/B переключатель для проверки двух независимых путей превью.
+    #if DEBUG
+    private var debugControls: some View {
+        HStack(spacing: 8) {
             Button {
                 useFrontPreviewLayer.toggle()
             } label: {
-                Text(useFrontPreviewLayer
-                     ? "Тест фронтального превью: AVFoundation Layer"
-                     : "Тест фронтального превью: кадры (резервный режим)")
-                    .font(.caption2)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(.black.opacity(0.45), in: Capsule())
+                Text(useFrontPreviewLayer ? "Превью: слой" : "Превью: кадры")
             }
-            .padding(.top, 3)
+            .disabled(camera.isRecording)
 
             Button {
                 let enableRealtime = !useRealtimeCompositeRecording
@@ -347,130 +343,20 @@ struct ContentView: View {
                 }
             } label: {
                 Text(isPreparingRealtimeMode
-                     ? "Подготовка камер…"
-                     : (useRealtimeCompositeRecording
-                        ? "Эксперимент: запись сразу"
-                        : "Стандартная запись"))
-                    .font(.caption2)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(useRealtimeCompositeRecording ? .orange.opacity(0.75) : .black.opacity(0.45),
-                                in: Capsule())
+                     ? "Подготовка…"
+                     : (useRealtimeCompositeRecording ? "Realtime" : "Обычная запись"))
             }
             .disabled(camera.isRecording || isPreparingRealtimeMode)
-
-            if camera.layout == .pip {
-                Picker("Форма окна", selection: $camera.pipShape) {
-                    ForEach(PipShape.allCases) { shape in
-                        Image(systemName: shape.systemImage).tag(shape)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 150)
-                .padding(.top, 6)
-
-            }
-
-            if camera.importedPhoto != nil {
-                HStack(spacing: 8) {
-                    Text("Размер фото")
-                        .font(.caption)
-                        .foregroundStyle(.white)
-                    Slider(value: $importedImageWidthFraction, in: 0.15...0.6)
-                        .tint(.white)
-                        .frame(width: 120)
-                    Text("\(Int(importedImageWidthFraction * 100))%")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.white)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 4)
-                .onChange(of: importedImageWidthFraction) { _, newValue in
-                    camera.updatePhotoOverlay(offsetFraction: photoOverlayOffsetFraction,
-                                              widthFraction: newValue)
-                }
-            }
-
-            if camera.layout == .splitScreen {
-                Picker("Ориентация сплита", selection: $camera.splitOrientation) {
-                    ForEach(SplitOrientation.allCases) { orientation in
-                        Image(systemName: orientation.systemImage).tag(orientation)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 150)
-                .padding(.top, 6)
-            }
-
-            if drawing.isDrawingEnabled {
-                drawingToolbar
-                    .padding(.top, 6)
-            }
-
-            Spacer()
-
-            // Зум в нижней части экрана.
-            zoomControls
-
-            if camera.isRecording {
-                VStack(spacing: 10) {
-                    Text(durationString(camera.recordingDuration))
-                        .font(.system(.headline, design: .monospaced))
-                        .foregroundStyle(.white)
-                    Button {
-                        camera.stopRecording(elements: drawing.elements)
-                    } label: {
-                        ZStack {
-                            Circle().stroke(.white, lineWidth: 4).frame(width: 72, height: 72)
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(.red)
-                                .frame(width: 28, height: 28)
-                        }
-                    }
-                }
-                .padding(.bottom, 24)
-            } else {
-                HStack(spacing: 26) {
-                    flashButton
-
-                    if camera.isCapturing {
-                        ProgressView()
-                            .controlSize(.large)
-                            .tint(.white)
-                            .frame(width: 72, height: 72)
-                    } else {
-                        Button {
-                            camera.captureBothCameras(elements: drawing.elements,
-                                                      pipOffsetFraction: pipOffsetFraction,
-                                                      photoOverlayOffsetFraction: photoOverlayOffsetFraction,
-                                                      photoOverlayWidthFraction: importedImageWidthFraction)
-                        } label: {
-                            Circle()
-                                .fill(.white)
-                                .frame(width: 72, height: 72)
-                                .overlay(Circle().stroke(.white.opacity(0.4), lineWidth: 6))
-                        }
-                    }
-
-                    Button {
-                        guard !isPreparingRealtimeMode else { return }
-                        camera.startRecording(elements: drawing.elements,
-                                              pipOffsetFraction: pipOffsetFraction,
-                                              photoOverlayOffsetFraction: photoOverlayOffsetFraction,
-                                              photoOverlayWidthFraction: importedImageWidthFraction,
-                                              useRealtimeComposite: useRealtimeCompositeRecording)
-                    } label: {
-                        ZStack {
-                            Circle().stroke(.white, lineWidth: 4).frame(width: 72, height: 72)
-                            Circle().fill(.red).frame(width: 56, height: 56)
-                        }
-                    }
-                }
-                .padding(.bottom, 24)
-            }
         }
+        .font(.system(size: HUDTheme.debugControlsFontSize, weight: .medium))
+        .foregroundStyle(.white)
+        .padding(.horizontal, HUDTheme.debugControlsHorizontalPadding)
+        .padding(.vertical, HUDTheme.debugControlsVerticalPadding)
+        .background(HUDTheme.debugBackground, in: Capsule())
     }
+    #else
+    private var debugControls: some View { EmptyView() }
+    #endif
 
     private func durationString(_ interval: TimeInterval) -> String {
         let total = Int(interval)
@@ -534,21 +420,24 @@ struct ContentView: View {
         .padding(.bottom, 8)
     }
 
-    private var flashButton: some View {
-        Group {
-            if camera.hasTorch {
-                Button {
-                    camera.toggleTorch()
-                } label: {
-                    Image(systemName: camera.isTorchOn ? "bolt.fill" : "bolt.slash")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(camera.isTorchOn ? .yellow : .white)
-                        .frame(width: 44, height: 44)
-                        .background(.black.opacity(0.4), in: Circle())
-                }
-            } else {
-                Color.clear.frame(width: 44, height: 44)
-            }
+    private var importedPhotoSizeControl: some View {
+        HStack(spacing: 8) {
+            Text("Размер фото")
+                .font(.caption)
+                .foregroundStyle(.white)
+            Slider(value: $importedImageWidthFraction, in: 0.15...0.6)
+                .tint(.white)
+                .frame(width: 120)
+            Text("\(Int(importedImageWidthFraction * 100))%")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(HUDTheme.glass, in: Capsule())
+        .onChange(of: importedImageWidthFraction) { _, newValue in
+            camera.updatePhotoOverlay(offsetFraction: photoOverlayOffsetFraction,
+                                      widthFraction: newValue)
         }
     }
 
