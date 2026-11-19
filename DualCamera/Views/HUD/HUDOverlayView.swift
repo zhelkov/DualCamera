@@ -3,7 +3,6 @@ import SwiftUI
 struct HUDOverlayView: View {
     let size: CGSize
     let safeTop: CGFloat
-    let safeBottom: CGFloat
     let isLandscape: Bool
     let topControls: TopControlsView
     let captureBar: CaptureBarView
@@ -15,12 +14,9 @@ struct HUDOverlayView: View {
     }
 
     private var bottomStripHeight: CGFloat {
-        let bottomPadding = max(HUDTheme.captureBarBottomMinimum, safeBottom)
-        let contentHeight = HUDTheme.captureBarTopPadding + HUDTheme.recordButtonSize + bottomPadding
-        let minimum = isLandscape
+        isLandscape
             ? HUDTheme.landscapeBottomStripMinimumHeight
             : HUDTheme.bottomStripMinimumHeight
-        return max(minimum, contentHeight)
     }
 
     var body: some View {

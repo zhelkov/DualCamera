@@ -17,10 +17,7 @@
 				--glass: rgba(15, 16, 20, 0.3);
 				--line: rgba(255, 255, 255, 0.2);
 				--top-strip-height: max(54px, calc(env(safe-area-inset-top) + 36px));
-				--bottom-strip-height: max(
-					124px,
-					calc(16px + 76px + max(21px, env(safe-area-inset-bottom)))
-				);
+				--bottom-strip-height: 110px;
 			}
 
 			* {
@@ -913,7 +910,7 @@
 				bottom: 0;
 				left: 0;
 				height: var(--bottom-strip-height);
-				padding: 16px 31px max(21px, env(safe-area-inset-bottom));
+				padding: 16px 31px max(9px, env(safe-area-inset-bottom));
 				display: flex;
 				align-items: center;
 				justify-content: space-between;
@@ -1254,10 +1251,7 @@
 
 			@media (orientation: landscape) and (min-width: 600px) {
 				.device {
-					--bottom-strip-height: max(
-						105px,
-						calc(16px + 76px + max(21px, env(safe-area-inset-bottom)))
-					);
+					--bottom-strip-height: 105px;
 					width: min(844px, 100vw);
 					height: min(390px, 100svh);
 					min-height: 0;

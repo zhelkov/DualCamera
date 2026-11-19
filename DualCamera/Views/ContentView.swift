@@ -261,7 +261,6 @@ struct ContentView: View {
             HUDOverlayView(
                 size: geometry.size,
                 safeTop: geometry.safeAreaInsets.top,
-                safeBottom: geometry.safeAreaInsets.bottom,
                 isLandscape: geometry.size.width > geometry.size.height,
                 topControls: TopControlsView(
                     layout: $camera.layout,
@@ -275,7 +274,6 @@ struct ContentView: View {
                 ),
                 captureBar: CaptureBarView(
                     isLandscape: geometry.size.width > geometry.size.height,
-                    safeBottom: geometry.safeAreaInsets.bottom,
                     hasTorch: camera.hasTorch,
                     isTorchOn: camera.isTorchOn,
                     isRecording: camera.isRecording,
