@@ -9,7 +9,6 @@ struct HUDOverlayView: View {
     let captureBar: CaptureBarView
     let zoomControls: AnyView
     let drawingPalette: AnyView
-    let debugControls: AnyView
 
     private var topStripHeight: CGFloat {
         max(HUDTheme.topStripMinimumHeight, safeTop + HUDTheme.topSafeAreaAddition)
@@ -51,10 +50,6 @@ struct HUDOverlayView: View {
             captureBar
                 .frame(width: size.width, height: bottomStripHeight, alignment: .center)
                 .position(x: size.width / 2, y: size.height - bottomStripHeight / 2)
-
-            debugControls
-                .frame(width: size.width)
-                .position(x: size.width / 2, y: topStripHeight + HUDTheme.debugControlsYOffset)
         }
         .frame(width: size.width, height: size.height)
     }

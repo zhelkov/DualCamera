@@ -1,7 +1,6 @@
 import SwiftUI
 import AVFoundation
 import UIKit
-import Combine
 
 /// Обёртка для показа `AVCaptureVideoPreviewLayer` внутри SwiftUI.
 struct CameraPreviewView: UIViewRepresentable {
@@ -60,49 +59,5 @@ final class PreviewContainerView: UIView {
         previewLayer.setAffineTransform(
             isMirrored ? CGAffineTransform(scaleX: -1, y: 1) : .identity
         )
-    }
-}
-
-/// Показывает кадры передней камеры в отдельном UIKit-контейнере.
-struct FrontCameraImageView: UIViewRepresentable {
-    @ObservedObject var store: FrontCameraPreviewStore
-
-    func makeUIView(context: Context) -> FrontCameraImageContainerView {
-        FrontCameraImageContainerView(store: store)
-    }
-
-    func updateUIView(_ uiView: FrontCameraImageContainerView, context: Context) {
-        uiView.update(image: store.image)
-    }
-}
-
-final class FrontCameraImageContainerView: UIView {
-    private let imageView = UIImageView()
-    init(store: FrontCameraPreviewStore) {
-        super.init(frame: .zero)
-        backgroundColor = .black
-        clipsToBounds = true
-
-        imageView.contentMode = .scaleAspectFill
-        imageView.clipsToBounds = true
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(imageView)
-
-        NSLayoutConstraint.activate([
-            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            imageView.topAnchor.constraint(equalTo: topAnchor),
-            imageView.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
-        update(image: store.image)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func update(image: UIImage?) {
-        imageView.image = image
     }
 }

@@ -1,12 +1,6 @@
 import AVFoundation
 import UIKit
-import CoreImage
 import Observation
-import Combine
-
-final class FrontCameraPreviewStore: ObservableObject {
-    @Published var image: UIImage?
-}
 
 /// Менеджер камеры. Отвечает за одновременную съёмку с двух камер
 /// через `AVCaptureMultiCamSession`.
@@ -17,8 +11,7 @@ final class FrontCameraPreviewStore: ObservableObject {
 /// - Соединения создаются вручную через `AVCaptureConnection`,
 ///   а не автоматически сессией.
 @Observable
-final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate,
-                           AVCaptureDataOutputSynchronizerDelegate,
+final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                            AVCaptureAudioDataOutputSampleBufferDelegate {
 
     // MARK: - Состояние для UI (обновляется на главном потоке)
@@ -91,7 +84,6 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private let backVideoDataOutput = AVCaptureVideoDataOutput()
     private let frontVideoDataOutput = AVCaptureVideoDataOutput()
     private let audioDataOutput = AVCaptureAudioDataOutput()
-    private let frontVideoOutputQueue = DispatchQueue(label: "com.dualcamera.front-probe", qos: .userInitiated)
     private let realtimeCaptureQueue = DispatchQueue(label: "com.dualcamera.realtime-capture", qos: .userInitiated)
     private let realtimeWriterQueue = DispatchQueue(label: "com.dualcamera.realtime-writer", qos: .userInitiated)
     private let realtimeWriterSlots = DispatchSemaphore(value: 2)
@@ -105,9 +97,6 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var latestRealtimeBackBuffer: CVPixelBuffer?
     private var latestRealtimeFrontBuffer: CVPixelBuffer?
     private var lastRealtimeSubmittedBackPTS = CMTime.invalid
-    private let frontProbeImageContext = CIContext()
-    let frontPreviewStore = FrontCameraPreviewStore()
-    private var lastFrontProbeImageUpdate: UInt64 = 0
 
     // MARK: - Ротация
 
@@ -327,25 +316,6 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         updateOnMain { self.errorMessage = message }
     }
 
-    func setRealtimeRecordingMode(_ enabled: Bool, completion: @escaping (Error?) -> Void) {
-        sessionQueue.async { [weak self] in
-            guard let self else { return }
-            do {
-                if enabled {
-                    try self.configureRealtimeOutputs()
-                    guard self.realtimeVideoOutputsReady else {
-                        throw CameraError.outputFailed
-                    }
-                } else {
-                    self.removeRealtimeOutputs()
-                }
-                self.updateOnMain { completion(nil) }
-            } catch {
-                self.updateOnMain { completion(error) }
-            }
-        }
-    }
-
     func clearMergedPhoto() {
         updateOnMain { self.lastMergedPhoto = nil }
     }
@@ -458,22 +428,18 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     // MARK: - Видеозапись
 
-    /// Начинает одновременную запись видео с обеих камер.
+    /// Записывает и композитит обе камеры на лету; импортированное видео склеивается после записи.
     /// `elements` — рисунок, который вшивается в видео (снимок на момент старта).
     func startRecording(elements: [DrawingElement] = [],
                         pipOffsetFraction: CGSize = .zero,
                         photoOverlayOffsetFraction: CGSize = .zero,
-                        photoOverlayWidthFraction: CGFloat = 0.3,
-                        useRealtimeComposite: Bool = false) {
+                        photoOverlayWidthFraction: CGFloat = 0.3) {
         guard isConfigured, !isRecording else { return }
         let importedPhotoAtStart = importedPhoto
         let orientationAtStart = currentInterfaceVideoOrientation()
         let swappedAtStart = isCamerasSwapped
         let importedVideoAtStart = importedVideoURL
-        if useRealtimeComposite, importedVideoAtStart != nil {
-            errorMessage = "Экспериментальная запись пока не работает с видео из медиатеки. Переключитесь на стандартный режим."
-            return
-        }
+        let useRealtimeComposite = importedVideoAtStart == nil
         let layoutAtStart = layout
         let shapeAtStart = pipShape
         let splitOrientationAtStart = splitOrientation
@@ -495,11 +461,28 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         sessionQueue.async { [weak self] in
             guard let self else { return }
 
+            if !useRealtimeComposite && self.realtimeVideoOutputsReady {
+                self.removeRealtimeOutputs()
+            }
+
+            if useRealtimeComposite && !self.realtimeVideoOutputsReady {
+                do {
+                    try self.configureRealtimeOutputs()
+                } catch {
+                    self.updateOnMain {
+                        self.isRecording = false
+                        self.stopRecordingTimer()
+                        self.errorMessage = error.localizedDescription
+                    }
+                    return
+                }
+            }
+
             guard !useRealtimeComposite || self.realtimeVideoOutputsReady else {
                 self.updateOnMain {
                     self.isRecording = false
                     self.stopRecordingTimer()
-                    self.errorMessage = "Не удалось включить синхронный захват камер. Переключитесь на стандартную запись."
+                    self.errorMessage = "Не удалось подготовить синхронный захват камер."
                 }
                 return
             }
@@ -739,7 +722,10 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     // MARK: - Настройка сессии (выполняется в sessionQueue)
 
     private func configureRealtimeOutputs() throws {
-        guard !realtimeVideoOutputsReady, let backInput else { return }
+        guard !realtimeVideoOutputsReady else { return }
+        guard let backInput, let frontInput else {
+            throw CameraError.connectionFailed
+        }
 
         latestRealtimeBackBuffer = nil
         latestRealtimeFrontBuffer = nil
@@ -749,18 +735,22 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         defer { session.commitConfiguration() }
         backVideoDataOutput.alwaysDiscardsLateVideoFrames = true
         frontVideoDataOutput.alwaysDiscardsLateVideoFrames = true
-        backVideoDataOutput.videoSettings = [
+        let videoSettings: [String: Any] = [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         ]
+        backVideoDataOutput.videoSettings = videoSettings
+        frontVideoDataOutput.videoSettings = videoSettings
         guard session.canAddOutput(backVideoDataOutput) else {
             throw CameraError.outputFailed
         }
         session.addOutputWithNoConnections(backVideoDataOutput)
         do {
-            try connect(backInput, to: backVideoDataOutput, camera: .back)
-            guard frontVideoDataConnection != nil else {
-                throw CameraError.connectionFailed
+            guard session.canAddOutput(frontVideoDataOutput) else {
+                throw CameraError.outputFailed
             }
+            session.addOutputWithNoConnections(frontVideoDataOutput)
+            try connect(backInput, to: backVideoDataOutput, camera: .back)
+            try connect(frontInput, to: frontVideoDataOutput, camera: .front)
 
             if let audioInput, let audioPort = audioInput.ports.first(where: { $0.mediaType == .audio }),
                session.canAddOutput(audioDataOutput) {
@@ -788,12 +778,20 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 session.removeConnection(backVideoDataConnection)
                 self.backVideoDataConnection = nil
             }
-            session.removeOutput(backVideoDataOutput)
+            if let frontVideoDataConnection {
+                session.removeConnection(frontVideoDataConnection)
+                self.frontVideoDataConnection = nil
+            }
+            if session.outputs.contains(backVideoDataOutput) {
+                session.removeOutput(backVideoDataOutput)
+            }
+            if session.outputs.contains(frontVideoDataOutput) {
+                session.removeOutput(frontVideoDataOutput)
+            }
             if session.outputs.contains(audioDataOutput) {
                 audioDataOutput.setSampleBufferDelegate(nil, queue: nil)
                 session.removeOutput(audioDataOutput)
             }
-            frontVideoDataOutput.setSampleBufferDelegate(self, queue: frontVideoOutputQueue)
             videoDataSynchronizer = nil
             realtimeVideoOutputsReady = false
             throw error
@@ -801,7 +799,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     }
 
     private func removeRealtimeOutputs() {
-        guard realtimeVideoOutputsReady || session.outputs.contains(audioDataOutput) else { return }
+        guard realtimeVideoOutputsReady else { return }
         session.beginConfiguration()
         videoDataSynchronizer?.setDelegate(nil, queue: nil)
         videoDataSynchronizer = nil
@@ -809,15 +807,17 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             session.removeConnection(backVideoDataConnection)
             self.backVideoDataConnection = nil
         }
-        if session.outputs.contains(backVideoDataOutput) {
-            session.removeOutput(backVideoDataOutput)
+        if let frontVideoDataConnection {
+            session.removeConnection(frontVideoDataConnection)
+            self.frontVideoDataConnection = nil
         }
+        session.removeOutput(backVideoDataOutput)
+        session.removeOutput(frontVideoDataOutput)
         if session.outputs.contains(audioDataOutput) {
             audioDataOutput.setSampleBufferDelegate(nil, queue: nil)
             session.removeOutput(audioDataOutput)
         }
         session.commitConfiguration()
-        frontVideoDataOutput.setSampleBufferDelegate(self, queue: frontVideoOutputQueue)
         realtimeVideoOutputsReady = false
         latestRealtimeBackBuffer = nil
         latestRealtimeFrontBuffer = nil
@@ -842,7 +842,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         frontRotationCoordinator = AVCaptureDevice.RotationCoordinator(device: front,
                                                                          previewLayer: frontPreviewLayer)
 
-        // 2. Подбираем форматы: задняя 1080p, передняя минимальный 480p для диагностики.
+        // 2. Подбираем форматы: задняя 1080p, передняя 480p для снижения нагрузки.
         try configureFormat(for: back, target: CGSize(width: 1920, height: 1080))
         try configureFormat(for: front, target: CGSize(width: 640, height: 480))
 
@@ -881,23 +881,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         // mirrored independently on its own connection.
         try connect(frontDeviceInput, to: frontMovieOutput, camera: .front, mirrored: false)
 
-        // Диагностический путь в обход AVCaptureVideoPreviewLayer.
-        let sampleBufferSettings = [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-        ]
-        frontVideoDataOutput.alwaysDiscardsLateVideoFrames = true
-        frontVideoDataOutput.videoSettings = sampleBufferSettings
-        if session.canAddOutput(frontVideoDataOutput) {
-            session.addOutputWithNoConnections(frontVideoDataOutput)
-            do {
-                try connect(frontDeviceInput, to: frontVideoDataOutput, camera: .front)
-                frontVideoDataOutput.setSampleBufferDelegate(self, queue: frontVideoOutputQueue)
-            } catch {
-                session.removeOutput(frontVideoDataOutput)
-            }
-        }
-
-        // 7а. Микрофон: добавляем вход и подключаем звук к обоим видео-выходам.
+        // 7. Микрофон: добавляем вход и подключаем звук к обоим видео-выходам.
         try addAudioInput()
 
         // Подключаем preview-layer к конкретным портам внутри той же транзакции,
@@ -1508,23 +1492,11 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     func captureOutput(_ output: AVCaptureOutput,
                        didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
-        if output === audioDataOutput {
-            recordingLock.lock()
-            let recorder = isUsingRealtimeRecorder ? realtimeRecorder : nil
-            recordingLock.unlock()
-            recorder?.appendAudio(sampleBuffer)
-            return
-        }
-        guard output === frontVideoDataOutput,
-              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        let now = DispatchTime.now().uptimeNanoseconds
-        guard lastFrontProbeImageUpdate == 0 || now - lastFrontProbeImageUpdate >= 66_666_667 else { return }
-        lastFrontProbeImageUpdate = now
-        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        if let cgImage = frontProbeImageContext.createCGImage(ciImage, from: ciImage.extent) {
-            let image = UIImage(cgImage: cgImage)
-            updateOnMain { self.frontPreviewStore.image = image }
-        }
+        guard output === audioDataOutput else { return }
+        recordingLock.lock()
+        let recorder = isUsingRealtimeRecorder ? realtimeRecorder : nil
+        recordingLock.unlock()
+        recorder?.appendAudio(sampleBuffer)
     }
 
     func dataOutputSynchronizer(_ synchronizer: AVCaptureDataOutputSynchronizer,
@@ -1539,7 +1511,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         recordingLock.lock()
         let activeRecorder = isUsingRealtimeRecorder ? realtimeRecorder : nil
         recordingLock.unlock()
-        activeRecorder?.recordSynchronizationEvent(
+        guard let activeRecorder else { return }
+        activeRecorder.recordSynchronizationEvent(
             backPresent: backData != nil,
             frontPresent: frontData != nil,
             backDropped: backDropped,
@@ -1557,17 +1530,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             latestRealtimeFrontBuffer = buffer
         }
 
-        if let frontData, !frontDropped, let connection = frontVideoDataConnection {
-            let sampleBuffer = frontData.sampleBuffer
-            frontVideoOutputQueue.async { [weak self] in
-                guard let self else { return }
-                self.captureOutput(self.frontVideoDataOutput,
-                                   didOutput: sampleBuffer,
-                                   from: connection)
-            }
-        }
-        guard let recorder = activeRecorder,
-              let backBuffer = latestRealtimeBackBuffer,
+        guard let backBuffer = latestRealtimeBackBuffer,
               let frontBuffer = latestRealtimeFrontBuffer,
               backPTS.isValid,
               !lastRealtimeSubmittedBackPTS.isValid
@@ -1579,7 +1542,7 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         lastRealtimeSubmittedBackPTS = backPTS
         realtimeWriterQueue.async { [realtimeWriterSlots] in
             defer { realtimeWriterSlots.signal() }
-            recorder.appendVideo(back: backBuffer, front: frontBuffer, time: backPTS, state: state)
+            activeRecorder.appendVideo(back: backBuffer, front: frontBuffer, time: backPTS, state: state)
         }
     }
 

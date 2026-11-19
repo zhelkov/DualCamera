@@ -13,7 +13,6 @@ enum HUDTheme {
     static let settingsBorder = Color.white.opacity(0.16)
     static let recordBorder = Color.white.opacity(0.9)
     static let primaryIcon = Color.white.opacity(0.9)
-    static let debugBackground = Color.black.opacity(0.45)
     static let islandFill = Color.black.opacity(0.9)
     static let islandBorder = Color.white.opacity(0.04)
 
@@ -49,7 +48,6 @@ enum HUDTheme {
     static let controlBlockGap: CGFloat = 4
     static let columnSpacing: CGFloat = 8
     static let islandTopInset: CGFloat = 10
-    static let debugControlsYOffset: CGFloat = 18
     static let settingsRightInset: CGFloat = 14
     static let settingsTopMinimum: CGFloat = 56
     static let settingsTopInset: CGFloat = 10
@@ -57,9 +55,6 @@ enum HUDTheme {
     static let recordingLabelOffset: CGFloat = 24
     static let captureBarTopPadding: CGFloat = 16
     static let captureBarBottomMinimum: CGFloat = 21
-    static let debugControlsFontSize: CGFloat = 11
-    static let debugControlsHorizontalPadding: CGFloat = 8
-    static let debugControlsVerticalPadding: CGFloat = 5
     static let splitVariantMinimumHeight: CGFloat = 44
     static let zoomControlBottomOffset: CGFloat = 22
     static let paletteTopMinimum: CGFloat = 48

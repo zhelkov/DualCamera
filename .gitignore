@@ -18,5 +18,6 @@ xcuserdata/
 ipa_check/
 ipa_new/
 ipa_v102/
+ipa_archive/
 *.stackdump
 *.ips

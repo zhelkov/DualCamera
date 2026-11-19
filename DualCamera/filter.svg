@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="288"
+     height="288"
+     viewBox="0 0 288 288"
+     aria-hidden="true">
+    <g transform="scale(1.3090909)"
+       fill="none"
+       stroke="currentColor"
+       stroke-width="4"
+       stroke-linecap="round">
+
+        <!-- Верхний замкнутый круг -->
+        <circle cx="110" cy="80" r="38"/>
+
+        <!-- Нижняя левая дуга -->
+        <path d="M68 104 A38 38 0 1 0 115 130"/>
+
+        <!-- Нижняя правая дуга -->
+        <path d="M151 104 A38 38 0 1 1 115 170"/>
+
+    </g>
+</svg>

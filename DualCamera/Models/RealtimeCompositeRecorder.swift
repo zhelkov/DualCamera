@@ -3,7 +3,6 @@ import CoreImage
 import UIKit
 
 /// Writes the already-composited camera frame as it arrives from AVCaptureMultiCamSession.
-/// This is an experimental path; the legacy AVAssetExportSession pipeline remains available.
 final class RealtimeCompositeRecorder {
     struct FrameState {
         let layout: CaptureLayout
@@ -176,7 +175,7 @@ final class RealtimeCompositeRecorder {
             if writer.status == .completed, self.appendedVideoFrames > 0 {
                 completion(.success(writer.outputURL))
             } else {
-                let details = "Экспериментальная запись: синхронизатор вызван \(self.synchronizationCallbacks) раз; получено кадров — \(self.receivedVideoFrames), записано — \(self.appendedVideoFrames); образцы задней камеры — \(self.backSamplesPresent) (пропуски \(self.backSamplesDropped)), передней — \(self.frontSamplesPresent) (пропуски \(self.frontSamplesDropped))."
+                let details = "Синхронная запись: синхронизатор вызван \(self.synchronizationCallbacks) раз; получено кадров — \(self.receivedVideoFrames), записано — \(self.appendedVideoFrames); образцы задней камеры — \(self.backSamplesPresent) (пропуски \(self.backSamplesDropped)), передней — \(self.frontSamplesPresent) (пропуски \(self.frontSamplesDropped))."
                 let message = [writer.error?.localizedDescription, self.lastVideoError, details]
                     .compactMap { $0 }
                     .joined(separator: " ")

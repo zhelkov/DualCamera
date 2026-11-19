@@ -16,9 +16,6 @@ struct ContentView: View {
     @State private var isZoomSliderVisible = false
     @State private var drawing = DrawingEngine()
     @State private var selectedMediaItems: [PhotosPickerItem] = []
-    @State private var useFrontPreviewLayer = true
-    @State private var useRealtimeCompositeRecording = false
-    @State private var isPreparingRealtimeMode = false
 
     var body: some View {
         @Bindable var camera = camera
@@ -139,15 +136,8 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder
     private var frontCameraContent: some View {
-        Group {
-            if useFrontPreviewLayer {
-                CameraPreviewView(previewLayer: camera.frontPreviewLayer, isMirrored: false)
-            } else {
-                FrontCameraImageView(store: camera.frontPreviewStore)
-            }
-        }
+        CameraPreviewView(previewLayer: camera.frontPreviewLayer, isMirrored: false)
     }
 
     private var pipOffsetFraction: CGSize {
@@ -300,12 +290,10 @@ struct ContentView: View {
                                                   photoOverlayWidthFraction: importedImageWidthFraction)
                     },
                     onStartRecording: {
-                        guard !isPreparingRealtimeMode else { return }
                         camera.startRecording(elements: drawing.elements,
                                               pipOffsetFraction: pipOffsetFraction,
                                               photoOverlayOffsetFraction: photoOverlayOffsetFraction,
-                                              photoOverlayWidthFraction: importedImageWidthFraction,
-                                              useRealtimeComposite: useRealtimeCompositeRecording)
+                                              photoOverlayWidthFraction: importedImageWidthFraction)
                     },
                     onSwapCameras: { camera.swapCameras() }
                 ),
@@ -315,49 +303,10 @@ struct ContentView: View {
                         if drawing.isDrawingEnabled { drawingToolbar }
                         if camera.importedPhoto != nil { importedPhotoSizeControl }
                     }
-                ),
-                debugControls: AnyView(debugControls)
+                )
             )
         }
     }
-
-    #if DEBUG
-    private var debugControls: some View {
-        HStack(spacing: 8) {
-            Button {
-                useFrontPreviewLayer.toggle()
-            } label: {
-                Text(useFrontPreviewLayer ? "Превью: слой" : "Превью: кадры")
-            }
-            .disabled(camera.isRecording)
-
-            Button {
-                let enableRealtime = !useRealtimeCompositeRecording
-                isPreparingRealtimeMode = true
-                camera.setRealtimeRecordingMode(enableRealtime) { error in
-                    isPreparingRealtimeMode = false
-                    if let error {
-                        camera.showError(error.localizedDescription)
-                    } else {
-                        useRealtimeCompositeRecording = enableRealtime
-                    }
-                }
-            } label: {
-                Text(isPreparingRealtimeMode
-                     ? "Подготовка…"
-                     : (useRealtimeCompositeRecording ? "Realtime" : "Обычная запись"))
-            }
-            .disabled(camera.isRecording || isPreparingRealtimeMode)
-        }
-        .font(.system(size: HUDTheme.debugControlsFontSize, weight: .medium))
-        .foregroundStyle(.white)
-        .padding(.horizontal, HUDTheme.debugControlsHorizontalPadding)
-        .padding(.vertical, HUDTheme.debugControlsVerticalPadding)
-        .background(HUDTheme.debugBackground, in: Capsule())
-    }
-    #else
-    private var debugControls: some View { EmptyView() }
-    #endif
 
     private func durationString(_ interval: TimeInterval) -> String {
         let total = Int(interval)
