@@ -16,13 +16,12 @@ struct HUDOverlayView: View {
     }
 
     private var bottomStripHeight: CGFloat {
+        let bottomPadding = max(HUDTheme.captureBarBottomMinimum, safeBottom)
+        let contentHeight = HUDTheme.captureBarTopPadding + HUDTheme.recordButtonSize + bottomPadding
         let minimum = isLandscape
             ? HUDTheme.landscapeBottomStripMinimumHeight
             : HUDTheme.bottomStripMinimumHeight
-        let safeAreaAddition = isLandscape
-            ? HUDTheme.landscapeBottomSafeAreaAddition
-            : HUDTheme.bottomSafeAreaAddition
-        return max(minimum, safeBottom + safeAreaAddition)
+        return max(minimum, contentHeight)
     }
 
     var body: some View {

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CaptureBarView: View {
     let isLandscape: Bool
+    let safeBottom: CGFloat
     let hasTorch: Bool
     let isTorchOn: Bool
     let isRecording: Bool
@@ -95,5 +96,6 @@ struct CaptureBarView: View {
         }
         .padding(.horizontal, HUDTheme.captureBarInset)
         .padding(.top, HUDTheme.captureBarTopPadding)
+        .padding(.bottom, max(HUDTheme.captureBarBottomMinimum, safeBottom))
     }
 }

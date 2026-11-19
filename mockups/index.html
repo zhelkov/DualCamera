@@ -2,570 +2,2930 @@
 <html lang="ru">
 	<head>
 		<meta charset="utf-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<title>DualCamera — макеты интерфейса</title>
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1, viewport-fit=cover"
+		/>
+		<meta name="theme-color" content="#090a0d" />
+		<title>DualCamera — макет камеры</title>
 		<style>
 			:root {
-				--bg: #111318;
-				--text: #e8eaf0;
-				--muted: #9aa1ad;
+				color-scheme: dark;
+				--yellow: #ffd84d;
+				--ink: #08090c;
+				--muted: #9b9da5;
+				--glass: rgba(15, 16, 20, 0.3);
+				--line: rgba(255, 255, 255, 0.2);
+				--top-strip-height: max(54px, calc(env(safe-area-inset-top) + 36px));
+				--bottom-strip-height: max(
+					124px,
+					calc(16px + 76px + max(21px, env(safe-area-inset-bottom)))
+				);
 			}
+
 			* {
 				box-sizing: border-box;
 			}
+
 			body {
+				min-width: 320px;
+				min-height: 100vh;
 				margin: 0;
-				font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
-				background: var(--bg);
-				color: var(--text);
-				padding: 32px;
+				display: grid;
+				place-items: center;
+				background: radial-gradient(
+					ellipse at 50% 42%,
+					#202329 0,
+					#111318 36%,
+					#090a0d 78%
+				);
+				color: #fff;
+				font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 			}
-			h1 {
-				font-size: 22px;
-				margin: 0 0 4px;
+
+			button,
+			input {
+				font: inherit;
 			}
-			.sub {
-				color: var(--muted);
-				margin-bottom: 24px;
-				font-size: 14px;
+
+			button {
+				color: inherit;
 			}
-			.grid {
-				display: flex;
-				flex-wrap: wrap;
-				gap: 28px;
-			}
-			.card {
-				width: 260px;
-			}
-			.label {
-				text-align: center;
-				color: var(--muted);
-				margin-bottom: 10px;
-				font-size: 14px;
-			}
-			.phone {
-				width: 260px;
-				height: 540px;
-				border-radius: 40px;
-				overflow: hidden;
-				background: #000;
-				border: 8px solid #2a2d35;
+
+			.device {
 				position: relative;
-				box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+				width: min(390px, 100vw);
+				height: min(844px, 100svh);
+				min-height: 600px;
+				overflow: hidden;
+				background: var(--ink);
+				isolation: isolate;
 			}
-			.screen {
+
+			.camera-view {
 				position: absolute;
 				inset: 0;
+				overflow: hidden;
+				background: #415665;
 			}
-			.notch {
+
+			.feed {
 				position: absolute;
-				top: 8px;
+				overflow: hidden;
+				filter: var(--camera-filter, none) brightness(var(--light-level, 1));
+				transition:
+					inset 260ms ease,
+					width 260ms ease,
+					height 260ms ease,
+					border-radius 260ms ease;
+			}
+
+			.feed-main {
+				inset: 0;
+				background:
+					linear-gradient(
+						180deg,
+						rgba(16, 35, 44, 0.08),
+						rgba(11, 18, 19, 0.36)
+					),
+					linear-gradient(
+						165deg,
+						transparent 0 46%,
+						#738c73 46% 52%,
+						#455e50 52% 62%,
+						#263c3a 62%
+					),
+					linear-gradient(110deg, #6d8a95, #9fb3ad 42%, #526c70 75%, #344753);
+			}
+
+			.feed-main::before {
+				position: absolute;
+				inset: 0;
+				content: '';
+				background:
+					radial-gradient(
+						ellipse at 72% 21%,
+						rgba(255, 229, 174, 0.46),
+						transparent 22%
+					),
+					linear-gradient(180deg, transparent 45%, rgba(12, 21, 19, 0.18));
+			}
+
+			.feed-secondary {
+				inset: 50% 0 0;
+				background:
+					linear-gradient(160deg, rgba(243, 181, 130, 0.2), transparent 42%),
+					radial-gradient(ellipse at 48% 31%, #dfa785, transparent 23%),
+					linear-gradient(145deg, #765845, #b27b58 48%, #54443d);
+				border-top: 1px solid rgba(255, 255, 255, 0.55);
+			}
+
+			.cam-label {
+				position: absolute;
+				top: 12px;
 				left: 50%;
 				transform: translateX(-50%);
-				width: 110px;
-				height: 22px;
-				background: #000;
-				border-radius: 12px;
-				z-index: 20;
-			}
-			.preview {
-				position: absolute;
-				overflow: hidden;
-			}
-			.back-preview {
-				background: linear-gradient(160deg, #2b5876, #4e4376);
-			}
-			.front-preview {
-				background: linear-gradient(160deg, #e0a16e, #8e5a3c);
-				border: 1px solid rgba(255, 255, 255, 0.35);
-			}
-			.cam-tag {
-				position: absolute;
-				left: 10px;
-				top: 10px;
+				padding: 5px 8px;
+				border: 1px solid rgba(255, 255, 255, 0.16);
+				border-radius: 20px;
+				background: rgba(0, 0, 0, 0.3);
+				color: rgba(255, 255, 255, 0.85);
 				font-size: 10px;
-				color: rgba(255, 255, 255, 0.8);
-				background: rgba(0, 0, 0, 0.35);
-				padding: 3px 7px;
-				border-radius: 8px;
+				letter-spacing: 0.02em;
 			}
-			.controls {
+
+			.camera-view.pip .feed-secondary {
+				z-index: 2;
+				top: auto;
+				right: 18px;
+				bottom: 208px;
+				left: auto;
+				width: 112px;
+				height: 150px;
+				border: 1px solid rgba(255, 255, 255, 0.72);
+				border-radius: 16px;
+				box-shadow: 0 8px 28px rgba(0, 0, 0, 0.32);
+				touch-action: none;
+			}
+
+			.camera-view.pip.pip-square .feed-secondary {
+				width: 112px;
+				height: 112px;
+			}
+
+			.camera-view.pip.pip-circle .feed-secondary {
+				width: 112px;
+				height: 112px;
+				border-radius: 50%;
+			}
+
+			.camera-view.pip .feed-secondary .cam-label {
+				top: 7px;
+				left: 50%;
+				padding: 4px 6px;
+				transform: translateX(-50%);
+				font-size: 9px;
+			}
+
+			.camera-view.split.side .feed-main {
+				top: 0;
+				bottom: 0;
+				height: auto;
+				right: auto;
+				width: var(--split, 50%);
+			}
+
+			.camera-view.split.side .feed-secondary {
+				inset: 0 0 0 var(--split, 50%);
+				border-top: 0;
+				border-left: 1px solid rgba(255, 255, 255, 0.55);
+			}
+
+			.camera-view.split.side.secondary-first .feed-main {
+				right: 0;
+				left: auto;
+			}
+
+			.camera-view.split.side.secondary-first .feed-secondary {
+				right: var(--split, 50%);
+				left: 0;
+			}
+
+			.camera-view.split.stacked.secondary-first .feed-main {
+				top: auto;
+				bottom: 0;
+			}
+
+			.camera-view.split.stacked.secondary-first .feed-secondary {
+				top: 0;
+				bottom: auto;
+			}
+
+			.camera-view.split.stacked .feed-main {
+				bottom: auto;
+				height: var(--split, 50%);
+			}
+
+			.camera-view.split.stacked .feed-secondary {
+				top: var(--split, 50%);
+				height: calc(100% - var(--split, 50%));
+			}
+
+			.camera-view.split.stacked.secondary-first .feed-main {
+				top: var(--split, 50%);
+				bottom: 0;
+				height: calc(100% - var(--split, 50%));
+			}
+
+			.camera-view.split.stacked.secondary-first .feed-secondary {
+				top: 0;
+				bottom: auto;
+				height: var(--split, 50%);
+			}
+
+			.camera-view.split.side .feed-secondary .cam-label {
+				left: 50%;
+			}
+
+			.camera-view.split .feed-secondary .cam-label {
+				top: 36px;
+			}
+
+			.camera-view.no-secondary .feed-secondary,
+			.camera-view.no-secondary .split-handle {
+				display: none;
+			}
+
+			.camera-view.torch-on .feed-main {
+				--light-level: 1.14;
+			}
+
+			.camera-view.front-light-on .feed-secondary {
+				--light-level: 1.38;
+			}
+
+			.composition-grid {
 				position: absolute;
+				z-index: 3;
 				inset: 0;
-				display: flex;
-				flex-direction: column;
-				align-items: center;
-				justify-content: space-between;
-				padding: 52px 16px 22px;
-				z-index: 10;
+				background-image:
+					linear-gradient(
+						to right,
+						transparent 33.15%,
+						rgba(255, 255, 255, 0.48) 33.33%,
+						transparent 33.5%,
+						transparent 66.48%,
+						rgba(255, 255, 255, 0.48) 66.66%,
+						transparent 66.84%
+					),
+					linear-gradient(
+						to bottom,
+						transparent 33.15%,
+						rgba(255, 255, 255, 0.48) 33.33%,
+						transparent 33.5%,
+						transparent 66.48%,
+						rgba(255, 255, 255, 0.48) 66.66%,
+						transparent 66.84%
+					);
 				pointer-events: none;
 			}
-			.topbar {
-				display: flex;
-				gap: 10px;
-				width: 100%;
-				align-items: center;
+
+			.composition-grid[hidden] {
+				display: none;
 			}
-			.seg {
-				flex: 1;
-				display: flex;
-				background: rgba(255, 255, 255, 0.14);
-				border-radius: 10px;
-				padding: 3px;
-			}
-			.seg span {
-				flex: 1;
-				text-align: center;
-				font-size: 11px;
-				padding: 6px 0;
-				border-radius: 8px;
-				color: #fff;
-			}
-			.seg span.active {
-				background: rgba(255, 255, 255, 0.88);
-				color: #111;
-				font-weight: 600;
-			}
-			.swap {
-				width: 34px;
-				height: 34px;
-				border-radius: 50%;
-				background: rgba(0, 0, 0, 0.45);
-				display: flex;
-				align-items: center;
-				justify-content: center;
-				font-size: 15px;
-			}
-			.bottom {
-				display: flex;
-				align-items: center;
-				gap: 26px;
-			}
-			.shutter {
-				width: 64px;
-				height: 64px;
-				border-radius: 50%;
-				background: #fff;
-				border: 5px solid rgba(255, 255, 255, 0.4);
-			}
-			.record {
-				width: 64px;
-				height: 64px;
-				border-radius: 50%;
-				border: 4px solid #fff;
-				display: flex;
-				align-items: center;
-				justify-content: center;
-			}
-			.record .dot {
-				width: 44px;
-				height: 44px;
-				border-radius: 50%;
-				background: #f43f5e;
-			}
-			.record.stop .dot {
-				width: 24px;
-				height: 24px;
-				border-radius: 6px;
-			}
-			.timer {
-				color: #fff;
-				font-weight: 700;
-				font-variant-numeric: tabular-nums;
-				font-size: 13px;
-				background: rgba(0, 0, 0, 0.45);
-				padding: 4px 10px;
-				border-radius: 8px;
-				margin-bottom: 12px;
-			}
-			.result {
+
+			.split-handle {
 				position: absolute;
-				inset: 0;
+				z-index: 3;
+				top: 50%;
+				left: 50%;
+				display: grid;
+				width: 44px;
+				height: 30px;
+				place-items: center;
+				transform: translate(-50%, -50%);
+				cursor: ns-resize;
+				touch-action: none;
+			}
+
+			.split-handle[hidden] {
+				display: none;
+			}
+
+			.camera-view.split.stacked .split-handle {
+				top: var(--split, 50%);
+			}
+
+			.split-handle::before {
+				position: absolute;
+				width: 100%;
+				height: 1px;
+				background: rgba(255, 255, 255, 0.8);
+				content: '';
+				box-shadow: 0 0 8px rgba(0, 0, 0, 0.4);
+			}
+
+			.split-handle span {
+				z-index: 1;
+				width: 25px;
+				height: 6px;
+				border-radius: 5px;
+				background: #fff;
+				box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
+			}
+
+			.camera-view.split.side .split-handle {
+				top: 50%;
+				left: var(--split, 50%);
+				transform: translate(-50%, -50%) rotate(90deg);
+				cursor: ew-resize;
+			}
+
+			.camera-view.split.secondary-first.stacked .split-handle {
+				top: var(--split, 50%);
+			}
+
+			.camera-view.split.secondary-first.side .split-handle {
+				left: var(--split, 50%);
+			}
+
+			.status-bar {
+				position: absolute;
+				z-index: 5;
+				top: 0;
+				right: 0;
+				left: 0;
+				height: var(--top-strip-height);
+				background: #08090c;
+				pointer-events: none;
+			}
+
+			.island {
+				position: absolute;
+				top: 10px;
+				left: 50%;
+				width: 104px;
+				height: 27px;
+				transform: translateX(-50%);
+				border-radius: 18px;
+				background: #08090c;
+				box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
+			}
+
+			.top-controls {
+				position: absolute;
+				z-index: 6;
+				top: calc(
+					(var(--top-strip-height) + (100% - var(--bottom-strip-height))) / 2
+				);
+				right: 10px;
+				left: 10px;
 				display: flex;
-				flex-direction: column;
 				align-items: center;
-				justify-content: center;
-				gap: 14px;
-				background: #000;
+				justify-content: space-between;
+				transform: translateY(-50%);
+				pointer-events: none;
 			}
-			.thumb {
-				width: 90%;
-				height: 300px;
-				border-radius: 16px;
-				background: linear-gradient(160deg, #334, #556);
+
+			.left-controls,
+			.right-controls {
 				display: flex;
-				align-items: center;
-				justify-content: center;
-				color: rgba(255, 255, 255, 0.7);
-				font-size: 13px;
-			}
-			.btn {
-				background: #3b82f6;
-				color: #fff;
-				border: none;
-				border-radius: 12px;
-				padding: 10px 18px;
-				font-size: 14px;
-				font-weight: 600;
-			}
-			.top {
-				display: flex;
-				flex-direction: column;
 				align-items: center;
 				gap: 8px;
-				width: 100%;
+				pointer-events: auto;
 			}
-			.shape-picker {
+
+			.left-controls {
+				flex-direction: column;
+				align-items: stretch;
+			}
+
+			.right-controls {
+				flex-direction: column;
+			}
+
+			.mode-switch,
+			.variant-switch,
+			.tools-block,
+			.camera-block {
+				padding: 4px;
+				border: 1px solid rgba(255, 255, 255, 0.13);
+				border-radius: 15px;
+				background: var(--glass);
+			}
+
+			.mode-switch,
+			.variant-switch,
+			.tools-block {
 				display: flex;
-				gap: 6px;
-				background: rgba(255, 255, 255, 0.12);
-				padding: 4px 6px;
-				border-radius: 12px;
+				flex-direction: column;
+				gap: 4px;
 			}
-			.shape {
+
+			.camera-block {
+				display: flex;
+				align-items: center;
+				justify-content: center;
+			}
+
+			.icon-button,
+			.variant-button {
+				display: grid;
+				width: 38px;
+				height: 38px;
+				padding: 0;
+				place-items: center;
+				border: 1px solid transparent;
+				border-radius: 12px;
+				background: transparent;
+				color: rgba(255, 255, 255, 0.9);
+				cursor: pointer;
+				transition:
+					color 180ms ease,
+					background 180ms ease,
+					border-color 180ms ease,
+					transform 220ms ease;
+			}
+
+			.icon-button svg,
+			.icon-button img,
+			.variant-button svg {
+				width: 21px;
+				height: 21px;
+				object-fit: contain;
+			}
+
+			.icon-button svg.asset-icon,
+			.icon-button img.asset-icon,
+			.capture-button img.asset-icon {
+				filter: brightness(0) invert(1) drop-shadow(0 0 0.45px currentColor);
+			}
+
+			button svg {
+				fill: none;
+				stroke: currentColor;
+				stroke-linecap: round;
+				stroke-linejoin: round;
+				stroke-width: 1.5;
+			}
+
+			.icon-button.active,
+			.variant-button.active {
+				border-color: rgba(255, 216, 77, 0.32);
+				background: rgba(255, 216, 77, 0.3);
+				color: var(--yellow);
+			}
+
+			.icon-button.active svg.asset-icon,
+			.icon-button.active img.asset-icon,
+			.capture-button.active img.asset-icon {
+				filter: brightness(0) saturate(100%) invert(86%) sepia(75%)
+					saturate(746%) hue-rotate(2deg) brightness(105%) contrast(101%)
+					drop-shadow(0 0 0.45px currentColor);
+			}
+
+			.icon-button:hover,
+			.variant-button:hover {
+				background: rgba(255, 255, 255, 0.3);
+			}
+
+			.icon-button:focus-visible,
+			.variant-button:focus-visible,
+			.settings-button:focus-visible,
+			.capture-button:focus-visible,
+			.zoom-preset:focus-visible {
+				outline: 2px solid var(--yellow);
+				outline-offset: 2px;
+			}
+
+			.variant-switch {
+				min-height: 44px;
+				align-items: center;
+				justify-content: center;
+				animation: pop-in 180ms ease both;
+			}
+
+			.variant-switch[hidden] {
+				display: none;
+			}
+
+			.variant-switch .variant-button {
+				width: 34px;
+				height: 34px;
+			}
+
+			.variant-switch .variant-button svg {
+				width: 19px;
+				height: 19px;
+			}
+
+			svg * {
+				vector-effect: non-scaling-stroke;
+			}
+
+			.settings-button {
+				position: absolute;
+				z-index: 7;
+				top: max(56px, calc(env(safe-area-inset-top) + 10px));
+				right: 14px;
+				display: grid;
+				width: 42px;
+				height: 42px;
+				place-items: center;
+				border: 1px solid rgba(255, 255, 255, 0.16);
+				border-radius: 50%;
+				background: var(--glass);
+				color: #fff;
+				cursor: pointer;
+				transition:
+					color 180ms ease,
+					transform 240ms ease,
+					background 180ms ease;
+			}
+
+			.settings-button svg {
+				width: 22px;
+				height: 22px;
+			}
+
+			.settings-button:hover {
+				color: var(--yellow);
+				transform: rotate(30deg);
+			}
+
+			.drawing-palette {
+				position: absolute;
+				z-index: 9;
+				top: max(48px, env(safe-area-inset-top));
+				left: 50%;
+				display: flex;
+				flex-direction: column;
+				gap: 6px;
+				max-width: calc(100vw - 24px);
+				padding: 10px;
+				transform: translate(-50%, -12px);
+				border: 1px solid rgba(255, 255, 255, 0.13);
+				border-radius: 18px;
+				background: var(--glass);
+				opacity: 0;
+				pointer-events: none;
+				transition:
+					opacity 180ms ease,
+					transform 180ms ease;
+			}
+
+			.drawing-palette.visible {
+				transform: translate(-50%, 0);
+				opacity: 1;
+				pointer-events: auto;
+			}
+
+			.drawing-tools,
+			.drawing-colors,
+			.drawing-adjustments {
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				gap: 8px;
+			}
+
+			.drawing-tools .icon-button {
+				width: 34px;
+				height: 34px;
+			}
+
+			.drawing-tools .icon-button svg {
+				width: 19px;
+				height: 19px;
+			}
+
+			.drawing-colors .icon-button {
 				width: 30px;
 				height: 30px;
 				border-radius: 50%;
+			}
+
+			.drawing-colors .icon-button svg {
+				width: 24px;
+				height: 24px;
+			}
+
+			.drawing-colors .icon-button.active {
+				border-color: #fff;
+				background: transparent;
+			}
+
+			.drawing-adjustments {
+				gap: 10px;
+			}
+
+			.drawing-adjustments input[type='range'] {
+				width: 112px;
+				height: 24px;
+				accent-color: #fff;
+			}
+
+			.drawing-adjustments output {
+				min-width: 16px;
+				color: rgba(255, 255, 255, 0.8);
+				font-size: 11px;
+				text-align: center;
+			}
+
+			.drawing-adjustments .icon-button {
+				width: 32px;
+				height: 32px;
+			}
+
+			.drawing-adjustments .icon-button svg {
+				width: 18px;
+				height: 18px;
+			}
+
+			.filter-menu {
+				position: absolute;
+				z-index: 12;
+				top: 50%;
+				right: 10px;
+				width: 48px;
+				height: 150px;
+				overflow: hidden;
+				display: block;
+				padding: 4px 0;
+				transform: translateY(-8px);
+				border: 1px solid rgba(255, 255, 255, 0.15);
+				border-radius: 17px;
+				background: var(--glass);
+				opacity: 0;
+				pointer-events: none;
+				transition:
+					opacity 160ms ease,
+					transform 160ms ease;
+			}
+
+			.filter-menu.visible {
+				transform: translateY(0);
+				opacity: 1;
+				pointer-events: auto;
+			}
+
+			.filter-menu[hidden] {
+				display: none;
+			}
+
+			.filter-menu::after {
+				content: '';
+				position: absolute;
+				right: 0;
+				bottom: 0;
+				left: 0;
+				height: 28px;
+				border-radius: 0 0 16px 16px;
+				background: linear-gradient(
+					180deg,
+					rgba(10, 12, 15, 0),
+					rgba(10, 12, 15, 0.82)
+				);
+				opacity: 1;
+				transition: opacity 160ms ease;
+				pointer-events: none;
+			}
+
+			.filter-menu.at-end::after {
+				opacity: 0;
+			}
+
+			.filter-carousel {
+				position: relative;
+				width: 100%;
+				height: 140px;
+				overflow-x: hidden;
+				overflow-y: auto;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				scroll-snap-type: y mandatory;
+				scrollbar-width: none;
+				touch-action: pan-y;
+			}
+
+			.filter-carousel::-webkit-scrollbar {
+				display: none;
+			}
+
+			.filter-carousel::before,
+			.filter-carousel::after {
+				content: '';
+				flex: 0 0 calc(50% - 19px);
+			}
+
+			.filter-carousel::before {
+				pointer-events: none;
+			}
+
+			.filter-option {
+				flex: 0 0 38px;
+				width: 38px;
+				height: 38px;
+				margin: 5px 0;
+				padding: 0;
+				display: grid;
+				place-items: center;
+				border: 1px solid transparent;
+				border-radius: 50%;
+				background: rgba(0, 0, 0, 0.26);
+				color: #fff;
+				scroll-snap-align: center;
+				cursor: pointer;
+				transition:
+					transform 180ms ease,
+					border-color 180ms ease,
+					opacity 180ms ease;
+			}
+
+			.filter-option:not(.active) {
+				opacity: 0.72;
+				transform: scale(0.86);
+			}
+
+			.filter-option.active {
+				border-color: var(--yellow);
+				opacity: 1;
+				transform: scale(1);
+			}
+
+			.filter-flower {
+				width: 32px;
+				height: 32px;
+				display: block;
+				transition: filter 160ms ease;
+			}
+
+			.filter-option[data-filter="original"] .filter-flower {
+				filter: none;
+			}
+
+			.filter-option[data-filter="vivid"] .filter-flower {
+				filter: saturate(1.35) contrast(1.06);
+			}
+
+			.filter-option[data-filter="warm"] .filter-flower {
+				filter: saturate(1.28) sepia(0.16) hue-rotate(-8deg);
+			}
+
+			.filter-option[data-filter="cool"] .filter-flower {
+				filter: saturate(1.22) hue-rotate(10deg) brightness(1.03);
+			}
+
+			.filter-option[data-filter="dramatic"] .filter-flower {
+				filter: contrast(1.2) saturate(0.92);
+			}
+
+			.filter-option[data-filter="dramatic-warm"] .filter-flower {
+				filter: contrast(1.18) saturate(1.08) sepia(0.12);
+			}
+
+			.filter-option[data-filter="silver"] .filter-flower {
+				filter: grayscale(0.45) contrast(1.12) brightness(1.06);
+			}
+
+			.filter-option[data-filter="mono"] .filter-flower,
+			.filter-option[data-filter="noir"] .filter-flower {
+				filter: grayscale(1);
+			}
+
+			.filter-option[data-filter="noir"] .filter-flower {
+				filter: grayscale(1) contrast(1.5) brightness(0.82);
+			}
+
+			.active-filter-name {
+				position: absolute;
+				z-index: 4;
+				top: 50%;
+				left: 50%;
+				max-width: 180px;
+				padding: 5px 9px;
+				transform: translate(-50%, -100%);
+				border-radius: 12px;
+				background: rgba(0, 0, 0, 0.56);
+				color: #fff;
+				font-size: 11px;
+				line-height: 1;
+				text-align: center;
+				white-space: nowrap;
+				opacity: 0;
+				transition: opacity 160ms ease;
+				pointer-events: none;
+			}
+
+			.active-filter-name.visible {
+				opacity: 1;
+			}
+
+			.zoom-panel {
+				position: absolute;
+				z-index: 7;
+				bottom: calc(var(--bottom-strip-height) + 3px);
+				left: 50%;
+				transform: translateX(-50%);
+			}
+
+			.zoom-presets {
 				display: flex;
 				align-items: center;
 				justify-content: center;
-				font-size: 14px;
-				color: #fff;
+				gap: 4px;
+				min-width: 112px;
+				min-height: 34px;
+				padding: 0 10px;
+				border-radius: 18px;
+				background: transparent;
+				touch-action: none;
+				user-select: none;
 			}
-			.shape.active {
-				background: rgba(255, 255, 255, 0.88);
-				color: #111;
-				font-weight: 600;
+
+			.zoom-preset {
+				min-width: 42px;
+				padding: 6px 2px;
+				border: 0;
+				background: transparent;
+				color: rgba(255, 255, 255, 0.9);
+				font-size: 13px;
+				cursor: pointer;
 			}
-			.drag-outline {
+
+			.zoom-preset.active {
+				color: var(--yellow);
+				font-weight: 650;
+			}
+
+			.zoom-adjuster {
 				position: absolute;
-				border: 1.5px dashed rgba(255, 255, 255, 0.55);
-				border-radius: 14px;
+				right: 50%;
+				bottom: 30px;
+				display: flex;
+				width: min(270px, calc(100vw - 96px));
+				align-items: center;
+				gap: 8px;
+				padding: 9px 10px 8px;
+				transform: translateX(50%) translateY(8px);
+				border: 1px solid rgba(255, 255, 255, 0.16);
+				border-radius: 16px;
+				background: var(--glass);
+				opacity: 0;
+				pointer-events: none;
+				transition:
+					opacity 140ms ease,
+					transform 140ms ease;
 			}
-			.drag-handle {
-				position: absolute;
-				width: 22px;
-				height: 22px;
+
+			.zoom-panel.adjusting .zoom-adjuster {
+				transform: translateX(50%) translateY(0);
+				opacity: 1;
+				pointer-events: auto;
+			}
+
+			.zoom-adjuster[hidden] {
+				display: none;
+			}
+
+			.zoom-adjuster button {
+				display: grid;
+				width: 24px;
+				height: 24px;
+				flex: 0 0 auto;
+				place-items: center;
+				border: 0;
 				border-radius: 50%;
-				background: rgba(0, 0, 0, 0.45);
+				background: transparent;
+				color: #fff;
+				font-size: 19px;
+				cursor: pointer;
+			}
+
+			.zoom-range {
+				width: 100%;
+				height: 20px;
+				margin: 0;
+				accent-color: var(--yellow);
+				cursor: pointer;
+			}
+
+			.zoom-value {
+				position: absolute;
+				right: 50%;
+				bottom: calc(100% + 6px);
+				transform: translateX(50%);
 				color: #fff;
 				font-size: 12px;
+				font-variant-numeric: tabular-nums;
+				white-space: nowrap;
+			}
+
+			.zoom-readout {
+				display: none;
+			}
+
+			.bottom-bar {
+				position: absolute;
+				z-index: 5;
+				right: 0;
+				bottom: 0;
+				left: 0;
+				height: var(--bottom-strip-height);
+				padding: 16px 31px max(21px, env(safe-area-inset-bottom));
 				display: flex;
 				align-items: center;
-				justify-content: center;
+				justify-content: space-between;
+				background: #08090c;
+				gap: 8px;
+			}
+
+			.capture-button {
+				display: grid;
+				place-items: center;
+				padding: 0;
+				border: 0;
+				background: transparent;
+				cursor: pointer;
+			}
+
+			.capture-button img {
+				width: 21px;
+				height: 21px;
+				object-fit: contain;
+			}
+
+			.swap-button,
+			.photo-button,
+			.light-button {
+				width: 46px;
+				height: 46px;
+				border: 1px solid rgba(255, 255, 255, 0.22);
+				border-radius: 50%;
+				background: var(--glass);
+				color: #fff;
+				flex: 0 0 auto;
+			}
+
+			.swap-button svg {
+				width: 21px;
+				height: 21px;
+			}
+
+			.photo-button {
+				color: rgba(255, 255, 255, 0.92);
+			}
+
+			.light-button svg {
+				width: 21px;
+				height: 21px;
+			}
+
+			#torchButton svg {
+				filter: brightness(0) invert(1) drop-shadow(0 0 0.45px currentColor);
+			}
+
+			#torchButton.active svg {
+				filter: brightness(0) saturate(100%) invert(86%) sepia(75%)
+					saturate(746%) hue-rotate(2deg) brightness(105%) contrast(101%)
+					drop-shadow(0 0 0.45px currentColor);
+			}
+
+			.light-button.active {
+				border-color: rgba(255, 216, 77, 0.6);
+				background: var(--glass);
+				color: var(--yellow);
+			}
+
+			.photo-button svg {
+				width: 21px;
+				height: 21px;
+			}
+
+			.record-button {
+				width: 76px;
+				height: 76px;
+				border: 1.5px solid rgba(255, 255, 255, 0.9);
+				border-radius: 50%;
+				background: var(--glass);
+				transition: transform 160ms ease;
+			}
+
+			.record-button:active {
+				transform: scale(0.94);
+			}
+
+			.record-button span {
+				width: 58px;
+				height: 58px;
+				display: block;
+				border-radius: 50%;
+				background: #f24550;
+				box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+				transition:
+					width 180ms ease,
+					height 180ms ease,
+					border-radius 180ms ease;
+			}
+
+			.record-button.recording span {
+				width: 27px;
+				height: 27px;
+				border-radius: 7px;
+			}
+
+			.recording-indicator {
+				position: absolute;
+				top: max(54px, calc(env(safe-area-inset-top) + 14px));
+				left: 50%;
+				display: flex;
+				align-items: center;
+				gap: 7px;
+				padding: 6px 10px;
+				transform: translateX(-50%);
+				border: 1px solid rgba(255, 255, 255, 0.14);
+				border-radius: 20px;
+				background: rgba(0, 0, 0, 0.55);
+				color: #fff;
+				font-size: 11px;
+				font-variant-numeric: tabular-nums;
+				opacity: 0;
+				pointer-events: none;
+			}
+
+			.recording-indicator.visible {
+				opacity: 1;
+			}
+
+			.recording-indicator::before {
+				width: 7px;
+				height: 7px;
+				border-radius: 50%;
+				background: #ff4653;
+				content: '';
+				animation: blink 1s infinite;
+			}
+
+			.canvas-mark {
+				position: absolute;
+				z-index: 4;
+				display: grid;
+				width: 54px;
+				height: 54px;
+				place-items: center;
+				color: var(--yellow);
+				cursor: move;
+				touch-action: none;
+			}
+
+			.canvas-mark .asset-pointing {
+				width: 40px;
+				height: 40px;
+				object-fit: contain;
+				filter: var(
+						--mark-filter,
+						brightness(0) saturate(100%) invert(86%) sepia(75%) saturate(746%)
+							hue-rotate(2deg) brightness(105%) contrast(101%)
+					)
+					drop-shadow(0 0 0.45px currentColor);
+			}
+
+			.settings-overlay {
+				position: absolute;
+				z-index: 20;
+				inset: 0;
+				display: flex;
+				align-items: flex-end;
+				background: rgba(0, 0, 0, 0.42);
+				opacity: 0;
+				pointer-events: none;
+				visibility: hidden;
+				transition:
+					opacity 220ms ease,
+					visibility 220ms ease;
+			}
+
+			.settings-overlay.open {
+				opacity: 1;
+				pointer-events: auto;
+				visibility: visible;
+				transition-delay: 0s;
+			}
+
+			.settings-sheet {
+				width: 100%;
+				max-height: min(79%, 670px);
+				overflow: auto;
+				padding: 10px 20px max(26px, env(safe-area-inset-bottom));
+				transform: translateY(28px);
+				border: 1px solid rgba(255, 255, 255, 0.1);
+				border-bottom: 0;
+				border-radius: 28px 28px 0 0;
+				background: rgba(22, 23, 28, 0.97);
+				box-shadow: 0 -18px 60px rgba(0, 0, 0, 0.3);
+				transition: transform 260ms cubic-bezier(0.2, 0.75, 0.25, 1);
+			}
+
+			.settings-overlay.open .settings-sheet {
+				transform: translateY(0);
+			}
+
+			.sheet-grabber {
+				width: 36px;
+				height: 4px;
+				margin: 0 auto 17px;
+				border-radius: 5px;
+				background: rgba(255, 255, 255, 0.3);
+			}
+
+			.sheet-heading {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				margin-bottom: 18px;
+			}
+
+			.sheet-heading h2 {
+				margin: 0;
+				font-size: 21px;
+				font-weight: 650;
+				letter-spacing: -0.02em;
+			}
+
+			.close-settings {
+				width: 32px;
+				height: 32px;
+				border: 0;
+				border-radius: 50%;
+				background: rgba(255, 255, 255, 0.1);
+				color: rgba(255, 255, 255, 0.75);
+				font-size: 20px;
+				line-height: 1;
+				cursor: pointer;
+			}
+
+			.setting-group {
+				margin: 0 0 17px;
+			}
+
+			.setting-label {
+				display: block;
+				margin: 0 0 8px 2px;
+				color: #a7a9b0;
+				font-size: 12px;
+				font-weight: 550;
+			}
+
+			.option-row {
+				display: flex;
+				gap: 7px;
+				padding: 4px;
+				border: 1px solid rgba(255, 255, 255, 0.08);
+				border-radius: 14px;
+				background: rgba(255, 255, 255, 0.045);
+			}
+
+			.option-row button {
+				flex: 1;
+				min-height: 37px;
+				padding: 6px 7px;
+				border: 1px solid transparent;
+				border-radius: 10px;
+				background: transparent;
+				color: #c9cbd1;
+				font-size: 12px;
+				white-space: nowrap;
+				cursor: pointer;
+				transition:
+					background 160ms ease,
+					color 160ms ease,
+					border-color 160ms ease;
+			}
+
+			.option-row button.selected {
+				border-color: rgba(255, 216, 77, 0.25);
+				background: rgba(255, 216, 77, 0.14);
+				color: var(--yellow);
+			}
+
+			.setting-toggle {
+				display: flex;
+				min-height: 52px;
+				align-items: center;
+				justify-content: space-between;
+				border-bottom: 1px solid rgba(255, 255, 255, 0.075);
+				color: #f0f0f2;
+				font-size: 14px;
+			}
+
+			.setting-toggle:last-child {
+				border-bottom: 0;
+			}
+
+			.switch {
+				position: relative;
+				width: 46px;
+				height: 27px;
+				flex: 0 0 auto;
+				border: 0;
+				border-radius: 20px;
+				background: #44464d;
+				cursor: pointer;
+				transition: background 180ms ease;
+			}
+
+			.switch::after {
+				position: absolute;
+				top: 3px;
+				left: 3px;
+				width: 21px;
+				height: 21px;
+				border-radius: 50%;
+				background: white;
+				content: '';
+				transition: transform 180ms ease;
+			}
+
+			.switch[aria-checked='true'] {
+				background: #bba12e;
+			}
+
+			.switch[aria-checked='true']::after {
+				transform: translateX(19px);
+			}
+
+			@keyframes pop-in {
+				from {
+					transform: translateY(-4px);
+					opacity: 0;
+				}
+				to {
+					transform: translateY(0);
+					opacity: 1;
+				}
+			}
+
+			@keyframes blink {
+				50% {
+					opacity: 0.4;
+				}
+			}
+
+			@media (orientation: landscape) and (min-width: 600px) {
+				.device {
+					--bottom-strip-height: max(
+						105px,
+						calc(16px + 76px + max(21px, env(safe-area-inset-bottom)))
+					);
+					width: min(844px, 100vw);
+					height: min(390px, 100svh);
+					min-height: 0;
+				}
+
+				.left-controls {
+					gap: 4px;
+				}
+
+				.left-controls .mode-switch,
+				.left-controls .variant-switch {
+					gap: 3px;
+					padding: 3px;
+				}
+
+				.left-controls .mode-switch .icon-button {
+					width: 32px;
+					height: 32px;
+				}
+
+				.left-controls .variant-switch {
+					min-height: 0;
+				}
+
+				.left-controls .variant-switch .variant-button {
+					width: 30px;
+					height: 30px;
+				}
+
+				.top-controls .icon-button,
+				.top-controls .variant-button,
+				.settings-button,
+				.zoom-panel,
+				.bottom-bar .capture-button {
+					transition:
+						color 180ms ease,
+						background 180ms ease,
+						transform 240ms ease;
+				}
+
+				.top-controls .icon-button svg,
+				.top-controls .icon-button img,
+				.top-controls .variant-button svg,
+				.settings-button svg,
+				.bottom-bar .capture-button svg,
+				.bottom-bar .capture-button img {
+					transform: rotate(90deg);
+					transition: transform 240ms ease;
+				}
+
+				.zoom-panel {
+					bottom: calc(var(--bottom-strip-height) + 3px);
+				}
+
+				.bottom-bar {
+					padding-right: 28px;
+					padding-left: 28px;
+				}
+			}
+
+			@media (max-height: 680px) and (orientation: portrait) {
+				.device {
+					min-height: 0;
+				}
+
+				.zoom-panel {
+					bottom: calc(var(--bottom-strip-height) + 3px);
+				}
+
+				.camera-view.pip .feed-secondary {
+					bottom: 180px;
+				}
+
+				.settings-sheet {
+					max-height: 85%;
+				}
+			}
+
+			@media (max-width: 360px) and (orientation: portrait) {
+				.top-controls {
+					right: 6px;
+					left: 6px;
+				}
+
+				.left-controls,
+				.right-controls {
+					gap: 4px;
+				}
+
+				.left-controls .variant-switch {
+					gap: 2px;
+					padding: 3px;
+				}
+
+				.left-controls .variant-switch .variant-button {
+					width: 28px;
+					height: 32px;
+				}
+
+				.right-controls .icon-button {
+					width: 30px;
+					height: 32px;
+				}
+
+				.filter-menu {
+					right: 10px;
+				}
+
+				.bottom-bar {
+					gap: 4px;
+					padding-right: 12px;
+					padding-left: 12px;
+				}
+
+				.record-button {
+					width: 66px;
+					height: 66px;
+				}
+
+				.record-button span {
+					width: 50px;
+					height: 50px;
+				}
+			}
+
+			@media (prefers-reduced-motion: reduce) {
+				*,
+				*::before,
+				*::after {
+					animation-duration: 0.01ms !important;
+					transition-duration: 0.01ms !important;
+					scroll-behavior: auto !important;
+				}
 			}
 		</style>
 	</head>
 	<body>
-		<h1>DualCamera — макеты интерфейса</h1>
-		<div class="sub">
-			Экраны приложения: раскладки, запись и результат. Сгенерировано для
-			наглядности.
-		</div>
+		<main class="device" aria-label="Интерактивный макет DualCamera">
+			<div class="camera-view split stacked" id="cameraView">
+				<div class="feed feed-main">
+					<span class="cam-label">Основная камера</span>
+				</div>
+				<div class="feed feed-secondary" id="pipWindow">
+					<span class="cam-label">Вторая камера</span>
+				</div>
+				<div class="active-filter-name" id="activeFilterName" aria-live="polite"></div>
+				<div class="composition-grid" id="compositionGrid" hidden></div>
+				<div
+					class="split-handle"
+					id="splitHandle"
+					role="slider"
+					aria-label="Граница между камерами"
+					aria-valuemin="25"
+					aria-valuemax="75"
+					aria-valuenow="50"
+					tabindex="0"
+				>
+					<span></span>
+				</div>
+				<div class="canvas-mark" id="canvasMark" hidden></div>
+			</div>
 
-		<div class="grid">
-			<div class="card">
-				<div class="label">1. Сплит — основной экран</div>
-				<div class="phone">
-					<div class="screen">
+			<div class="status-bar" aria-hidden="true">
+				<div class="island"></div>
+			</div>
+			<div class="recording-indicator" id="recordingIndicator">00:00</div>
+
+			<button
+				class="settings-button"
+				id="settingsButton"
+				type="button"
+				aria-label="Открыть настройки"
+				title="Настройки"
+			>
+				<svg viewBox="0 0 288 288" aria-hidden="true">
+					<g transform="scale(2.88)">
+						<g transform="scale(4.16666666667)">
+							<circle cx="12" cy="12" r="9.5" />
+							<circle cx="12" cy="12" r="3.5" />
+							<path
+								d="M12 1.5v2M12 20.5v2M1.5 12h2M20.5 12h2M4.57 4.57l1.42 1.42M18.01 18.01l1.42 1.42M19.43 4.57l-1.42 1.42M5.99 18.01l-1.42 1.42"
+							/>
+						</g>
+					</g>
+				</svg>
+			</button>
+
+			<div class="top-controls">
+				<div class="left-controls">
+					<div class="control-block mode-block">
+						<div class="mode-switch" aria-label="Режим камеры">
+							<button
+								class="icon-button active"
+								type="button"
+								data-mode="split"
+								aria-label="Сплит"
+								aria-pressed="true"
+								title="Сплит"
+							>
+								<svg viewBox="0 0 288 288" aria-hidden="true">
+									<g transform="scale(2.88)">
+										<g transform="scale(4.16666666667)">
+											<rect x="3.5" y="4" width="17" height="16" rx="3" />
+											<path d="M4 12h16" />
+										</g>
+									</g>
+								</svg>
+							</button>
+							<button
+								class="icon-button"
+								type="button"
+								data-mode="pip"
+								aria-label="Картинка в картинке"
+								aria-pressed="false"
+								title="PiP"
+							>
+								<svg viewBox="0 0 288 288" aria-hidden="true">
+									<g transform="scale(2.88)">
+										<g transform="scale(4.16666666667)">
+											<rect x="3.5" y="4" width="17" height="16" rx="3" />
+											<rect x="6.5" y="6.5" width="6.5" height="5.5" rx="1.2" />
+										</g>
+									</g>
+								</svg>
+							</button>
+						</div>
+					</div>
+					<div class="control-block variants-block">
 						<div
-							class="preview back-preview"
-							style="top: 0; left: 0; right: 0; height: 50%"
+							class="variant-switch"
+							id="splitVariants"
+							aria-label="Вариант сплита"
 						>
-							<span class="cam-tag">Задняя камера</span>
+							<button
+								class="variant-button active"
+								type="button"
+								data-split="stacked"
+								aria-label="Вертикальный сплит"
+								aria-pressed="true"
+								title="Сверху / снизу"
+							>
+								<svg viewBox="0 0 288 288" aria-hidden="true">
+									<g transform="scale(2.88)">
+										<g transform="scale(4.16666666667)">
+											<rect x="3.5" y="4" width="17" height="16" rx="2.5" />
+											<path d="M4 12h16" />
+											<path d="M7 8h10" />
+										</g>
+									</g>
+								</svg>
+							</button>
+							<button
+								class="variant-button"
+								type="button"
+								data-split="side"
+								aria-label="Горизонтальный сплит"
+								aria-pressed="false"
+								title="Слева / справа"
+							>
+								<svg viewBox="0 0 288 288" aria-hidden="true">
+									<g transform="scale(2.88)">
+										<g transform="scale(4.16666666667)">
+											<rect x="3.5" y="4" width="17" height="16" rx="2.5" />
+											<path d="M12 4v16" />
+											<path d="M8 7v10" />
+										</g>
+									</g>
+								</svg>
+							</button>
 						</div>
 						<div
-							class="preview front-preview"
-							style="bottom: 0; left: 0; right: 0; height: 50%"
+							class="variant-switch"
+							id="pipVariants"
+							aria-label="Форма окна PiP"
+							hidden
 						>
-							<span class="cam-tag">Передняя камера</span>
+							<button
+								class="variant-button"
+								type="button"
+								data-shape="rectangle"
+								aria-label="Прямоугольник"
+								title="Прямоугольник"
+							>
+								<svg viewBox="0 0 288 288" aria-hidden="true">
+									<g transform="scale(2.88)">
+										<g transform="scale(4.16666666667)">
+											<rect x="3.5" y="5" width="17" height="14" rx="3" />
+										</g>
+									</g>
+								</svg>
+							</button>
+							<button
+								class="variant-button active"
+								type="button"
+								data-shape="square"
+								aria-label="Квадрат"
+								title="Квадрат"
+							>
+								<svg viewBox="0 0 288 288" aria-hidden="true">
+									<g transform="scale(2.88)">
+										<g transform="scale(4.16666666667)">
+											<rect x="5" y="5" width="14" height="14" rx="3" />
+										</g>
+									</g>
+								</svg>
+							</button>
+							<button
+								class="variant-button"
+								type="button"
+								data-shape="circle"
+								aria-label="Круг"
+								title="Круг"
+							>
+								<svg viewBox="0 0 288 288" aria-hidden="true">
+									<g transform="scale(2.88)">
+										<g transform="scale(4.16666666667)">
+											<circle cx="12" cy="12" r="7" />
+										</g>
+									</g>
+								</svg>
+							</button>
 						</div>
-						<div class="controls">
-							<div class="topbar">
-								<div class="seg">
-									<span class="active">Сплит</span><span>PiP</span>
-								</div>
-								<div class="swap">⇄</div>
-							</div>
-							<div class="bottom">
-								<div class="shutter"></div>
-								<div class="record"><div class="dot"></div></div>
-							</div>
-						</div>
-						<div class="notch"></div>
 					</div>
 				</div>
-			</div>
-
-			<div class="card">
-				<div class="label">2. Картинка в картинке (PiP)</div>
-				<div class="phone">
-					<div class="screen">
-						<div class="preview back-preview" style="inset: 0">
-							<span class="cam-tag">Задняя камера</span>
-						</div>
-						<div
-							class="preview front-preview"
-							style="
-								right: 12px;
-								bottom: 96px;
-								width: 92px;
-								height: 130px;
-								border-radius: 14px;
-							"
+				<div class="right-controls" aria-label="Инструменты">
+					<div class="tools-block">
+						<button
+							class="icon-button"
+							id="addPhotoButton"
+							type="button"
+							aria-label="Вставить фото"
+							title="Вставить фото"
 						>
-							<span class="cam-tag">Передняя</span>
-						</div>
-						<div class="controls">
-							<div class="topbar">
-								<div class="seg">
-									<span>Сплит</span><span class="active">PiP</span>
-								</div>
-								<div class="swap">⇄</div>
-							</div>
-							<div class="bottom">
-								<div class="shutter"></div>
-								<div class="record"><div class="dot"></div></div>
-							</div>
-						</div>
-						<div class="notch"></div>
-					</div>
-				</div>
-			</div>
-
-			<div class="card">
-				<div class="label">3. Запись (идёт видео)</div>
-				<div class="phone">
-					<div class="screen">
-						<div
-							class="preview back-preview"
-							style="top: 0; left: 0; right: 0; height: 50%"
-						></div>
-						<div
-							class="preview front-preview"
-							style="bottom: 0; left: 0; right: 0; height: 50%"
-						></div>
-						<div class="controls">
-							<div class="topbar">
-								<div class="seg">
-									<span class="active">Сплит</span><span>PiP</span>
-								</div>
-								<div class="swap">⇄</div>
-							</div>
-							<div>
-								<div class="timer">● 00:07</div>
-								<div class="bottom" style="justify-content: center">
-									<div class="record stop"><div class="dot"></div></div>
-								</div>
-							</div>
-						</div>
-						<div class="notch"></div>
-					</div>
-				</div>
-			</div>
-
-			<div class="card">
-				<div class="label">4. Результат — видео</div>
-				<div class="phone">
-					<div class="screen">
-						<div class="result">
-							<div class="thumb">▶ видеоплеер</div>
-							<button class="btn">Сохранить в Фото</button>
-						</div>
-						<div class="notch"></div>
-					</div>
-				</div>
-			</div>
-
-			<div class="card">
-				<div class="label">5. Результат — фото</div>
-				<div class="phone">
-					<div class="screen">
-						<div class="result">
-							<div class="thumb">📷 склеенный снимок</div>
-							<button class="btn">Сохранить в Фото</button>
-						</div>
-						<div class="notch"></div>
-					</div>
-				</div>
-			</div>
-
-			<div class="card">
-				<div class="label">6. PiP — прямоугольник</div>
-				<div class="phone">
-					<div class="screen">
-						<div class="preview back-preview" style="inset: 0">
-							<span class="cam-tag">Задняя камера</span>
-						</div>
-						<div
-							class="preview front-preview"
-							style="
-								right: 12px;
-								bottom: 96px;
-								width: 92px;
-								height: 52px;
-								border-radius: 12px;
-							"
+							<svg viewBox="0 0 288 288" aria-hidden="true">
+								<g transform="scale(2.88)">
+									<g transform="scale(4.16666666667)">
+										<rect x="3.5" y="5" width="17" height="14" rx="2.5" />
+										<circle cx="9" cy="10" r="1.5" />
+										<path d="m5 17 5-4 3 2 3.5-4 3 3" />
+									</g>
+								</g>
+							</svg>
+						</button>
+						<button
+							class="icon-button"
+							id="drawButton"
+							type="button"
+							aria-label="Рисунок"
+							aria-pressed="false"
+							title="Рисунок"
 						>
-							<span class="cam-tag">Передняя</span>
-						</div>
-						<div class="controls">
-							<div class="top">
-								<div class="topbar">
-									<div class="seg">
-										<span>Сплит</span><span class="active">PiP</span>
-									</div>
-									<div class="swap">⇄</div>
-								</div>
-								<div class="shape-picker">
-									<div class="shape active">▭</div>
-									<div class="shape">◼</div>
-									<div class="shape">●</div>
-								</div>
-							</div>
-							<div class="bottom">
-								<div class="shutter"></div>
-								<div class="record"><div class="dot"></div></div>
-							</div>
-						</div>
-						<div class="notch"></div>
+							<svg viewBox="0 0 288 288" aria-hidden="true">
+								<g transform="scale(2.88)">
+									<g transform="scale(4.16666666667)">
+										<path d="m4 16.8-.8 4 4-.8L19 8.2 15.8 5 4 16.8Z" />
+										<path d="m13.9 6.9 3.2 3.2M3.5 20.5l4-1" />
+									</g>
+								</g>
+							</svg>
+						</button>
+						<button
+							class="icon-button"
+							type="button"
+							data-mark="pointer"
+							aria-label="Добавить указатель"
+							title="Указатель"
+						>
+							<svg
+								class="asset-icon asset-pointing"
+								xmlns="http://www.w3.org/2000/svg"
+								width="288"
+								height="288"
+								viewBox="0 0 288 288"
+								aria-hidden="true"
+							>
+								<g
+									fill="none"
+									stroke="currentColor"
+									stroke-width="1.55"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								>
+									<path
+										d="M103 25C94 25 91 32 91 43L90 130L80 132C74 135 73 143 73 151C73 170 80 187 91 202C97 210 100 216 100 226L100 239C100 253 107 260 122 263C139 266 171 263 180 263C192 261 197 253 197 239L197 226C197 216 200 210 206 201C213 190 215 176 215 162L215 111C215 101 211 96 201 95L188 98C184 88 175 87 164 88L155 93C149 83 133 84 122 89L122 90L121 43C121 32 116 25 103 25Z"
+									/>
+									<path
+										d="M122 90L122 100M155 93L155 100M188 98L188 100M100 226L197 226M90 130L90 146"
+									/>
+								</g>
+							</svg>
+						</button>
+						<button
+							class="icon-button"
+							id="filterButton"
+							type="button"
+							aria-label="Предустановленные фильтры"
+							aria-expanded="false"
+							title="Фильтры"
+						>
+							<svg
+								class="asset-icon asset-filter"
+								xmlns="http://www.w3.org/2000/svg"
+								width="288"
+								height="288"
+								viewBox="0 0 288 288"
+								aria-hidden="true"
+							>
+								<g
+									transform="scale(1.3090909)"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="1.55"
+									stroke-linecap="round"
+								>
+									<circle cx="110" cy="80" r="38" />
+									<path d="M68 104A38 38 0 1 0 115 130" />
+									<path d="M151 104A38 38 0 1 1 115 170" />
+								</g>
+							</svg>
+						</button>
+					</div>
+					<div class="camera-block">
+						<button
+							class="icon-button active"
+							id="secondCameraButton"
+							type="button"
+							aria-label="Убрать вторую камеру"
+							aria-pressed="true"
+							title="Показать / скрыть вторую камеру"
+						>
+							<svg viewBox="0 0 288 288" aria-hidden="true">
+								<g transform="scale(2.88)">
+									<g transform="scale(4.16666666667)">
+										<rect x="3" y="7" width="14" height="12" rx="2" />
+										<rect x="8" y="4" width="13" height="12" rx="2" />
+									</g>
+								</g>
+							</svg>
+						</button>
 					</div>
 				</div>
 			</div>
 
-			<div class="card">
-				<div class="label">7. PiP — квадрат</div>
-				<div class="phone">
-					<div class="screen">
-						<div class="preview back-preview" style="inset: 0">
-							<span class="cam-tag">Задняя камера</span>
-						</div>
-						<div
-							class="preview front-preview"
-							style="
-								right: 12px;
-								bottom: 96px;
-								width: 92px;
-								height: 92px;
-								border-radius: 12px;
-							"
-						>
-							<span class="cam-tag">Передняя</span>
-						</div>
-						<div class="controls">
-							<div class="top">
-								<div class="topbar">
-									<div class="seg">
-										<span>Сплит</span><span class="active">PiP</span>
-									</div>
-									<div class="swap">⇄</div>
-								</div>
-								<div class="shape-picker">
-									<div class="shape">▭</div>
-									<div class="shape active">◼</div>
-									<div class="shape">●</div>
-								</div>
-							</div>
-							<div class="bottom">
-								<div class="shutter"></div>
-								<div class="record"><div class="dot"></div></div>
-							</div>
-						</div>
-						<div class="notch"></div>
-					</div>
+			<div
+				class="drawing-palette"
+				id="drawingPalette"
+				aria-label="Палитра рисунка"
+			>
+				<div class="drawing-tools" aria-label="Инструмент рисования">
+					<button
+						class="icon-button active"
+						type="button"
+						data-tool="pen"
+						aria-label="Кисть"
+						aria-pressed="true"
+						title="Кисть"
+					>
+						<svg viewBox="0 0 288 288" aria-hidden="true">
+							<g transform="scale(2.88)">
+								<g transform="scale(4.16666666667)">
+									<path
+										d="m4 20 4.5-1 10.8-10.8a2.1 2.1 0 0 0-3-3L5.5 16 4 20Z"
+									/>
+									<path d="m14.8 7.7 3 3" />
+								</g>
+							</g>
+						</svg>
+					</button>
+					<button
+						class="icon-button"
+						type="button"
+						data-tool="rectangle"
+						aria-label="Прямоугольник"
+						aria-pressed="false"
+						title="Прямоугольник"
+					>
+						<svg viewBox="0 0 288 288" aria-hidden="true">
+							<g transform="scale(2.88)">
+								<g transform="scale(4.16666666667)">
+									<rect x="4" y="5" width="16" height="14" rx="1.5" />
+								</g>
+							</g>
+						</svg>
+					</button>
+					<button
+						class="icon-button"
+						type="button"
+						data-tool="arrow"
+						aria-label="Стрелка"
+						aria-pressed="false"
+						title="Стрелка"
+					>
+						<svg viewBox="0 0 288 288" aria-hidden="true">
+							<g transform="scale(2.88)">
+								<g transform="scale(4.16666666667)">
+									<path d="M5 19 19 5M9 5h10v10" />
+								</g>
+							</g>
+						</svg>
+					</button>
+					<button
+						class="icon-button"
+						type="button"
+						data-tool="select"
+						aria-label="Выбор"
+						aria-pressed="false"
+						title="Выбор"
+					>
+						<svg viewBox="0 0 288 288" aria-hidden="true">
+							<g transform="scale(2.88)">
+								<g transform="scale(4.16666666667)">
+									<path d="m6 3 12 11-6 .5-3 5L6 3Z" />
+									<path d="m13 15 3 5" />
+								</g>
+							</g>
+						</svg>
+					</button>
+				</div>
+				<div class="drawing-colors" aria-label="Цвет кисти">
+					<button
+						class="icon-button active"
+						type="button"
+						data-color="#ffffff"
+						aria-label="Белый цвет"
+						aria-pressed="true"
+						title="Белый"
+					>
+						<svg viewBox="0 0 288 288" aria-hidden="true">
+							<g transform="scale(2.88)">
+								<g transform="scale(4.16666666667)">
+									<circle cx="12" cy="12" r="8" fill="#fff" stroke="none" />
+								</g>
+							</g>
+						</svg>
+					</button>
+					<button
+						class="icon-button"
+						type="button"
+						data-color="#000000"
+						aria-label="Чёрный цвет"
+						aria-pressed="false"
+						title="Чёрный"
+					>
+						<svg viewBox="0 0 288 288" aria-hidden="true">
+							<g transform="scale(2.88)">
+								<g transform="scale(4.16666666667)">
+									<circle cx="12" cy="12" r="8" fill="#000" stroke="none" />
+								</g>
+							</g>
+						</svg>
+					</button>
+					<button
+						class="icon-button"
+						type="button"
+						data-color="#ff3b30"
+						aria-label="Красный цвет"
+						aria-pressed="false"
+						title="Красный"
+					>
+						<svg viewBox="0 0 288 288" aria-hidden="true">
+							<g transform="scale(2.88)">
+								<g transform="scale(4.16666666667)">
+									<circle cx="12" cy="12" r="8" fill="#ff3b30" stroke="none" />
+								</g>
+							</g>
+						</svg>
+					</button>
+					<button
+						class="icon-button"
+						type="button"
+						data-color="#007aff"
+						aria-label="Синий цвет"
+						aria-pressed="false"
+						title="Синий"
+					>
+						<svg viewBox="0 0 288 288" aria-hidden="true">
+							<g transform="scale(2.88)">
+								<g transform="scale(4.16666666667)">
+									<circle cx="12" cy="12" r="8" fill="#007aff" stroke="none" />
+								</g>
+							</g>
+						</svg>
+					</button>
+					<button
+						class="icon-button"
+						type="button"
+						data-color="#34c759"
+						aria-label="Зелёный цвет"
+						aria-pressed="false"
+						title="Зелёный"
+					>
+						<svg viewBox="0 0 288 288" aria-hidden="true">
+							<g transform="scale(2.88)">
+								<g transform="scale(4.16666666667)">
+									<circle cx="12" cy="12" r="8" fill="#34c759" stroke="none" />
+								</g>
+							</g>
+						</svg>
+					</button>
+					<button
+						class="icon-button"
+						type="button"
+						data-color="#ffcc00"
+						aria-label="Жёлтый цвет"
+						aria-pressed="false"
+						title="Жёлтый"
+					>
+						<svg viewBox="0 0 288 288" aria-hidden="true">
+							<g transform="scale(2.88)">
+								<g transform="scale(4.16666666667)">
+									<circle cx="12" cy="12" r="8" fill="#ffcc00" stroke="none" />
+								</g>
+							</g>
+						</svg>
+					</button>
+				</div>
+				<div class="drawing-adjustments">
+					<input
+						type="range"
+						min="2"
+						max="20"
+						step="1"
+						value="6"
+						id="brushWidth"
+						aria-label="Толщина кисти"
+					/>
+					<output id="brushWidthValue" for="brushWidth">6</output>
+					<button
+						class="icon-button"
+						type="button"
+						aria-label="Отменить последнее действие"
+						title="Отменить"
+					>
+						<svg viewBox="0 0 288 288" aria-hidden="true">
+							<g transform="scale(2.88)">
+								<g transform="scale(4.16666666667)">
+									<path d="M9 7 4 12l5 5" />
+									<path d="M5 12h8a6 6 0 0 1 6 6" />
+								</g>
+							</g>
+						</svg>
+					</button>
+					<button
+						class="icon-button"
+						type="button"
+						aria-label="Очистить рисунок"
+						title="Очистить"
+					>
+						<svg viewBox="0 0 288 288" aria-hidden="true">
+							<g transform="scale(2.88)">
+								<g transform="scale(4.16666666667)">
+									<path
+										d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"
+									/>
+								</g>
+							</g>
+						</svg>
+					</button>
 				</div>
 			</div>
 
-			<div class="card">
-				<div class="label">8. PiP — круг</div>
-				<div class="phone">
-					<div class="screen">
-						<div class="preview back-preview" style="inset: 0">
-							<span class="cam-tag">Задняя камера</span>
-						</div>
-						<div
-							class="preview front-preview"
-							style="
-								right: 12px;
-								bottom: 96px;
-								width: 92px;
-								height: 92px;
-								border-radius: 50%;
-							"
-						>
-							<span class="cam-tag">Передняя</span>
-						</div>
-						<div class="controls">
-							<div class="top">
-								<div class="topbar">
-									<div class="seg">
-										<span>Сплит</span><span class="active">PiP</span>
-									</div>
-									<div class="swap">⇄</div>
-								</div>
-								<div class="shape-picker">
-									<div class="shape">▭</div>
-									<div class="shape">◼</div>
-									<div class="shape active">●</div>
-								</div>
-							</div>
-							<div class="bottom">
-								<div class="shutter"></div>
-								<div class="record"><div class="dot"></div></div>
-							</div>
-						</div>
-						<div class="notch"></div>
-					</div>
+			<div
+				class="filter-menu"
+				id="filterMenu"
+				aria-label="Выбор фильтра"
+				hidden
+			>
+				<div class="filter-carousel" id="filterCarousel">
+					<button class="filter-option active" type="button" data-filter="original" data-name="Оригинал" aria-label="Оригинал">
+						<svg class="filter-flower" viewBox="0 0 32 32" aria-hidden="true">
+							<g fill="#ff3b30"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#ff9500" transform="rotate(45 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#ffcc00" transform="rotate(90 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#34c759" transform="rotate(135 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#30d1ff" transform="rotate(180 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#007aff" transform="rotate(225 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#5856d6" transform="rotate(270 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#af52de" transform="rotate(315 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><circle cx="16" cy="16" r="5" fill="#ffd84d"/>
+						</svg>
+					</button>
+					<button class="filter-option" type="button" data-filter="vivid" data-name="Яркий" aria-label="Яркий">
+						<svg class="filter-flower" viewBox="0 0 32 32" aria-hidden="true">
+							<g fill="#ff3b30"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#ff9500" transform="rotate(45 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#ffcc00" transform="rotate(90 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#34c759" transform="rotate(135 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#30d1ff" transform="rotate(180 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#007aff" transform="rotate(225 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#5856d6" transform="rotate(270 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#af52de" transform="rotate(315 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><circle cx="16" cy="16" r="5" fill="#fff"/>
+						</svg>
+					</button>
+					<button class="filter-option" type="button" data-filter="warm" data-name="Яркий тёплый" aria-label="Яркий тёплый">
+						<svg class="filter-flower" viewBox="0 0 32 32" aria-hidden="true">
+							<g fill="#ff3b30"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#ff6b00" transform="rotate(45 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#ffb000" transform="rotate(90 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#ffd84d" transform="rotate(135 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#ff8b78" transform="rotate(180 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#d97745" transform="rotate(225 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#f0a94b" transform="rotate(270 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#e35d6a" transform="rotate(315 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><circle cx="16" cy="16" r="5" fill="#fff5cf"/>
+						</svg>
+					</button>
+					<button class="filter-option" type="button" data-filter="cool" data-name="Яркий прохладный" aria-label="Яркий прохладный">
+						<svg class="filter-flower" viewBox="0 0 32 32" aria-hidden="true">
+							<g fill="#d9f3ff"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#70d8ff" transform="rotate(45 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#00b4d8" transform="rotate(90 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#2f80ed" transform="rotate(135 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#6c63ff" transform="rotate(180 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#9b8cff" transform="rotate(225 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#00d4ff" transform="rotate(270 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#80ed99" transform="rotate(315 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><circle cx="16" cy="16" r="5" fill="#e8fbff"/>
+						</svg>
+					</button>
+					<button class="filter-option" type="button" data-filter="dramatic" data-name="Эффектный" aria-label="Эффектный">
+						<svg class="filter-flower" viewBox="0 0 32 32" aria-hidden="true">
+							<g fill="#b91c1c"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#7f1d1d" transform="rotate(45 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#4338ca" transform="rotate(90 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#1e3a8a" transform="rotate(135 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#111827" transform="rotate(180 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#4c1d95" transform="rotate(225 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#581c87" transform="rotate(270 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#dc2626" transform="rotate(315 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><circle cx="16" cy="16" r="5" fill="#f5f5f5"/>
+						</svg>
+					</button>
+					<button class="filter-option" type="button" data-filter="dramatic-warm" data-name="Эффектный тёплый" aria-label="Эффектный тёплый">
+						<svg class="filter-flower" viewBox="0 0 32 32" aria-hidden="true">
+							<g fill="#9a3412"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#c2410c" transform="rotate(45 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#ea580c" transform="rotate(90 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#f59e0b" transform="rotate(135 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#78350f" transform="rotate(180 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#a16207" transform="rotate(225 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#b45309" transform="rotate(270 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#dc2626" transform="rotate(315 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><circle cx="16" cy="16" r="5" fill="#fde68a"/>
+						</svg>
+					</button>
+					<button class="filter-option" type="button" data-filter="silver" data-name="Серебряный" aria-label="Серебряный">
+						<svg class="filter-flower" viewBox="0 0 32 32" aria-hidden="true">
+							<g fill="#e5e7eb"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#d1d5db" transform="rotate(45 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#9ca3af" transform="rotate(90 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#f3f4f6" transform="rotate(135 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#a1a1aa" transform="rotate(180 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#d4d4d8" transform="rotate(225 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#71717a" transform="rotate(270 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#f4f4f5" transform="rotate(315 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><circle cx="16" cy="16" r="5" fill="#cbd5e1"/>
+						</svg>
+					</button>
+					<button class="filter-option" type="button" data-filter="mono" data-name="Чёрно-белый" aria-label="Чёрно-белый">
+						<svg class="filter-flower" viewBox="0 0 32 32" aria-hidden="true">
+							<g fill="#f5f5f5"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#ddd" transform="rotate(45 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#bbb" transform="rotate(90 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#999" transform="rotate(135 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#777" transform="rotate(180 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#555" transform="rotate(225 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#333" transform="rotate(270 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#111" transform="rotate(315 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><circle cx="16" cy="16" r="5" fill="#fff"/>
+						</svg>
+					</button>
+					<button class="filter-option" type="button" data-filter="noir" data-name="Нуар" aria-label="Нуар">
+						<svg class="filter-flower" viewBox="0 0 32 32" aria-hidden="true">
+							<g fill="#fafafa"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#d4d4d4" transform="rotate(45 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#737373" transform="rotate(90 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#525252" transform="rotate(135 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#262626" transform="rotate(180 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#171717" transform="rotate(225 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#404040" transform="rotate(270 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><g fill="#a3a3a3" transform="rotate(315 16 16)"><ellipse cx="16" cy="7" rx="4" ry="7"/></g><circle cx="16" cy="16" r="5" fill="#fff"/>
+						</svg>
+					</button>
 				</div>
 			</div>
 
-			<div class="card">
-				<div class="label">9. PiP — перетаскивание</div>
-				<div class="phone">
-					<div class="screen">
-						<div class="preview back-preview" style="inset: 0">
-							<span class="cam-tag">Задняя камера</span>
-						</div>
-						<div
-							class="drag-outline"
-							style="left: 16px; top: 92px; width: 92px; height: 92px"
-						></div>
-						<div
-							class="preview front-preview"
-							style="
-								left: 16px;
-								top: 92px;
-								width: 92px;
-								height: 92px;
-								border-radius: 50%;
-							"
-						>
-							<span class="cam-tag">Передняя</span>
-							<div class="drag-handle" style="right: -6px; bottom: -6px">✥</div>
-						</div>
-						<div class="controls">
-							<div class="top">
-								<div class="topbar">
-									<div class="seg">
-										<span>Сплит</span><span class="active">PiP</span>
-									</div>
-									<div class="swap">⇄</div>
-								</div>
-								<div class="shape-picker">
-									<div class="shape">▭</div>
-									<div class="shape">◼</div>
-									<div class="shape active">●</div>
-								</div>
-							</div>
-							<div class="bottom">
-								<div class="shutter"></div>
-								<div class="record"><div class="dot"></div></div>
-							</div>
-						</div>
-						<div class="notch"></div>
-					</div>
+			<div class="zoom-panel" aria-label="Увеличение">
+				<div class="zoom-presets">
+					<button class="zoom-preset" type="button" data-zoom="0.5">0,5</button>
+					<button class="zoom-preset active" type="button" data-zoom="1">
+						1×
+					</button>
+				</div>
+				<div class="zoom-adjuster" id="zoomAdjuster" hidden>
+					<output class="zoom-value" id="zoomReadout">1,0×</output>
+					<button type="button" id="zoomDecrease" aria-label="Уменьшить зум">
+						−
+					</button>
+					<input
+						class="zoom-range"
+						id="zoomRange"
+						type="range"
+						min="0.5"
+						max="5"
+						step="0.1"
+						value="1"
+						aria-label="Плавный зум"
+					/>
+					<button type="button" id="zoomIncrease" aria-label="Увеличить зум">
+						+
+					</button>
 				</div>
 			</div>
-		</div>
+
+			<div class="bottom-bar">
+				<button
+					class="capture-button light-button"
+					id="frontLightButton"
+					type="button"
+					aria-label="Фронтальная подсветка выключена"
+					aria-pressed="false"
+					title="Фронтальная подсветка"
+				>
+					<svg viewBox="0 0 288 288" aria-hidden="true">
+						<g transform="scale(2.88)">
+							<g transform="scale(4.16666666667)">
+								<path d="M9 18h6M10 21h4" />
+								<path
+									d="M8.2 14.5a6 6 0 1 1 7.6 0c-.8.6-1.3 1.3-1.5 2.2h-4.6c-.2-.9-.7-1.6-1.5-2.2Z"
+								/>
+								<path d="M12 0.5v1.5M2.8 3.8 4 5M21.2 3.8 20 5" />
+							</g>
+						</g>
+					</svg>
+				</button>
+				<button
+					class="capture-button light-button"
+					id="torchButton"
+					type="button"
+					aria-label="Фонарик выключен"
+					aria-pressed="false"
+					title="Фонарик"
+				>
+					<svg viewBox="0 0 288 288" aria-hidden="true">
+						<g transform="scale(2.88)">
+							<g transform="scale(4.16666666667)">
+								<g
+									transform="scale(0.24)"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="1"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								>
+									<path
+										d="M57.7 16.29c-.98-.98-2.7-.98-3.69 0l-5.94 5.94-5.59 19.55L10.31 74.15c-.83.83-1.29 1.94-1.29 3.12s.46 2.28 1.29 3.12l9.33 9.33c.86.86 1.99 1.29 3.12 1.29s2.26-.43 3.12-1.29L57.8 57.77l19.55-5.59 5.93-5.93c.49-.49.76-1.15.76-1.84s-.27-1.35-.76-1.84L57.7 16.29Z"
+									/>
+
+									<!-- Границы головки -->
+									<path d="M49.76 24.84 75.16 50.72M44.25 42.44 57.56 55.75" />
+
+									<!-- Лучи света -->
+									<path
+										d="M80.29 19.71 88.7 11.3M67.03 17.76 69.76 8M82.24 32.97 92 30.24"
+									/>
+								</g>
+							</g>
+						</g>
+					</svg>
+				</button>
+				<button
+					class="capture-button record-button"
+					id="recordButton"
+					type="button"
+					aria-label="Начать запись"
+					title="Видео"
+				>
+					<span></span>
+				</button>
+				<button
+					class="capture-button swap-button"
+					id="swapButton"
+					type="button"
+					aria-label="Поменять камеры местами"
+					title="Поменять камеры местами"
+				>
+					<svg viewBox="0 0 288 288" aria-hidden="true">
+						<g transform="scale(2.88)">
+							<g transform="scale(4.16666666667)">
+								<path d="M20 7v5h-5M4 17v-5h5" />
+								<path
+									d="M5.5 9a7 7 0 0 1 12-2L20 9M4 15l2.5 2a7 7 0 0 0 12-2"
+								/>
+							</g>
+						</g>
+					</svg>
+				</button>
+				<button
+					class="capture-button photo-button"
+					id="photoButton"
+					type="button"
+					aria-label="Сделать фото"
+					title="Фото"
+				>
+					<svg viewBox="0 0 288 288" aria-hidden="true">
+						<g transform="scale(2.88)">
+							<g transform="scale(4.16666666667)">
+								<path
+									d="M4 7.5h3l1.5-2h7l1.5 2h3a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5h-16A1.5 1.5 0 0 1 2.5 18v-9A1.5 1.5 0 0 1 4 7.5Z"
+								/>
+								<circle cx="12" cy="13" r="3.5" />
+							</g>
+						</g>
+					</svg>
+				</button>
+			</div>
+
+			<input id="photoInput" type="file" accept="image/*" hidden />
+
+			<div class="settings-overlay" id="settingsOverlay" aria-hidden="true">
+				<section
+					class="settings-sheet"
+					role="dialog"
+					aria-modal="true"
+					aria-labelledby="settingsTitle"
+				>
+					<div class="sheet-grabber"></div>
+					<div class="sheet-heading">
+						<h2 id="settingsTitle">Настройки</h2>
+						<button
+							class="close-settings"
+							id="closeSettings"
+							type="button"
+							aria-label="Закрыть настройки"
+						>
+							×
+						</button>
+					</div>
+
+					<div class="setting-group">
+						<span class="setting-label">Формат кадра</span>
+						<div class="option-row" data-setting="format">
+							<button class="selected" type="button">9:16</button>
+							<button type="button">4:3</button>
+							<button type="button">1:1</button>
+						</div>
+					</div>
+
+					<div class="setting-group">
+						<span class="setting-label">Режим видео</span>
+						<div class="option-row" data-setting="resolution">
+							<button type="button">720p</button>
+							<button class="selected" type="button">1080p</button>
+							<button type="button">4K</button>
+						</div>
+					</div>
+
+					<div class="setting-group">
+						<span class="setting-label">Частота кадров</span>
+						<div class="option-row" data-setting="frame-rate">
+							<button class="selected" type="button">30 FPS</button>
+							<button type="button">24 FPS</button>
+							<button type="button">60 FPS</button>
+						</div>
+					</div>
+
+					<div class="setting-group">
+						<span class="setting-label">Качество звука</span>
+						<div class="option-row" data-setting="audio">
+							<button class="selected" type="button">AAC</button>
+							<button type="button">Apple Lossless</button>
+						</div>
+					</div>
+
+					<div class="setting-toggle">
+						<span>Стабилизация</span>
+						<button
+							class="switch"
+							type="button"
+							role="switch"
+							aria-checked="true"
+							aria-label="Стабилизация"
+						></button>
+					</div>
+					<div class="setting-toggle">
+						<span>Телесуфлёр</span>
+						<button
+							class="switch"
+							type="button"
+							role="switch"
+							aria-checked="false"
+							aria-label="Телесуфлёр"
+						></button>
+					</div>
+					<div class="setting-toggle">
+						<span>Дата и время на экране</span>
+						<button
+							class="switch"
+							type="button"
+							role="switch"
+							aria-checked="false"
+							aria-label="Дата и время на экране"
+						></button>
+					</div>
+					<div class="setting-toggle">
+						<span>Показать сетку</span>
+						<button
+							class="switch"
+							type="button"
+							role="switch"
+							aria-checked="false"
+							aria-label="Показать сетку"
+						></button>
+					</div>
+					<div class="setting-toggle">
+						<span>Тактильная отдача</span>
+						<button
+							class="switch"
+							type="button"
+							role="switch"
+							aria-checked="true"
+							aria-label="Тактильная отдача"
+						></button>
+					</div>
+				</section>
+			</div>
+		</main>
+
+		<script>
+			const cameraView = document.getElementById('cameraView');
+			const splitHandle = document.getElementById('splitHandle');
+			const splitVariants = document.getElementById('splitVariants');
+			const pipVariants = document.getElementById('pipVariants');
+			const pipWindow = document.getElementById('pipWindow');
+			const palette = document.getElementById('drawingPalette');
+			const filterMenu = document.getElementById('filterMenu');
+			const mark = document.getElementById('canvasMark');
+			const settingsOverlay = document.getElementById('settingsOverlay');
+			const recordButton = document.getElementById('recordButton');
+			const recordingIndicator = document.getElementById('recordingIndicator');
+			const zoomPanel = document.querySelector('.zoom-panel');
+			const zoomAdjuster = document.getElementById('zoomAdjuster');
+			const compositionGrid = document.getElementById('compositionGrid');
+			let mode = 'split';
+			let splitRatio = 50;
+			let isDragging = false;
+			let recordingSeconds = 0;
+			let recordingTimer;
+			let swapped = false;
+			let zoomHoldTimer;
+			let zoomHoldPointerId;
+			let zoomHoldTarget;
+			let zoomHoldActive = false;
+
+			function setMode(nextMode) {
+				mode = nextMode;
+				cameraView.classList.toggle('split', mode === 'split');
+				cameraView.classList.toggle('pip', mode === 'pip');
+				splitHandle.hidden = mode !== 'split';
+				splitVariants.hidden = mode !== 'split';
+				pipVariants.hidden = mode !== 'pip';
+				document.querySelectorAll('[data-mode]').forEach((button) => {
+					const active = button.dataset.mode === mode;
+					button.classList.toggle('active', active);
+					button.setAttribute('aria-pressed', String(active));
+				});
+				positionFilterLabel();
+				window.setTimeout(positionFilterLabel, 300);
+			}
+
+			function setSplitPosition(event) {
+				const bounds = cameraView.getBoundingClientRect();
+				const axisLength = cameraView.classList.contains('side')
+					? bounds.width
+					: bounds.height;
+				const point = cameraView.classList.contains('side')
+					? event.clientX - bounds.left
+					: event.clientY - bounds.top;
+				splitRatio = Math.min(75, Math.max(25, (point / axisLength) * 100));
+				cameraView.style.setProperty('--split', `${splitRatio}%`);
+				splitHandle.setAttribute(
+					'aria-valuenow',
+					String(Math.round(splitRatio)),
+				);
+				positionFilterLabel();
+			}
+
+			function setPipShape(shape) {
+				cameraView.classList.toggle('pip-circle', shape === 'circle');
+				cameraView.classList.toggle('pip-square', shape === 'square');
+				pipWindow.style.height = shape === 'rectangle' ? '150px' : '';
+				document.querySelectorAll('[data-shape]').forEach((button) => {
+					const active = button.dataset.shape === shape;
+					button.classList.toggle('active', active);
+					button.setAttribute('aria-pressed', String(active));
+				});
+			}
+
+			document.querySelectorAll('[data-mode]').forEach((button) => {
+				button.addEventListener('click', () => setMode(button.dataset.mode));
+			});
+
+			document.querySelectorAll('[data-split]').forEach((button) => {
+				button.addEventListener('click', () => {
+					cameraView.classList.toggle('side', button.dataset.split === 'side');
+					cameraView.classList.toggle(
+						'stacked',
+						button.dataset.split === 'stacked',
+					);
+					cameraView.classList.remove('secondary-first');
+					swapped = false;
+					document.querySelectorAll('[data-split]').forEach((variant) => {
+						const active = variant === button;
+						variant.classList.toggle('active', active);
+						variant.setAttribute('aria-pressed', String(active));
+					});
+					positionFilterLabel();
+					window.setTimeout(positionFilterLabel, 300);
+				});
+			});
+
+			document.querySelectorAll('[data-shape]').forEach((button) => {
+				button.addEventListener('click', () =>
+					setPipShape(button.dataset.shape),
+				);
+			});
+
+			splitHandle.addEventListener('pointerdown', (event) => {
+				isDragging = true;
+				splitHandle.setPointerCapture(event.pointerId);
+				setSplitPosition(event);
+			});
+			splitHandle.addEventListener('pointermove', (event) => {
+				if (isDragging) setSplitPosition(event);
+			});
+			splitHandle.addEventListener('pointerup', () => {
+				isDragging = false;
+			});
+			splitHandle.addEventListener('keydown', (event) => {
+				if (
+					event.key !== 'ArrowUp' &&
+					event.key !== 'ArrowDown' &&
+					event.key !== 'ArrowLeft' &&
+					event.key !== 'ArrowRight'
+				)
+					return;
+				event.preventDefault();
+				const direction =
+					event.key === 'ArrowUp' || event.key === 'ArrowLeft' ? -2 : 2;
+				splitRatio = Math.min(75, Math.max(25, splitRatio + direction));
+				cameraView.style.setProperty('--split', `${splitRatio}%`);
+				splitHandle.setAttribute(
+					'aria-valuenow',
+					String(Math.round(splitRatio)),
+				);
+				positionFilterLabel();
+			});
+
+			document
+				.getElementById('secondCameraButton')
+				.addEventListener('click', (event) => {
+					const enabled = cameraView.classList.toggle('no-secondary') === false;
+					event.currentTarget.classList.toggle('active', enabled);
+					event.currentTarget.setAttribute('aria-pressed', String(enabled));
+					event.currentTarget.setAttribute(
+						'aria-label',
+						enabled ? 'Убрать вторую камеру' : 'Добавить вторую камеру',
+					);
+					positionFilterLabel();
+					window.setTimeout(positionFilterLabel, 300);
+				});
+
+			document
+				.getElementById('drawButton')
+				.addEventListener('click', (event) => {
+					const visible = palette.classList.toggle('visible');
+					event.currentTarget.classList.toggle('active', visible);
+					event.currentTarget.setAttribute('aria-pressed', String(visible));
+				});
+
+			palette.querySelectorAll('[data-tool]').forEach((button) => {
+				button.addEventListener('click', () => {
+					palette.querySelectorAll('[data-tool]').forEach((toolButton) => {
+						const selected = toolButton === button;
+						toolButton.classList.toggle('active', selected);
+						toolButton.setAttribute('aria-pressed', String(selected));
+					});
+				});
+			});
+
+			const brushWidth = document.getElementById('brushWidth');
+			const brushWidthValue = document.getElementById('brushWidthValue');
+			brushWidth.addEventListener('input', () => {
+				brushWidthValue.value = brushWidth.value;
+			});
+
+			document
+				.getElementById('filterButton')
+				.addEventListener('click', (event) => {
+					const visible = filterMenu.hidden;
+					filterMenu.hidden = !visible;
+					filterMenu.classList.toggle('visible', visible);
+					event.currentTarget.classList.toggle('active', visible);
+					event.currentTarget.setAttribute('aria-expanded', String(visible));
+					if (visible) {
+						const original = filterCarousel.querySelector('[data-filter="original"]');
+						filterSnapLock = true;
+						window.clearTimeout(filterSnapTimer);
+						filterCarousel.scrollTo({
+							top: original.offsetTop - (filterCarousel.clientHeight - original.offsetHeight) / 2,
+							behavior: 'auto',
+						});
+						applyFilter(original, true);
+						startFilterScrollTracking();
+						filterSnapTimer = window.setTimeout(() => {
+							filterSnapLock = false;
+						}, 320);
+						window.setTimeout(positionFilterMenu, 0);
+					} else {
+						positionFilterLabel();
+					}
+				});
+
+			const filterStyles = {
+				original: 'none',
+				vivid: 'saturate(1.35) contrast(1.06)',
+				warm: 'saturate(1.28) sepia(0.16) hue-rotate(-8deg)',
+				cool: 'saturate(1.22) hue-rotate(10deg) brightness(1.03)',
+				dramatic: 'contrast(1.2) saturate(0.92)',
+				'dramatic-warm': 'contrast(1.18) saturate(1.08) sepia(0.12)',
+				silver: 'grayscale(0.45) contrast(1.12) brightness(1.06)',
+				mono: 'grayscale(1)',
+				noir: 'grayscale(1) contrast(1.5) brightness(0.82)',
+			};
+
+			const filterCarousel = document.getElementById('filterCarousel');
+			const activeFilterName = document.getElementById('activeFilterName');
+			const filterOptions = Array.from(
+				filterCarousel.querySelectorAll('[data-filter]'),
+			);
+			let filterScrollTimer;
+			let filterSnapLock = false;
+			let filterSnapTimer;
+			let filterFrame = null;
+			let lastFilterScrollTop = 0;
+
+			function positionFilterMenu() {
+				const viewRect = cameraView.getBoundingClientRect();
+				const blockRect = document
+					.querySelector('.camera-block')
+					.getBoundingClientRect();
+				const stripTop = document
+					.querySelector('.bottom-bar')
+					.getBoundingClientRect().top;
+				const menuHeight = filterMenu.offsetHeight || 150;
+				const top = Math.min(
+					blockRect.bottom - viewRect.top + 8,
+					stripTop - viewRect.top - menuHeight - 8,
+				);
+
+				filterMenu.style.top = `${Math.max(8, top)}px`;
+			}
+
+			function positionFilterLabel() {
+				const viewRect = cameraView.getBoundingClientRect();
+				const feedRect = document
+					.querySelector('.feed-main')
+					.getBoundingClientRect();
+				const stripTop = document
+					.querySelector('.bottom-bar')
+					.getBoundingClientRect().top;
+				const zoomTop = document
+					.querySelector('.zoom-panel')
+					.getBoundingClientRect().top;
+				const bottomLimit = Math.min(feedRect.bottom, stripTop, zoomTop - 6);
+
+				activeFilterName.style.left = `${feedRect.left - viewRect.left + feedRect.width / 2}px`;
+				activeFilterName.style.top = `${bottomLimit - viewRect.top - 8}px`;
+			}
+
+			function applyFilter(button, showName = true) {
+				const filter = filterStyles[button.dataset.filter];
+				const mainFeed = document.querySelector('.feed-main');
+				mainFeed.style.setProperty('--camera-filter', filter);
+				filterOptions.forEach((option) => {
+					const active = option === button;
+					option.classList.toggle('active', active);
+					option.setAttribute('aria-pressed', String(active));
+				});
+				activeFilterName.textContent = button.dataset.name;
+				activeFilterName.classList.toggle('visible', showName);
+				positionFilterLabel();
+			}
+
+			function activateNearestFilter() {
+				const carouselRect = filterCarousel.getBoundingClientRect();
+				const center = carouselRect.top + carouselRect.height / 2;
+				let nearest = filterOptions[0];
+				let nearestDistance = Infinity;
+
+				filterOptions.forEach((button) => {
+					const rect = button.getBoundingClientRect();
+					const buttonCenter = rect.top + rect.height / 2;
+					const distance = Math.abs(center - buttonCenter);
+					if (distance < nearestDistance) {
+						nearest = button;
+						nearestDistance = distance;
+					}
+				});
+
+				applyFilter(nearest);
+			}
+
+			function trackFilterScroll() {
+				if (filterMenu.hidden) {
+					filterFrame = null;
+					return;
+				}
+
+				positionFilterMenu();
+				syncFilterEdge();
+
+				const currentTop = filterCarousel.scrollTop;
+				if (Math.abs(currentTop - lastFilterScrollTop) > 0.5) {
+					lastFilterScrollTop = currentTop;
+					window.clearTimeout(filterScrollTimer);
+					filterScrollTimer = window.setTimeout(() => {
+						if (!filterSnapLock) activateNearestFilter();
+					}, 90);
+				}
+
+				filterFrame = window.requestAnimationFrame(trackFilterScroll);
+			}
+
+			function startFilterScrollTracking() {
+				lastFilterScrollTop = filterCarousel.scrollTop;
+				positionFilterMenu();
+				syncFilterEdge();
+				if (filterFrame === null) {
+					filterFrame = window.requestAnimationFrame(trackFilterScroll);
+				}
+			}
+
+			function syncFilterEdge() {
+				const maxScroll = filterCarousel.scrollHeight - filterCarousel.clientHeight;
+				filterMenu.classList.toggle(
+					'at-end',
+					filterCarousel.scrollTop >= maxScroll - 12,
+				);
+			}
+
+			filterCarousel.addEventListener('scroll', () => {
+				syncFilterEdge();
+				window.clearTimeout(filterScrollTimer);
+				filterScrollTimer = window.setTimeout(() => {
+					if (!filterSnapLock) activateNearestFilter();
+				}, 90);
+			});
+
+			filterOptions.forEach((button) => {
+				button.addEventListener('click', () => {
+					filterSnapLock = true;
+					window.clearTimeout(filterSnapTimer);
+					filterCarousel.scrollTo({
+						top: button.offsetTop - (filterCarousel.clientHeight - button.offsetHeight) / 2,
+						behavior: 'auto',
+					});
+					applyFilter(button);
+					filterSnapTimer = window.setTimeout(() => {
+						filterSnapLock = false;
+						activateNearestFilter();
+					}, 320);
+				});
+			});
+
+			window.requestAnimationFrame(() => {
+				const original = filterCarousel.querySelector('[data-filter="original"]');
+				filterCarousel.scrollTo({
+					top: original.offsetTop - (filterCarousel.clientHeight - original.offsetHeight) / 2,
+				});
+				applyFilter(original, false);
+			});
+
+			const pointerColorFilters = {
+				'#ffffff': 'brightness(0) invert(1)',
+				'#000000': 'brightness(0)',
+				'#ff3b30':
+					'brightness(0) saturate(100%) invert(38%) sepia(92%) saturate(3460%) hue-rotate(338deg) brightness(101%) contrast(101%)',
+				'#007aff':
+					'brightness(0) saturate(100%) invert(39%) sepia(94%) saturate(2700%) hue-rotate(198deg) brightness(101%) contrast(103%)',
+				'#34c759':
+					'brightness(0) saturate(100%) invert(58%) sepia(85%) saturate(470%) hue-rotate(82deg) brightness(97%) contrast(90%)',
+				'#ffcc00':
+					'brightness(0) saturate(100%) invert(84%) sepia(88%) saturate(1150%) hue-rotate(359deg) brightness(103%) contrast(104%)',
+			};
+
+			palette.querySelectorAll('[data-color]').forEach((button) => {
+				button.addEventListener('click', () => {
+					mark.style.color = button.dataset.color;
+					mark.style.setProperty(
+						'--mark-filter',
+						pointerColorFilters[button.dataset.color],
+					);
+					palette.querySelectorAll('[data-color]').forEach((colorButton) => {
+						const selected = colorButton === button;
+						colorButton.classList.toggle('active', selected);
+						colorButton.setAttribute('aria-pressed', String(selected));
+					});
+				});
+			});
+
+			function placeMark(type) {
+				mark.hidden = false;
+				mark.style.left = `${Math.max(0, (cameraView.clientWidth - 54) / 2)}px`;
+				mark.style.top = `${Math.max(60, (cameraView.clientHeight - 54) / 2)}px`;
+				mark.innerHTML = `
+					<svg class="asset-icon asset-pointing" xmlns="http://www.w3.org/2000/svg" width="288" height="288" viewBox="0 0 288 288" aria-hidden="true">
+						<g fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M103 25C94 25 91 32 91 43L90 130L80 132C74 135 73 143 73 151C73 170 80 187 91 202C97 210 100 216 100 226L100 239C100 253 107 260 122 263C139 266 171 263 180 263C192 261 197 253 197 239L197 226C197 216 200 210 206 201C213 190 215 176 215 162L215 111C215 101 211 96 201 95L188 98C184 88 175 87 164 88L155 93C149 83 133 84 122 89L122 90L121 43C121 32 116 25 103 25Z"/>
+							<path d="M122 90L122 100M155 93L155 100M188 98L188 100M100 226L197 226M90 130L90 146"/>
+						</g>
+					</svg>`;
+				mark.dataset.type = type;
+			}
+
+			document.querySelectorAll('[data-mark]').forEach((button) => {
+				button.addEventListener('click', () => placeMark(button.dataset.mark));
+			});
+
+			let markDrag;
+			mark.addEventListener('pointerdown', (event) => {
+				markDrag = {
+					x: event.clientX - mark.offsetLeft,
+					y: event.clientY - mark.offsetTop,
+				};
+				mark.setPointerCapture(event.pointerId);
+			});
+			mark.addEventListener('pointermove', (event) => {
+				if (!markDrag) return;
+				const x = Math.max(
+					0,
+					Math.min(
+						cameraView.clientWidth - mark.offsetWidth,
+						event.clientX - markDrag.x,
+					),
+				);
+				const y = Math.max(
+					0,
+					Math.min(
+						cameraView.clientHeight - mark.offsetHeight,
+						event.clientY - markDrag.y,
+					),
+				);
+				mark.style.left = `${x}px`;
+				mark.style.top = `${y}px`;
+			});
+			mark.addEventListener('pointerup', () => {
+				markDrag = null;
+			});
+
+			pipWindow.addEventListener('pointerdown', (event) => {
+				if (mode !== 'pip') return;
+				const rect = pipWindow.getBoundingClientRect();
+				pipWindow.setPointerCapture(event.pointerId);
+				pipWindow.dataset.dragX = String(event.clientX - rect.left);
+				pipWindow.dataset.dragY = String(event.clientY - rect.top);
+			});
+			pipWindow.addEventListener('pointermove', (event) => {
+				if (!pipWindow.hasPointerCapture(event.pointerId) || mode !== 'pip')
+					return;
+				const bounds = cameraView.getBoundingClientRect();
+				pipWindow.style.right = 'auto';
+				pipWindow.style.bottom = 'auto';
+				pipWindow.style.left = `${Math.max(0, Math.min(bounds.width - pipWindow.offsetWidth, event.clientX - bounds.left - Number(pipWindow.dataset.dragX)))}px`;
+				pipWindow.style.top = `${Math.max(48, Math.min(bounds.height - pipWindow.offsetHeight - 132, event.clientY - bounds.top - Number(pipWindow.dataset.dragY)))}px`;
+			});
+
+			document.getElementById('swapButton').addEventListener('click', () => {
+				swapped = !swapped;
+				cameraView.classList.toggle('secondary-first', swapped);
+				document.querySelectorAll('[data-split]').forEach((button) => {
+					const isActive =
+						button.dataset.split ===
+						(cameraView.classList.contains('side') ? 'side' : 'stacked');
+					button.classList.toggle('active', isActive);
+					button.setAttribute('aria-pressed', String(isActive));
+				});
+				const mainLabel = document.querySelector('.feed-main .cam-label');
+				const secondaryLabel = document.querySelector(
+					'.feed-secondary .cam-label',
+				);
+				mainLabel.textContent = swapped ? 'Вторая камера' : 'Основная камера';
+				secondaryLabel.textContent = swapped
+					? 'Основная камера'
+					: 'Вторая камера';
+				positionFilterLabel();
+				window.setTimeout(positionFilterLabel, 300);
+			});
+
+			function updateFilterPlacement() {
+				positionFilterMenu();
+				positionFilterLabel();
+			}
+
+			window.addEventListener('resize', updateFilterPlacement);
+			window.addEventListener('orientationchange', () =>
+				window.setTimeout(updateFilterPlacement, 320),
+			);
+
+			const zoomRange = document.getElementById('zoomRange');
+			const zoomReadout = document.getElementById('zoomReadout');
+			const zoomPresetButtons = [...document.querySelectorAll('[data-zoom]')];
+			const zoomPresetValueButton = document.querySelector('[data-zoom="1"]');
+
+			function setZoom(value) {
+				const roundedValue = Math.min(
+					5,
+					Math.max(0.5, Math.round(Number(value) * 10) / 10),
+				);
+				zoomRange.value = String(roundedValue);
+				const label = `${roundedValue.toFixed(1).replace('.', ',')}×`;
+				zoomReadout.textContent = label;
+				const customZoom = roundedValue !== 0.5 && roundedValue !== 1;
+				zoomPresetValueButton.textContent = customZoom ? label : '1×';
+				zoomPresetValueButton.dataset.zoom = customZoom
+					? String(roundedValue)
+					: '1';
+				zoomPresetButtons.forEach((button) =>
+					button.classList.toggle(
+						'active',
+						Number(button.dataset.zoom) === roundedValue,
+					),
+				);
+			}
+
+			function openZoomAdjuster() {
+				zoomAdjuster.hidden = false;
+				window.requestAnimationFrame(() => {
+					zoomPanel.classList.add('adjusting');
+					positionFilterLabel();
+				});
+			}
+
+			function closeZoomAdjuster() {
+				zoomPanel.classList.remove('adjusting');
+				window.setTimeout(() => {
+					if (!zoomPanel.classList.contains('adjusting'))
+						zoomAdjuster.hidden = true;
+					positionFilterLabel();
+				}, 150);
+			}
+
+			function setZoomFromPointer(clientX) {
+				const rangeBounds = zoomRange.getBoundingClientRect();
+				const ratio = Math.min(
+					1,
+					Math.max(0, (clientX - rangeBounds.left) / rangeBounds.width),
+				);
+				setZoom(0.5 + ratio * 4.5);
+			}
+
+			const zoomPresets = document.querySelector('.zoom-presets');
+			zoomPresets.addEventListener('pointerdown', (event) => {
+				if (event.button !== undefined && event.button !== 0) return;
+				zoomHoldPointerId = event.pointerId;
+				zoomHoldTarget = event.target.closest('[data-zoom]');
+				zoomHoldActive = false;
+				zoomPresets.setPointerCapture(event.pointerId);
+				zoomHoldTimer = window.setTimeout(() => {
+					zoomHoldActive = true;
+					openZoomAdjuster();
+					setZoomFromPointer(event.clientX);
+				}, 420);
+			});
+			zoomPresets.addEventListener('pointermove', (event) => {
+				if (event.pointerId === zoomHoldPointerId && zoomHoldActive)
+					setZoomFromPointer(event.clientX);
+			});
+			function endZoomHold(event) {
+				if (event.pointerId !== zoomHoldPointerId) return;
+				window.clearTimeout(zoomHoldTimer);
+				if (zoomHoldActive) {
+					closeZoomAdjuster();
+				} else if (event.type === 'pointerup' && zoomHoldTarget) {
+					setZoom(zoomHoldTarget.dataset.zoom);
+				}
+				zoomHoldPointerId = undefined;
+				zoomHoldTarget = undefined;
+				zoomHoldActive = false;
+			}
+			zoomPresets.addEventListener('pointerup', endZoomHold);
+			zoomPresets.addEventListener('pointercancel', endZoomHold);
+			zoomPresets.addEventListener('lostpointercapture', endZoomHold);
+			zoomPresets.addEventListener('keydown', (event) => {
+				if (event.key !== 'Enter' && event.key !== ' ') return;
+				const button = event.target.closest('[data-zoom]');
+				if (!button) return;
+				event.preventDefault();
+				setZoom(button.dataset.zoom);
+			});
+
+			zoomRange.addEventListener('input', () => setZoom(zoomRange.value));
+			zoomRange.addEventListener('pointerup', closeZoomAdjuster);
+			document
+				.getElementById('zoomDecrease')
+				.addEventListener('click', () =>
+					setZoom(Number(zoomRange.value) - 0.1),
+				);
+			document
+				.getElementById('zoomIncrease')
+				.addEventListener('click', () =>
+					setZoom(Number(zoomRange.value) + 0.1),
+				);
+			zoomRange.addEventListener('keydown', (event) => {
+				if (event.key === 'Enter' || event.key === 'Escape')
+					closeZoomAdjuster();
+			});
+			setZoom(1);
+
+			document.querySelectorAll('.option-row').forEach((row) => {
+				row.addEventListener('click', (event) => {
+					if (event.target.tagName !== 'BUTTON') return;
+					row
+						.querySelectorAll('button')
+						.forEach((button) =>
+							button.classList.toggle('selected', button === event.target),
+						);
+				});
+			});
+
+			document.querySelectorAll('.switch').forEach((toggle) => {
+				toggle.addEventListener('click', () => {
+					const enabled = toggle.getAttribute('aria-checked') !== 'true';
+					toggle.setAttribute('aria-checked', String(enabled));
+					if (toggle.getAttribute('aria-label') === 'Показать сетку')
+						compositionGrid.hidden = !enabled;
+				});
+			});
+
+			[
+				['torchButton', 'torch-on', 'Фонарик', 'включён', 'выключен'],
+				[
+					'frontLightButton',
+					'front-light-on',
+					'Фронтальная подсветка',
+					'включена',
+					'выключена',
+				],
+			].forEach(([id, className, label, enabledText, disabledText]) => {
+				const button = document.getElementById(id);
+				button.addEventListener('click', () => {
+					const enabled = cameraView.classList.toggle(className);
+					button.classList.toggle('active', enabled);
+					button.setAttribute('aria-pressed', String(enabled));
+					button.setAttribute(
+						'aria-label',
+						`${label} ${enabled ? enabledText : disabledText}`,
+					);
+				});
+			});
+
+			function openSettings() {
+				settingsOverlay.classList.add('open');
+				settingsOverlay.setAttribute('aria-hidden', 'false');
+				document.getElementById('closeSettings').focus();
+			}
+
+			function closeSettings() {
+				settingsOverlay.classList.remove('open');
+				settingsOverlay.setAttribute('aria-hidden', 'true');
+				document.getElementById('settingsButton').focus();
+			}
+
+			document
+				.getElementById('settingsButton')
+				.addEventListener('click', openSettings);
+			document
+				.getElementById('closeSettings')
+				.addEventListener('click', closeSettings);
+			settingsOverlay.addEventListener('click', (event) => {
+				if (event.target === settingsOverlay) closeSettings();
+			});
+			document.addEventListener('keydown', (event) => {
+				if (
+					event.key === 'Escape' &&
+					settingsOverlay.classList.contains('open')
+				)
+					closeSettings();
+			});
+
+			recordButton.addEventListener('click', () => {
+				const recording = recordButton.classList.toggle('recording');
+				recordButton.setAttribute(
+					'aria-label',
+					recording ? 'Остановить запись' : 'Начать запись',
+				);
+				recordingIndicator.classList.toggle('visible', recording);
+				recordingSeconds = 0;
+				clearInterval(recordingTimer);
+				if (recording) {
+					recordingTimer = setInterval(() => {
+						recordingSeconds += 1;
+						const minutes = String(Math.floor(recordingSeconds / 60)).padStart(
+							2,
+							'0',
+						);
+						const seconds = String(recordingSeconds % 60).padStart(2, '0');
+						recordingIndicator.textContent = `${minutes}:${seconds}`;
+					}, 1000);
+				} else {
+					recordingIndicator.textContent = '00:00';
+				}
+			});
+
+			document.getElementById('photoButton').addEventListener('click', () => {
+				document.getElementById('photoButton').classList.add('active');
+				window.setTimeout(
+					() =>
+						document.getElementById('photoButton').classList.remove('active'),
+					320,
+				);
+			});
+			document
+				.getElementById('addPhotoButton')
+				.addEventListener('click', () =>
+					document.getElementById('photoInput').click(),
+				);
+			document
+				.getElementById('photoInput')
+				.addEventListener('change', (event) => {
+					const file = event.target.files[0];
+					if (!file) return;
+					const imageUrl = URL.createObjectURL(file);
+					const mainFeed = document.querySelector('.feed-main');
+					mainFeed.style.backgroundImage = `url("${imageUrl}")`;
+					mainFeed.style.backgroundSize = 'cover';
+					mainFeed.style.backgroundPosition = 'center';
+				});
+		</script>
 	</body>
 </html>

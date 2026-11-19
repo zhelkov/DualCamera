@@ -285,6 +285,7 @@ struct ContentView: View {
                 ),
                 captureBar: CaptureBarView(
                     isLandscape: geometry.size.width > geometry.size.height,
+                    safeBottom: geometry.safeAreaInsets.bottom,
                     hasTorch: camera.hasTorch,
                     isTorchOn: camera.isTorchOn,
                     isRecording: camera.isRecording,

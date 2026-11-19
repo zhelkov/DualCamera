@@ -18,11 +18,9 @@ enum HUDTheme {
     static let islandBorder = Color.white.opacity(0.04)
 
     static let topStripMinimumHeight: CGFloat = 54
-    static let bottomStripMinimumHeight: CGFloat = 132
+    static let bottomStripMinimumHeight: CGFloat = 124
     static let landscapeBottomStripMinimumHeight: CGFloat = 105
     static let topSafeAreaAddition: CGFloat = 36
-    static let bottomSafeAreaAddition: CGFloat = 122
-    static let landscapeBottomSafeAreaAddition: CGFloat = 90
     static let iconButtonSize: CGFloat = 38
     static let variantButtonSize: CGFloat = 34
     static let captureButtonSize: CGFloat = 46
@@ -58,6 +56,7 @@ enum HUDTheme {
     static let recordingLabelFontSize: CGFloat = 12
     static let recordingLabelOffset: CGFloat = 24
     static let captureBarTopPadding: CGFloat = 16
+    static let captureBarBottomMinimum: CGFloat = 21
     static let debugControlsFontSize: CGFloat = 11
     static let debugControlsHorizontalPadding: CGFloat = 8
     static let debugControlsVerticalPadding: CGFloat = 5
