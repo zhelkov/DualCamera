@@ -90,7 +90,9 @@ struct TopControlsView: View {
 
                 iconButton("pencil", label: "Рисунок", size: buttonSize,
                            active: isDrawingEnabled) {
-                    isDrawingEnabled.toggle()
+                    withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
+                        isDrawingEnabled.toggle()
+                    }
                 }
                 iconButton("hand.point.up.left", label: "Указатель", size: buttonSize,
                            active: false, enabled: false, action: {})

@@ -8,6 +8,17 @@ enum DrawColor: String, CaseIterable, Identifiable, Equatable {
 
     var id: String { rawValue }
 
+    var title: String {
+        switch self {
+        case .white: return "Белый"
+        case .black: return "Чёрный"
+        case .red: return "Красный"
+        case .blue: return "Синий"
+        case .green: return "Зелёный"
+        case .yellow: return "Жёлтый"
+        }
+    }
+
     var color: Color {
         switch self {
         case .white: return .white
@@ -36,6 +47,15 @@ enum ToolMode: String, CaseIterable, Identifiable {
     case pen, rectangle, arrow, select
 
     var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .pen: return "Кисть"
+        case .rectangle: return "Прямоугольник"
+        case .arrow: return "Стрелка"
+        case .select: return "Выбор"
+        }
+    }
 
     var systemImage: String {
         switch self {

@@ -342,7 +342,10 @@ struct ContentView: View {
                 zoomControls: AnyView(zoomControls),
                 drawingPalette: AnyView(
                     VStack(spacing: 8) {
-                        if drawing.isDrawingEnabled { drawingToolbar }
+                        if drawing.isDrawingEnabled {
+                            DrawingPaletteView(engine: drawing)
+                                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+                        }
                         if camera.importedPhoto != nil { importedPhotoSizeControl }
                     }
                 )
@@ -431,58 +434,6 @@ struct ContentView: View {
             camera.updatePhotoOverlay(offsetFraction: photoOverlayOffsetFraction,
                                       widthFraction: newValue)
         }
-    }
-
-    private var drawingToolbar: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 10) {
-                ForEach(ToolMode.allCases) { mode in
-                    Button {
-                        drawing.toolMode = mode
-                    } label: {
-                        Image(systemName: mode.systemImage)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(drawing.toolMode == mode ? .black : .white)
-                            .frame(width: 34, height: 34)
-                            .background(drawing.toolMode == mode ? Color.white : Color.black.opacity(0.4), in: Circle())
-                    }
-                }
-            }
-            HStack(spacing: 10) {
-                ForEach(DrawColor.allCases) { color in
-                    Button {
-                        drawing.selectedColor = color
-                    } label: {
-                        Circle()
-                            .fill(color.color)
-                            .frame(width: 24, height: 24)
-                            .overlay(Circle().stroke(drawing.selectedColor == color ? .white : .clear, lineWidth: 2))
-                    }
-                }
-            }
-            HStack(spacing: 14) {
-                Slider(value: $drawing.brushWidth, in: 2...20, step: 1)
-                    .frame(width: 120)
-                    .tint(.white)
-                Button {
-                    drawing.undo()
-                } label: {
-                    Image(systemName: "arrow.uturn.backward")
-                        .foregroundStyle(.white)
-                        .frame(width: 32, height: 32)
-                }
-                Button {
-                    drawing.clear()
-                } label: {
-                    Image(systemName: "trash")
-                        .foregroundStyle(.white)
-                        .frame(width: 32, height: 32)
-                }
-            }
-        }
-        .padding(10)
-        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 14))
-        .padding(.horizontal)
     }
 
     private func isZoomActive(_ value: Double) -> Bool {
