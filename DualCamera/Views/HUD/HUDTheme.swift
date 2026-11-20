@@ -126,6 +126,8 @@ enum HUDTheme {
     static let settingsCloseIconSize: CGFloat = 14
     static let settingsCloseButtonSize: CGFloat = 32
     static let settingsGroupSpacing: CGFloat = 17
+    static let settingsHintSpacing: CGFloat = 6
+    static let settingsBottomPadding: CGFloat = 26
     static let settingsOptionSpacing: CGFloat = 7
     static let settingsHintFontSize: CGFloat = 11
     static let settingsHorizontalPadding: CGFloat = 20

@@ -34,9 +34,9 @@ enum VideoResolution: String, CaseIterable, Identifiable {
         case .p1080: return 1920
         case .uhd4k: return 3840
         }
-
-        var shortEdge: CGFloat { longEdge * 9 / 16 }
     }
+
+    var shortEdge: CGFloat { longEdge * 9 / 16 }
 
     var landscapeCaptureTarget: CGSize {
         CGSize(width: longEdge, height: longEdge * 9 / 16)
