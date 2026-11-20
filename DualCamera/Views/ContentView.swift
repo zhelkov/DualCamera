@@ -22,74 +22,84 @@ struct ContentView: View {
     @State private var drawing = DrawingEngine()
     @State private var selectedMediaItems: [PhotosPickerItem] = []
 
-    var body: some View {
+    var body: some View { presentedCameraView }
+
+    private var presentedCameraView: some View {
+        recordingStateView
+            .alert("Ошибка", isPresented: errorBinding) {
+                Button("ОК", role: .cancel) {}
+            } message: {
+                Text(camera.errorMessage ?? "")
+            }
+            .sheet(isPresented: mergedPhotoBinding) {
+                MergedPhotoView(photo: camera.lastMergedPhoto ?? UIImage())
+            }
+            .sheet(isPresented: mergedVideoBinding) {
+                if let url = camera.lastMergedVideoURL {
+                    MergedVideoView(videoURL: url)
+                }
+            }
+            .sheet(isPresented: $isSettingsPresented) {
+                SettingsSheetView(settings: settings,
+                                  isRecording: camera.isRecording || camera.isApplyingSettings,
+                                  hasImportedMedia: camera.importedVideoURL != nil)
+                    .presentationDetents([.fraction(HUDTheme.settingsSheetHeight), .large])
+                    .presentationDragIndicator(.hidden)
+                    .presentationCornerRadius(HUDTheme.settingsSheetCornerRadius)
+            }
+    }
+
+    private var recordingStateView: some View {
+        lifecycleView
+            .onChange(of: drawing.elements) { _, elements in
+                camera.updateRecordingElements(elements)
+            }
+            .onChange(of: drawing.draftElement) { _, _ in
+                camera.updateRecordingElements(drawing.elementsIncludingDraft)
+            }
+            .onChange(of: camera.layout) { _, _ in updateRecordingLayout() }
+            .onChange(of: camera.pipShape) { _, _ in updateRecordingLayout() }
+            .onChange(of: camera.splitOrientation) { _, _ in updateRecordingLayout() }
+            .onChange(of: camera.splitRatio) { _, _ in updateRecordingLayout() }
+            .onChange(of: camera.isSecondaryCameraVisible) { _, _ in
+                if !camera.isSecondaryCameraVisible && camera.activeFilterTarget == .secondary {
+                    camera.selectFilterTarget(.primary)
+                }
+                if !isFrontLightAvailable { isFrontLightEnabled = false }
+                updateRecordingLayout()
+            }
+            .onChange(of: camera.isCamerasSwapped) { _, _ in
+                if !isFrontLightAvailable { isFrontLightEnabled = false }
+            }
+            .onChange(of: camera.importedVideoURL) { _, _ in
+                if !isFrontLightAvailable { isFrontLightEnabled = false }
+            }
+    }
+
+    private var lifecycleView: some View {
         cameraScene
-        .ignoresSafeArea()
-        .task {
-            camera.applyCaptureSettings(settings.snapshot)
-            await camera.requestAccessAndSetup()
-        }
-        .onDisappear { camera.stopRunning() }
-        .onChange(of: scenePhase) { _, newPhase in
-            switch newPhase {
-            case .active:
-                camera.startRunning()
-            case .background:
-                camera.stopRunning()
-            default:
-                break
+            .ignoresSafeArea()
+            .task {
+                camera.applyCaptureSettings(settings.snapshot)
+                await camera.requestAccessAndSetup()
             }
-        }
-        .onChange(of: selectedMediaItems) { _, items in
-            handlePickedMedia(items)
-        }
-        .onChange(of: settings.snapshot) { _, snapshot in
-            camera.applyCaptureSettings(snapshot)
-        }
-        .onChange(of: drawing.elements) { _, elements in
-            camera.updateRecordingElements(elements)
-        }
-        .onChange(of: drawing.draftElement) { _, _ in
-            camera.updateRecordingElements(drawing.elementsIncludingDraft)
-        }
-        .onChange(of: camera.layout) { _, _ in updateRecordingLayout() }
-        .onChange(of: camera.pipShape) { _, _ in updateRecordingLayout() }
-        .onChange(of: camera.splitOrientation) { _, _ in updateRecordingLayout() }
-        .onChange(of: camera.splitRatio) { _, _ in updateRecordingLayout() }
-        .onChange(of: camera.isSecondaryCameraVisible) { _, _ in
-            if !camera.isSecondaryCameraVisible && camera.activeFilterTarget == .secondary {
-                camera.selectFilterTarget(.primary)
+            .onDisappear { camera.stopRunning() }
+            .onChange(of: scenePhase) { _, newPhase in
+                switch newPhase {
+                case .active:
+                    camera.startRunning()
+                case .background:
+                    camera.stopRunning()
+                default:
+                    break
+                }
             }
-            if !isFrontLightAvailable { isFrontLightEnabled = false }
-            updateRecordingLayout()
-        }
-        .onChange(of: camera.isCamerasSwapped) { _, _ in
-            if !isFrontLightAvailable { isFrontLightEnabled = false }
-        }
-        .onChange(of: camera.importedVideoURL) { _, _ in
-            if !isFrontLightAvailable { isFrontLightEnabled = false }
-        }
-        .alert("Ошибка", isPresented: errorBinding) {
-            Button("ОК", role: .cancel) {}
-        } message: {
-            Text(camera.errorMessage ?? "")
-        }
-        .sheet(isPresented: mergedPhotoBinding) {
-            MergedPhotoView(photo: camera.lastMergedPhoto ?? UIImage())
-        }
-        .sheet(isPresented: mergedVideoBinding) {
-            if let url = camera.lastMergedVideoURL {
-                MergedVideoView(videoURL: url)
+            .onChange(of: selectedMediaItems) { _, items in
+                handlePickedMedia(items)
             }
-        }
-        .sheet(isPresented: $isSettingsPresented) {
-            SettingsSheetView(settings: settings,
-                              isRecording: camera.isRecording || camera.isApplyingSettings,
-                              hasImportedMedia: camera.importedVideoURL != nil)
-                .presentationDetents([.fraction(HUDTheme.settingsSheetHeight), .large])
-                .presentationDragIndicator(.hidden)
-                .presentationCornerRadius(HUDTheme.settingsSheetCornerRadius)
-        }
+            .onChange(of: settings.snapshot) { _, snapshot in
+                camera.applyCaptureSettings(snapshot)
+            }
     }
 
     private var cameraScene: some View {
