@@ -15,6 +15,10 @@ enum HUDTheme {
     static let primaryIcon = Color.white.opacity(0.9)
     static let islandFill = Color.black.opacity(0.9)
     static let islandBorder = Color.white.opacity(0.04)
+    static let splitDividerLine = Color.white.opacity(0.92)
+    static let splitHandleFill = Color.white.opacity(0.96)
+    static let splitHandleBorder = Color.white.opacity(0.7)
+    static let splitHandleShadow = Color.black.opacity(0.4)
 
     static let topStripMinimumHeight: CGFloat = 54
     static let bottomStripMinimumHeight: CGFloat = 110
@@ -55,6 +59,16 @@ enum HUDTheme {
     static let recordingLabelOffset: CGFloat = 24
     static let captureBarTopPadding: CGFloat = 16
     static let splitVariantMinimumHeight: CGFloat = 44
+    static let splitHandleWidth: CGFloat = 25
+    static let splitHandleHeight: CGFloat = 6
+    static let splitHandleHitSize: CGFloat = 44
+    static let splitHandleCornerRadius: CGFloat = 4
+    static let splitHandleShadowRadius: CGFloat = 5
+    static let splitDividerThickness: CGFloat = 1
+    static let splitRatioAccessibilityStep: CGFloat = 0.02
+    static let zoomPresetSpacing: CGFloat = 2
+    static let zoomPresetMinimumWidth: CGFloat = 30
+    static let zoomPresetFontSize: CGFloat = 13
     static let zoomControlBottomOffset: CGFloat = 22
     static let paletteTopMinimum: CGFloat = 48
     static let paletteYOffset: CGFloat = 36

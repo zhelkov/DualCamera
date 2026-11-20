@@ -5,6 +5,7 @@ struct TopControlsView: View {
     @Binding var layout: CaptureLayout
     @Binding var splitOrientation: SplitOrientation
     @Binding var pipShape: PipShape
+    @Binding var isSecondaryCameraVisible: Bool
     @Binding var isDrawingEnabled: Bool
     @Binding var selectedMediaItems: [PhotosPickerItem]
 
@@ -98,8 +99,13 @@ struct TopControlsView: View {
             }
             .hudPanel()
 
-            iconButton("pip", label: "Вторая камера", size: buttonSize,
-                       active: false, enabled: false, action: {})
+            iconButton("pip", label: isSecondaryCameraVisible
+                       ? "Убрать вторую камеру" : "Показать вторую камеру",
+                       size: buttonSize, active: isSecondaryCameraVisible) {
+                withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
+                    isSecondaryCameraVisible.toggle()
+                }
+            }
                 .hudPanel()
         }
     }

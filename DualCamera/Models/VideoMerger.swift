@@ -64,7 +64,9 @@ enum VideoMerger {
             ? [CaptureLayoutKeyframe(time: 0,
                                      layout: layout,
                                      shape: shape,
-                                     splitOrientation: splitOrientation)]
+                                     splitOrientation: splitOrientation,
+                                     splitRatio: SplitRatio.defaultValue,
+                                     isSecondaryCameraVisible: true)]
             : layoutKeyframes
         let normalizedBackImage = Self.normalizedCIImage(backImage)
         let normalizedFrontImage = Self.normalizedCIImage(frontImage)

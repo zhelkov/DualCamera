@@ -14,6 +14,8 @@ struct CaptureLayoutKeyframe {
     let layout: CaptureLayout
     let shape: PipShape
     let splitOrientation: SplitOrientation
+    let splitRatio: CGFloat
+    let isSecondaryCameraVisible: Bool
 }
 
 struct CameraSwapKeyframe {
@@ -156,27 +158,33 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                 let y = min(max(0, instruction.canvasSize.height - height - 16
                                 + layout.offset.height * instruction.canvasSize.height),
                             instruction.canvasSize.height - height)
-                frontRect = CGRect(x: x,
-                                   y: y,
-                                   width: width, height: height)
-                    .verticallyMirrored(in: instruction.canvasSize.height)
-                    .horizontallyMirrored(in: instruction.canvasSize.width)
+                frontRect = captureLayout.isSecondaryCameraVisible
+                    ? CGRect(x: x,
+                             y: y,
+                             width: width, height: height)
+                        .verticallyMirrored(in: instruction.canvasSize.height)
+                        .horizontallyMirrored(in: instruction.canvasSize.width)
+                    : .zero
                 backRect = canvas
             case .splitScreen:
-                if captureLayout.splitOrientation == .horizontal {
+                if !captureLayout.isSecondaryCameraVisible {
+                    backRect = canvas
+                    frontRect = .zero
+                } else if captureLayout.splitOrientation == .horizontal {
+                    let splitX = instruction.canvasSize.width * captureLayout.splitRatio
                     backRect = CGRect(x: 0, y: 0,
-                                      width: instruction.canvasSize.width / 2,
+                                      width: splitX,
                                       height: instruction.canvasSize.height)
-                    frontRect = CGRect(x: instruction.canvasSize.width / 2, y: 0,
-                                       width: instruction.canvasSize.width / 2,
+                    frontRect = CGRect(x: splitX, y: 0,
+                                       width: instruction.canvasSize.width - splitX,
                                        height: instruction.canvasSize.height)
                 } else {
+                    let splitY = instruction.canvasSize.height * captureLayout.splitRatio
                     backRect = CGRect(x: 0, y: 0,
-                                      width: instruction.canvasSize.width,
-                                      height: instruction.canvasSize.height / 2)
-                    frontRect = CGRect(x: 0, y: instruction.canvasSize.height / 2,
+                                      width: instruction.canvasSize.width, height: splitY)
+                    frontRect = CGRect(x: 0, y: splitY,
                                        width: instruction.canvasSize.width,
-                                       height: instruction.canvasSize.height / 2)
+                                       height: instruction.canvasSize.height - splitY)
                 }
                 backRect = backRect.verticallyMirrored(in: instruction.canvasSize.height)
                 frontRect = frontRect.verticallyMirrored(in: instruction.canvasSize.height)
@@ -229,78 +237,78 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
             let secondaryIsFrontCamera = instruction.mirrorFrontCamera && !mainIsFrontCamera
             let mainCell = frontRectForCoreImage(backRect,
                                                   canvasHeight: instruction.canvasSize.height)
-            let frontCell = frontRectForCoreImage(frontRect,
-                                                   canvasHeight: instruction.canvasSize.height)
             let placedMain = place(mainSource,
                                    sourceSize: instruction.backImage == nil ? mainSize : mainSource.extent.size,
                                    transform: instruction.backImage == nil ? mainTransform : .identity,
                                    in: backRect,
                                    canvasHeight: instruction.canvasSize.height)
-            let placedFront = place(secondarySource,
-                                    sourceSize: instruction.frontImage == nil ? secondarySize : secondarySource.extent.size,
-                                    transform: instruction.frontImage == nil ? secondaryTransform : .identity,
-                                    in: frontRect,
-                                    canvasHeight: instruction.canvasSize.height)
             let isLandscape = instruction.canvasSize.width > instruction.canvasSize.height
             let mainWithMirror = mainIsFrontCamera
                 ? mirrorForFinalVideo(placedMain, inside: mainCell)
                 : placedMain
-            let frontWithMirror = secondaryIsFrontCamera
-                ? mirrorForFinalVideo(placedFront, inside: frontCell)
-                : placedFront
             let main = isLandscape && mainIsCameraVideo
                 ? rotateHalfTurn(mainWithMirror, inside: mainCell)
                 : mainWithMirror
-            let front = isLandscape && secondaryIsCameraVideo
-                ? rotateHalfTurn(frontWithMirror, inside: frontCell)
-                : frontWithMirror
-
             var composed = main.cropped(to: canvas)
-            if captureLayout.layout == .pip {
-                let frontBottomRect = CGRect(x: frontRect.minX,
-                                             y: instruction.canvasSize.height - frontRect.maxY,
-                                             width: frontRect.width,
-                                             height: frontRect.height)
-                let maskImage: CIImage?
-                switch captureLayout.shape {
-                case .circle:
-                    let center = CGPoint(x: frontBottomRect.midX, y: frontBottomRect.midY)
-                    let radius = min(frontBottomRect.width, frontBottomRect.height) / 2
-                    let mask = CIFilter.radialGradient()
-                    mask.center = center
-                    mask.radius0 = Float(max(0, radius - 0.5))
-                    mask.radius1 = Float(radius + 0.5)
-                    mask.color0 = CIColor.white
-                    mask.color1 = CIColor.black
-                    maskImage = mask.outputImage?.cropped(to: canvas)
-                case .rectangle, .square:
-                    let radiusFraction: CGFloat = captureLayout.shape == .rectangle ? 0.137 : 0.103
-                    let portraitScale = min(instruction.canvasSize.width,
-                                            instruction.canvasSize.height)
-                        / max(instruction.canvasSize.width, 1)
-                    let radius = min(frontBottomRect.width * radiusFraction * portraitScale,
-                                     frontBottomRect.height / 2)
-                    let mask = CIFilter.roundedRectangleGenerator()
-                    mask.extent = frontBottomRect
-                    mask.radius = Float(radius)
-                    mask.color = CIColor.white
-                    maskImage = mask.outputImage?.cropped(to: canvas)
+            if captureLayout.isSecondaryCameraVisible {
+                let frontCell = frontRectForCoreImage(frontRect,
+                                                       canvasHeight: instruction.canvasSize.height)
+                let placedFront = place(secondarySource,
+                                        sourceSize: instruction.frontImage == nil ? secondarySize : secondarySource.extent.size,
+                                        transform: instruction.frontImage == nil ? secondaryTransform : .identity,
+                                        in: frontRect,
+                                        canvasHeight: instruction.canvasSize.height)
+                let frontWithMirror = secondaryIsFrontCamera
+                    ? mirrorForFinalVideo(placedFront, inside: frontCell)
+                    : placedFront
+                let front = isLandscape && secondaryIsCameraVideo
+                    ? rotateHalfTurn(frontWithMirror, inside: frontCell)
+                    : frontWithMirror
+
+                if captureLayout.layout == .pip {
+                    let frontBottomRect = CGRect(x: frontRect.minX,
+                                                 y: instruction.canvasSize.height - frontRect.maxY,
+                                                 width: frontRect.width,
+                                                 height: frontRect.height)
+                    let maskImage: CIImage?
+                    switch captureLayout.shape {
+                    case .circle:
+                        let center = CGPoint(x: frontBottomRect.midX, y: frontBottomRect.midY)
+                        let radius = min(frontBottomRect.width, frontBottomRect.height) / 2
+                        let mask = CIFilter.radialGradient()
+                        mask.center = center
+                        mask.radius0 = Float(max(0, radius - 0.5))
+                        mask.radius1 = Float(radius + 0.5)
+                        mask.color0 = CIColor.white
+                        mask.color1 = CIColor.black
+                        maskImage = mask.outputImage?.cropped(to: canvas)
+                    case .rectangle, .square:
+                        let radiusFraction: CGFloat = captureLayout.shape == .rectangle ? 0.137 : 0.103
+                        let portraitScale = min(instruction.canvasSize.width,
+                                                instruction.canvasSize.height)
+                            / max(instruction.canvasSize.width, 1)
+                        let radius = min(frontBottomRect.width * radiusFraction * portraitScale,
+                                         frontBottomRect.height / 2)
+                        let mask = CIFilter.roundedRectangleGenerator()
+                        mask.extent = frontBottomRect
+                        mask.radius = Float(radius)
+                        mask.color = CIColor.white
+                        maskImage = mask.outputImage?.cropped(to: canvas)
+                    }
+                    guard let maskImage else {
+                        throw CameraError.videoMergeFailed
+                    }
+                    let blend = CIFilter.blendWithMask()
+                    blend.inputImage = front.cropped(to: canvas)
+                    blend.backgroundImage = composed
+                    blend.maskImage = maskImage
+                    guard let outputImage = blend.outputImage else {
+                        throw CameraError.videoMergeFailed
+                    }
+                    composed = outputImage
+                } else {
+                    composed = front.cropped(to: frontCell).composited(over: composed)
                 }
-                guard let maskImage else {
-                    throw CameraError.videoMergeFailed
-                }
-                let blend = CIFilter.blendWithMask()
-                blend.inputImage = front.cropped(to: canvas)
-                blend.backgroundImage = composed
-                blend.maskImage = maskImage
-                guard let outputImage = blend.outputImage else {
-                    throw CameraError.videoMergeFailed
-                }
-                composed = outputImage
-            } else {
-                composed = front.cropped(to: frontRectForCoreImage(frontRect,
-                                                                   canvasHeight: instruction.canvasSize.height))
-                    .composited(over: composed)
             }
 
             if let overlayImage = drawingOverlay(at: request.compositionTime.seconds,
@@ -339,7 +347,9 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
         var result = CaptureLayoutKeyframe(time: 0,
                                            layout: instruction.layout,
                                            shape: instruction.shape,
-                                           splitOrientation: instruction.splitOrientation)
+                                           splitOrientation: instruction.splitOrientation,
+                                           splitRatio: SplitRatio.defaultValue,
+                                           isSecondaryCameraVisible: true)
         for keyframe in instruction.layoutKeyframes {
             guard keyframe.time <= time else { break }
             result = keyframe

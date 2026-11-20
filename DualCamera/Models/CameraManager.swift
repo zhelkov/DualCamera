@@ -36,6 +36,10 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     var layout: CaptureLayout = .splitScreen
     /// Ориентация сплита: вертикально или горизонтально.
     var splitOrientation: SplitOrientation = .vertical
+    /// Доля кадра, занимаемая основной камерой в сплит-режиме.
+    var splitRatio: CGFloat = SplitRatio.defaultValue
+    /// Показывается ли вторая камера.
+    var isSecondaryCameraVisible = true
     /// Поменяны ли местами передняя и задняя камеры.
     var isCamerasSwapped = false
     /// Форма окна «картинка в картинке».
@@ -143,6 +147,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private var recordingLayout: CaptureLayout = .splitScreen
     private var recordingShape: PipShape = .rectangle
     private var recordingSplitOrientation: SplitOrientation = .vertical
+    private var recordingSplitRatio: CGFloat = SplitRatio.defaultValue
     private var recordingCamerasSwapped = false
     private var expectedRecordingCount = 0
     private var receivedRecordingCallbacks = 0
@@ -443,6 +448,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         let layoutAtStart = layout
         let shapeAtStart = pipShape
         let splitOrientationAtStart = splitOrientation
+        let splitRatioAtStart = splitRatio
+        let secondaryCameraVisibleAtStart = isSecondaryCameraVisible
         updateOnMain {
             self.isRecording = true
             self.recordingDuration = 0
@@ -455,7 +462,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                      camerasSwapped: swappedAtStart,
                                      layout: layoutAtStart,
                                      shape: shapeAtStart,
-                                     splitOrientation: splitOrientationAtStart)
+                                     splitOrientation: splitOrientationAtStart,
+                                     splitRatio: splitRatioAtStart,
+                                     isSecondaryCameraVisible: secondaryCameraVisibleAtStart)
         }
 
         sessionQueue.async { [weak self] in
@@ -498,6 +507,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             self.recordingLayout = layoutAtStart
             self.recordingShape = shapeAtStart
             self.recordingSplitOrientation = splitOrientationAtStart
+            self.recordingSplitRatio = splitRatioAtStart
             self.recordingCamerasSwapped = swappedAtStart
             self.recordingImportedVideoURL = importedVideoAtStart
 
@@ -637,7 +647,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
 
     func updateRecordingLayout(layout: CaptureLayout,
                                shape: PipShape,
-                               splitOrientation: SplitOrientation) {
+                               splitOrientation: SplitOrientation,
+                               splitRatio: CGFloat,
+                               isSecondaryCameraVisible: Bool) {
         guard isRecording else { return }
         recordingLock.lock()
         defer { recordingLock.unlock() }
@@ -646,13 +658,17 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         if let previous = recordingLayoutKeyframes.last,
            previous.layout == layout,
            previous.shape == shape,
-           previous.splitOrientation == splitOrientation {
+           previous.splitOrientation == splitOrientation,
+           previous.isSecondaryCameraVisible == isSecondaryCameraVisible,
+           abs(previous.splitRatio - splitRatio) < 0.0005 {
             return
         }
         recordingLayoutKeyframes.append(CaptureLayoutKeyframe(time: time,
                                                               layout: layout,
                                                               shape: shape,
-                                                              splitOrientation: splitOrientation))
+                                                              splitOrientation: splitOrientation,
+                                                              splitRatio: splitRatio,
+                                                              isSecondaryCameraVisible: isSecondaryCameraVisible))
     }
 
     func updateRecordingElements(_ elements: [DrawingElement]) {
@@ -1194,6 +1210,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                  layout: layout,
                                  shape: pipShape,
                                  splitOrientation: splitOrientation,
+                                 splitRatio: splitRatio,
+                                 isSecondaryCameraVisible: isSecondaryCameraVisible,
                                  pipOffsetFraction: pipOffsetFraction,
                                  photoOverlay: importedPhoto,
                                  photoOverlayOffsetFraction: photoOverlayOffsetFraction,
@@ -1399,6 +1417,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         recordingLayout = .splitScreen
         recordingShape = .rectangle
         recordingSplitOrientation = .vertical
+        recordingSplitRatio = SplitRatio.defaultValue
         recordingCamerasSwapped = false
     }
 
@@ -1413,7 +1432,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                      camerasSwapped: Bool,
                                      layout: CaptureLayout,
                                      shape: PipShape,
-                                     splitOrientation: SplitOrientation) {
+                                     splitOrientation: SplitOrientation,
+                                     splitRatio: CGFloat,
+                                     isSecondaryCameraVisible: Bool) {
         recordingStartDate = Date()
         recordingPipWidthFraction = widthFraction
         recordingLock.lock()
@@ -1426,7 +1447,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             CaptureLayoutKeyframe(time: 0,
                                   layout: layout,
                                   shape: shape,
-                                  splitOrientation: splitOrientation)
+                                  splitOrientation: splitOrientation,
+                                  splitRatio: splitRatio,
+                                  isSecondaryCameraVisible: isSecondaryCameraVisible)
         ]
         recordingCameraSwapKeyframes = [
             CameraSwapKeyframe(time: 0, isSwapped: camerasSwapped)
@@ -1556,6 +1579,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             layout: layout?.layout ?? recordingLayout,
             pipShape: layout?.shape ?? recordingShape,
             splitOrientation: layout?.splitOrientation ?? recordingSplitOrientation,
+            splitRatio: layout?.splitRatio ?? recordingSplitRatio,
+            isSecondaryCameraVisible: layout?.isSecondaryCameraVisible ?? true,
             camerasSwapped: cameraSwap?.isSwapped ?? recordingCamerasSwapped,
             pipOffsetFraction: pip?.offsetFraction ?? recordingPipOffsetFraction,
             pipWidthFraction: pip?.widthFraction ?? recordingPipWidthFraction,

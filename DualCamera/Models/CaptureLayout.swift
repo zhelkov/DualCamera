@@ -1,5 +1,11 @@
 import Foundation
 
+enum SplitRatio {
+    static let defaultValue: CGFloat = 0.5
+    static let minimum: CGFloat = 0.25
+    static let maximum: CGFloat = 0.75
+}
+
 /// Раскладка превью и итоговой склейки двух снимков.
 enum CaptureLayout: String, CaseIterable, Identifiable {
     /// Две камеры друг под другом (сплит-экран).

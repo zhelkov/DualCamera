@@ -20,6 +20,8 @@ enum PhotoMerger {
                       layout: CaptureLayout,
                       shape: PipShape,
                       splitOrientation: SplitOrientation = .vertical,
+                      splitRatio: CGFloat = SplitRatio.defaultValue,
+                      isSecondaryCameraVisible: Bool = true,
                       pipOffsetFraction: CGSize = .zero,
                       pipWidthFraction: CGFloat = 0.3,
                       photoOverlay: UIImage? = nil,
@@ -31,15 +33,19 @@ enum PhotoMerger {
         let front = normalized(front)
 
         let merged: UIImage
-        switch layout {
-        case .splitScreen:
-            merged = splitOrientation == .horizontal
-                ? horizontalSplit(back: back, front: front)
-                : verticalSplit(back: back, front: front)
-        case .pip:
-            merged = pictureInPicture(back: back, front: front, shape: shape,
-                                      pipOffsetFraction: pipOffsetFraction,
-                                      pipWidthFraction: pipWidthFraction)
+        if !isSecondaryCameraVisible {
+            merged = back
+        } else {
+            switch layout {
+            case .splitScreen:
+                merged = splitOrientation == .horizontal
+                    ? horizontalSplit(back: back, front: front, mainRatio: splitRatio)
+                    : verticalSplit(back: back, front: front, mainRatio: splitRatio)
+            case .pip:
+                merged = pictureInPicture(back: back, front: front, shape: shape,
+                                          pipOffsetFraction: pipOffsetFraction,
+                                          pipWidthFraction: pipWidthFraction)
+            }
         }
 
         let withPhoto = photoOverlay.map {
@@ -103,31 +109,43 @@ enum PhotoMerger {
     }
 
     /// Сплит: задняя камера сверху, передняя — снизу.
-    private static func verticalSplit(back: UIImage, front: UIImage) -> UIImage {
+    private static func verticalSplit(back: UIImage, front: UIImage, mainRatio: CGFloat) -> UIImage {
         let width = max(back.size.width, front.size.width)
         let backHeight = back.size.height * (width / back.size.width)
         let frontHeight = front.size.height * (width / front.size.width)
         let size = CGSize(width: width, height: backHeight + frontHeight)
+        let primaryHeight = size.height * boundedRatio(mainRatio)
+        let secondaryHeight = size.height - primaryHeight
+        let primaryRect = CGRect(x: 0, y: 0, width: width, height: primaryHeight)
+        let secondaryRect = CGRect(x: 0, y: primaryHeight, width: width, height: secondaryHeight)
 
         let renderer = UIGraphicsImageRenderer(size: size)
         return renderer.image { _ in
-            back.draw(in: CGRect(x: 0, y: 0, width: width, height: backHeight))
-            front.draw(in: CGRect(x: 0, y: backHeight, width: width, height: frontHeight))
+            back.draw(in: aspectFillRect(image: back, in: primaryRect))
+            front.draw(in: aspectFillRect(image: front, in: secondaryRect))
         }
     }
 
     /// Ландшафтный сплит: задняя камера слева, передняя — справа.
-    private static func horizontalSplit(back: UIImage, front: UIImage) -> UIImage {
+    private static func horizontalSplit(back: UIImage, front: UIImage, mainRatio: CGFloat) -> UIImage {
         let height = max(back.size.height, front.size.height)
         let backWidth = back.size.width * (height / back.size.height)
         let frontWidth = front.size.width * (height / front.size.height)
         let size = CGSize(width: backWidth + frontWidth, height: height)
+        let primaryWidth = size.width * boundedRatio(mainRatio)
+        let secondaryWidth = size.width - primaryWidth
+        let primaryRect = CGRect(x: 0, y: 0, width: primaryWidth, height: height)
+        let secondaryRect = CGRect(x: primaryWidth, y: 0, width: secondaryWidth, height: height)
 
         let renderer = UIGraphicsImageRenderer(size: size)
         return renderer.image { _ in
-            back.draw(in: CGRect(x: 0, y: 0, width: backWidth, height: height))
-            front.draw(in: CGRect(x: backWidth, y: 0, width: frontWidth, height: height))
+            back.draw(in: aspectFillRect(image: back, in: primaryRect))
+            front.draw(in: aspectFillRect(image: front, in: secondaryRect))
         }
+    }
+
+    private static func boundedRatio(_ value: CGFloat) -> CGFloat {
+        min(max(value, SplitRatio.minimum), SplitRatio.maximum)
     }
 
     /// Картинка в картинке: задняя камера на весь кадр, передняя — в окне заданной формы.

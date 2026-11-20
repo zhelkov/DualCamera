@@ -8,6 +8,8 @@ final class RealtimeCompositeRecorder {
         let layout: CaptureLayout
         let pipShape: PipShape
         let splitOrientation: SplitOrientation
+        let splitRatio: CGFloat
+        let isSecondaryCameraVisible: Bool
         let camerasSwapped: Bool
         let pipOffsetFraction: CGSize
         let pipWidthFraction: CGFloat
@@ -196,20 +198,26 @@ final class RealtimeCompositeRecorder {
 
         switch state.layout {
         case .splitScreen:
-            let first: CGRect
-            let second: CGRect
-            if state.splitOrientation == .vertical {
-                first = CGRect(x: 0, y: renderSize.height / 2,
-                               width: renderSize.width, height: renderSize.height / 2)
-                second = CGRect(x: 0, y: 0,
-                                width: renderSize.width, height: renderSize.height / 2)
+            if !state.isSecondaryCameraVisible {
+                composed = fill(mainSource, in: canvas)
             } else {
-                first = CGRect(x: 0, y: 0,
-                               width: renderSize.width / 2, height: renderSize.height)
-                second = CGRect(x: renderSize.width / 2, y: 0,
-                                width: renderSize.width / 2, height: renderSize.height)
+                let first: CGRect
+                let second: CGRect
+                if state.splitOrientation == .vertical {
+                    let splitY = renderSize.height * state.splitRatio
+                    first = CGRect(x: 0, y: renderSize.height - splitY,
+                                   width: renderSize.width, height: splitY)
+                    second = CGRect(x: 0, y: 0,
+                                    width: renderSize.width, height: renderSize.height - splitY)
+                } else {
+                    let splitX = renderSize.width * state.splitRatio
+                    first = CGRect(x: 0, y: 0,
+                                   width: splitX, height: renderSize.height)
+                    second = CGRect(x: splitX, y: 0,
+                                    width: renderSize.width - splitX, height: renderSize.height)
+                }
+                composed = fill(mainSource, in: first).composited(over: fill(smallSource, in: second))
             }
-            composed = fill(mainSource, in: first).composited(over: fill(smallSource, in: second))
         case .pip:
             composed = fill(mainSource, in: canvas)
             let width = min(renderSize.width, renderSize.height) * state.pipWidthFraction
@@ -220,14 +228,16 @@ final class RealtimeCompositeRecorder {
                 width: width,
                 height: height
             )
-            let pip = fill(smallSource, in: rect)
-            guard let mask = shapeMask(rect, canvas: canvas, shape: state.pipShape) else { return nil }
-            let blend = CIFilter.blendWithMask()
-            blend.inputImage = pip
-            blend.backgroundImage = composed
-            blend.maskImage = mask
-            guard let output = blend.outputImage else { return nil }
-            composed = output
+            if state.isSecondaryCameraVisible {
+                let pip = fill(smallSource, in: rect)
+                guard let mask = shapeMask(rect, canvas: canvas, shape: state.pipShape) else { return nil }
+                let blend = CIFilter.blendWithMask()
+                blend.inputImage = pip
+                blend.backgroundImage = composed
+                blend.maskImage = mask
+                guard let output = blend.outputImage else { return nil }
+                composed = output
+            }
         }
 
         if !state.drawing.isEmpty,

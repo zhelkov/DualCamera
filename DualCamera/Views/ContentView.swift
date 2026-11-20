@@ -50,17 +50,37 @@ struct ContentView: View {
         .onChange(of: camera.layout) { _, _ in
             camera.updateRecordingLayout(layout: camera.layout,
                                          shape: camera.pipShape,
-                                         splitOrientation: camera.splitOrientation)
+                                         splitOrientation: camera.splitOrientation,
+                                         splitRatio: camera.splitRatio,
+                                         isSecondaryCameraVisible: camera.isSecondaryCameraVisible)
         }
         .onChange(of: camera.pipShape) { _, _ in
             camera.updateRecordingLayout(layout: camera.layout,
                                          shape: camera.pipShape,
-                                         splitOrientation: camera.splitOrientation)
+                                         splitOrientation: camera.splitOrientation,
+                                         splitRatio: camera.splitRatio,
+                                         isSecondaryCameraVisible: camera.isSecondaryCameraVisible)
         }
         .onChange(of: camera.splitOrientation) { _, _ in
             camera.updateRecordingLayout(layout: camera.layout,
                                          shape: camera.pipShape,
-                                         splitOrientation: camera.splitOrientation)
+                                         splitOrientation: camera.splitOrientation,
+                                         splitRatio: camera.splitRatio,
+                                         isSecondaryCameraVisible: camera.isSecondaryCameraVisible)
+        }
+        .onChange(of: camera.splitRatio) { _, _ in
+            camera.updateRecordingLayout(layout: camera.layout,
+                                         shape: camera.pipShape,
+                                         splitOrientation: camera.splitOrientation,
+                                         splitRatio: camera.splitRatio,
+                                         isSecondaryCameraVisible: camera.isSecondaryCameraVisible)
+        }
+        .onChange(of: camera.isSecondaryCameraVisible) { _, _ in
+            camera.updateRecordingLayout(layout: camera.layout,
+                                         shape: camera.pipShape,
+                                         splitOrientation: camera.splitOrientation,
+                                         splitRatio: camera.splitRatio,
+                                         isSecondaryCameraVisible: camera.isSecondaryCameraVisible)
         }
         .alert("Ошибка", isPresented: errorBinding) {
             Button("ОК", role: .cancel) {}
@@ -87,7 +107,9 @@ struct ContentView: View {
             let pip = Self.pipSize(for: camera.pipShape, in: size, widthFraction: 0.3)
             let frames = Self.layoutFrames(layout: camera.layout, size: size, pipSize: pip,
                                            pipOffset: pipOffset,
-                                           splitOrientation: camera.splitOrientation)
+                                           splitOrientation: camera.splitOrientation,
+                                           splitRatio: camera.splitRatio,
+                                           isSecondaryCameraVisible: camera.isSecondaryCameraVisible)
             let pipRadius = camera.pipShape.cornerRadius(for: pip)
 
             ZStack(alignment: .topLeading) {
@@ -97,22 +119,26 @@ struct ContentView: View {
                         .offset(x: frames.main.minX, y: frames.main.minY)
                         .gesture(focusTap(in: frames.main.size))
 
-                    frontCameraContent
-                        .frame(width: frames.secondary.width, height: frames.secondary.height)
-                        .modifier(SecondaryPreviewClip(layout: camera.layout, radius: pipRadius))
-                        .offset(x: frames.secondary.minX, y: frames.secondary.minY)
-                        .gesture(pipDrag)
+                    if camera.isSecondaryCameraVisible {
+                        frontCameraContent
+                            .frame(width: frames.secondary.width, height: frames.secondary.height)
+                            .modifier(SecondaryPreviewClip(layout: camera.layout, radius: pipRadius))
+                            .offset(x: frames.secondary.minX, y: frames.secondary.minY)
+                            .gesture(pipDrag)
+                    }
                 } else {
                     frontCameraContent
                         .frame(width: frames.main.width, height: frames.main.height)
                         .offset(x: frames.main.minX, y: frames.main.minY)
                         .gesture(focusTap(in: frames.main.size))
 
-                    CameraPreviewView(previewLayer: camera.backPreviewLayer, isMirrored: false)
-                        .frame(width: frames.secondary.width, height: frames.secondary.height)
-                        .modifier(SecondaryPreviewClip(layout: camera.layout, radius: pipRadius))
-                        .offset(x: frames.secondary.minX, y: frames.secondary.minY)
-                        .gesture(pipDrag)
+                    if camera.isSecondaryCameraVisible {
+                        CameraPreviewView(previewLayer: camera.backPreviewLayer, isMirrored: false)
+                            .frame(width: frames.secondary.width, height: frames.secondary.height)
+                            .modifier(SecondaryPreviewClip(layout: camera.layout, radius: pipRadius))
+                            .offset(x: frames.secondary.minX, y: frames.secondary.minY)
+                            .gesture(pipDrag)
+                    }
                 }
 
                 if let photo = camera.importedPhoto {
@@ -127,10 +153,20 @@ struct ContentView: View {
                         .offset(x: frame.minX, y: frame.minY)
                         .gesture(photoOverlayDrag)
                 }
+
+                if camera.layout == .splitScreen && camera.isSecondaryCameraVisible {
+                    SplitDividerView(orientation: camera.splitOrientation,
+                                     ratio: camera.splitRatio) { ratio in
+                        camera.splitRatio = ratio
+                    }
+                    .frame(width: size.width, height: size.height)
+                }
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.layout)
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.isCamerasSwapped)
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.pipShape)
+            .animation(.easeInOut(duration: HUDTheme.stateTransitionDuration),
+                       value: camera.isSecondaryCameraVisible)
             .onAppear { previewSize = size }
             .onChange(of: size) { _, newSize in previewSize = newSize }
         }
@@ -227,18 +263,25 @@ struct ContentView: View {
                                      size: CGSize,
                                      pipSize: CGSize,
                                      pipOffset: CGSize,
-                                     splitOrientation: SplitOrientation) -> (main: CGRect, secondary: CGRect) {
+                                     splitOrientation: SplitOrientation,
+                                     splitRatio: CGFloat,
+                                     isSecondaryCameraVisible: Bool) -> (main: CGRect, secondary: CGRect) {
+        guard isSecondaryCameraVisible else {
+            return (CGRect(origin: .zero, size: size), .zero)
+        }
         switch layout {
         case .splitScreen:
             if splitOrientation == .vertical {
+                let splitY = size.height * splitRatio
                 return (
-                    CGRect(x: 0, y: 0, width: size.width, height: size.height / 2),
-                    CGRect(x: 0, y: size.height / 2, width: size.width, height: size.height / 2)
+                    CGRect(x: 0, y: 0, width: size.width, height: splitY),
+                    CGRect(x: 0, y: splitY, width: size.width, height: size.height - splitY)
                 )
             } else {
+                let splitX = size.width * splitRatio
                 return (
-                    CGRect(x: 0, y: 0, width: size.width / 2, height: size.height),
-                    CGRect(x: size.width / 2, y: 0, width: size.width / 2, height: size.height)
+                    CGRect(x: 0, y: 0, width: splitX, height: size.height),
+                    CGRect(x: splitX, y: 0, width: size.width - splitX, height: size.height)
                 )
             }
         case .pip:
@@ -266,6 +309,7 @@ struct ContentView: View {
                     layout: $camera.layout,
                     splitOrientation: $camera.splitOrientation,
                     pipShape: $camera.pipShape,
+                    isSecondaryCameraVisible: $camera.isSecondaryCameraVisible,
                     isDrawingEnabled: $drawing.isDrawingEnabled,
                     selectedMediaItems: $selectedMediaItems,
                     hasImportedMedia: camera.hasImportedMedia,
@@ -344,21 +388,21 @@ struct ContentView: View {
                 .padding(.horizontal, 24)
             }
 
-            HStack(spacing: 10) {
-                ForEach([0.5, 1.0, 2.0, 5.0], id: \.self) { value in
+            HStack(spacing: HUDTheme.zoomPresetSpacing) {
+                ForEach([0.5, 1.0], id: \.self) { value in
                     Button {
                         camera.setZoom(CGFloat(value))
                     } label: {
-                        Text(zoomLabel(value))
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(isZoomActive(value) ? Color.black : Color.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(
-                                isZoomActive(value) ? Color.white.opacity(0.9) : Color.black.opacity(0.45),
-                                in: Capsule()
-                            )
+                        Text(value == 0.5 ? "0,5" : "1×")
+                            .font(.system(size: HUDTheme.zoomPresetFontSize,
+                                          weight: isZoomActive(value) ? .semibold : .regular))
+                            .foregroundStyle(isZoomActive(value) ? HUDTheme.yellow : .white)
+                            .frame(minWidth: HUDTheme.zoomPresetMinimumWidth)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .disabled(value == 0.5 && camera.minZoomFactor > 0.5)
+                    .accessibilityAddTraits(isZoomActive(value) ? .isSelected : [])
                     .onLongPressGesture(minimumDuration: 0.4) {
                         withAnimation { isZoomSliderVisible = true }
                     }
@@ -439,10 +483,6 @@ struct ContentView: View {
         .padding(10)
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 14))
         .padding(.horizontal)
-    }
-
-    private func zoomLabel(_ value: Double) -> String {
-        value.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(value))×" : String(format: "%.1f×", value)
     }
 
     private func isZoomActive(_ value: Double) -> Bool {
