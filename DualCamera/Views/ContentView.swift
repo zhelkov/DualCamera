@@ -25,20 +25,7 @@ struct ContentView: View {
     var body: some View {
         @Bindable var camera = camera
         @Bindable var settings = settings
-        ZStack {
-            previewStack
-            if isFrontLightEnabled && isFrontLightAvailable {
-                Color.white.opacity(HUDTheme.frontLightOverlayOpacity)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-                    .transition(.opacity)
-            }
-            cameraSettingsOverlay
-            DrawingCanvas(engine: drawing)
-                .allowsHitTesting(drawing.isDrawingEnabled)
-            pointerMarkerOverlay
-            controls
-        }
+        cameraScene
         .ignoresSafeArea()
         .task {
             camera.applyCaptureSettings(settings.snapshot)
@@ -67,44 +54,16 @@ struct ContentView: View {
         .onChange(of: drawing.draftElement) { _, _ in
             camera.updateRecordingElements(drawing.elementsIncludingDraft)
         }
-        .onChange(of: camera.layout) { _, _ in
-            camera.updateRecordingLayout(layout: camera.layout,
-                                         shape: camera.pipShape,
-                                         splitOrientation: camera.splitOrientation,
-                                         splitRatio: camera.splitRatio,
-                                         isSecondaryCameraVisible: camera.isSecondaryCameraVisible)
-        }
-        .onChange(of: camera.pipShape) { _, _ in
-            camera.updateRecordingLayout(layout: camera.layout,
-                                         shape: camera.pipShape,
-                                         splitOrientation: camera.splitOrientation,
-                                         splitRatio: camera.splitRatio,
-                                         isSecondaryCameraVisible: camera.isSecondaryCameraVisible)
-        }
-        .onChange(of: camera.splitOrientation) { _, _ in
-            camera.updateRecordingLayout(layout: camera.layout,
-                                         shape: camera.pipShape,
-                                         splitOrientation: camera.splitOrientation,
-                                         splitRatio: camera.splitRatio,
-                                         isSecondaryCameraVisible: camera.isSecondaryCameraVisible)
-        }
-        .onChange(of: camera.splitRatio) { _, _ in
-            camera.updateRecordingLayout(layout: camera.layout,
-                                         shape: camera.pipShape,
-                                         splitOrientation: camera.splitOrientation,
-                                         splitRatio: camera.splitRatio,
-                                         isSecondaryCameraVisible: camera.isSecondaryCameraVisible)
-        }
+        .onChange(of: camera.layout) { _, _ in updateRecordingLayout() }
+        .onChange(of: camera.pipShape) { _, _ in updateRecordingLayout() }
+        .onChange(of: camera.splitOrientation) { _, _ in updateRecordingLayout() }
+        .onChange(of: camera.splitRatio) { _, _ in updateRecordingLayout() }
         .onChange(of: camera.isSecondaryCameraVisible) { _, _ in
             if !camera.isSecondaryCameraVisible && camera.activeFilterTarget == .secondary {
                 camera.selectFilterTarget(.primary)
             }
             if !isFrontLightAvailable { isFrontLightEnabled = false }
-            camera.updateRecordingLayout(layout: camera.layout,
-                                         shape: camera.pipShape,
-                                         splitOrientation: camera.splitOrientation,
-                                         splitRatio: camera.splitRatio,
-                                         isSecondaryCameraVisible: camera.isSecondaryCameraVisible)
+            updateRecordingLayout()
         }
         .onChange(of: camera.isCamerasSwapped) { _, _ in
             if !isFrontLightAvailable { isFrontLightEnabled = false }
@@ -133,6 +92,31 @@ struct ContentView: View {
                 .presentationDragIndicator(.hidden)
                 .presentationCornerRadius(HUDTheme.settingsSheetCornerRadius)
         }
+    }
+
+    private var cameraScene: some View {
+        ZStack {
+            previewStack
+            if isFrontLightEnabled && isFrontLightAvailable {
+                Color.white.opacity(HUDTheme.frontLightOverlayOpacity)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+            cameraSettingsOverlay
+            DrawingCanvas(engine: drawing)
+                .allowsHitTesting(drawing.isDrawingEnabled)
+            pointerMarkerOverlay
+            controls
+        }
+    }
+
+    private func updateRecordingLayout() {
+        camera.updateRecordingLayout(layout: camera.layout,
+                                     shape: camera.pipShape,
+                                     splitOrientation: camera.splitOrientation,
+                                     splitRatio: camera.splitRatio,
+                                     isSecondaryCameraVisible: camera.isSecondaryCameraVisible)
     }
 
     private var cameraSettingsOverlay: some View {
