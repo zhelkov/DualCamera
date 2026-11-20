@@ -74,7 +74,7 @@ struct SettingsSheetView: View {
         optionGroup("Формат кадра") {
             HStack(spacing: HUDTheme.settingsOptionSpacing) {
                 ForEach(CaptureAspectRatio.allCases, id: \.id) { value in
-                    optionButton(value.title, isSelected: settings.aspectRatio == value) {
+                    optionButton(value.rawValue, isSelected: settings.aspectRatio == value) {
                         settings.aspectRatio = value
                     }
                 }
