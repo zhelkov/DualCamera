@@ -5,12 +5,15 @@ struct CaptureBarView: View {
     let isLandscape: Bool
     let hasTorch: Bool
     let isTorchOn: Bool
+    let isFrontLightOn: Bool
+    let isFrontLightAvailable: Bool
     let isRecording: Bool
     let isCapturing: Bool
     let isApplyingSettings: Bool
     let hapticsEnabled: Bool
     let recordingDuration: String
     let onToggleTorch: () -> Void
+    let onToggleFrontLight: () -> Void
     let onStopRecording: () -> Void
     let onCapturePhoto: () -> Void
     let onStartRecording: () -> Void
@@ -18,20 +21,27 @@ struct CaptureBarView: View {
 
     var body: some View {
         HStack(spacing: HUDTheme.captureBarItemSpacing) {
-            Button {} label: {
-                HUDIconGlyph(systemName: "sun.max", size: HUDTheme.captureButtonSize,
-                             isLandscape: isLandscape)
+            Button {
+                playHaptic()
+                onToggleFrontLight()
+            } label: {
+                HUDIconGlyph(systemName: isFrontLightOn ? "sun.max.fill" : "sun.max",
+                             size: HUDTheme.captureButtonSize, isLandscape: isLandscape)
             }
-            .buttonStyle(HUDIconButtonStyle(isCapture: true, size: HUDTheme.captureButtonSize,
+            .buttonStyle(HUDIconButtonStyle(isActive: isFrontLightOn,
+                                            isCapture: true,
+                                            size: HUDTheme.captureButtonSize,
                                             cornerRadius: HUDTheme.captureButtonCornerRadius))
-            .disabled(true)
-            .accessibilityLabel("Фронтальная подсветка")
+            .disabled(!isFrontLightAvailable || isApplyingSettings)
+            .accessibilityLabel(isFrontLightOn
+                                ? "Выключить фронтальную подсветку"
+                                : "Включить фронтальную подсветку")
 
             Button {
                 playHaptic()
                 onToggleTorch()
             } label: {
-                HUDIconGlyph(systemName: isTorchOn ? "bolt.fill" : "bolt.slash",
+                HUDIconGlyph(systemName: isTorchOn ? "flashlight.on.fill" : "flashlight.off.fill",
                              size: HUDTheme.captureButtonSize, isLandscape: isLandscape)
             }
             .buttonStyle(HUDIconButtonStyle(isActive: isTorchOn, isCapture: true,

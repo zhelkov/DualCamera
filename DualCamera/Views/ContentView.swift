@@ -16,6 +16,9 @@ struct ContentView: View {
     @State private var photoOverlayDragBase: CGSize?
     @State private var isZoomSliderVisible = false
     @State private var isSettingsPresented = false
+    @State private var isFrontLightEnabled = false
+    @State private var pointerPosition: CGPoint?
+    @State private var pointerDragBase: CGPoint?
     @State private var drawing = DrawingEngine()
     @State private var selectedMediaItems: [PhotosPickerItem] = []
 
@@ -24,9 +27,16 @@ struct ContentView: View {
         @Bindable var settings = settings
         ZStack {
             previewStack
+            if isFrontLightEnabled && isFrontLightAvailable {
+                Color.white.opacity(HUDTheme.frontLightOverlayOpacity)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
             cameraSettingsOverlay
             DrawingCanvas(engine: drawing)
                 .allowsHitTesting(drawing.isDrawingEnabled)
+            pointerMarkerOverlay
             controls
         }
         .ignoresSafeArea()
@@ -89,11 +99,18 @@ struct ContentView: View {
             if !camera.isSecondaryCameraVisible && camera.activeFilterTarget == .secondary {
                 camera.selectFilterTarget(.primary)
             }
+            if !isFrontLightAvailable { isFrontLightEnabled = false }
             camera.updateRecordingLayout(layout: camera.layout,
                                          shape: camera.pipShape,
                                          splitOrientation: camera.splitOrientation,
                                          splitRatio: camera.splitRatio,
                                          isSecondaryCameraVisible: camera.isSecondaryCameraVisible)
+        }
+        .onChange(of: camera.isCamerasSwapped) { _, _ in
+            if !isFrontLightAvailable { isFrontLightEnabled = false }
+        }
+        .onChange(of: camera.importedVideoURL) { _, _ in
+            if !isFrontLightAvailable { isFrontLightEnabled = false }
         }
         .alert("Ошибка", isPresented: errorBinding) {
             Button("ОК", role: .cancel) {}
@@ -186,6 +203,21 @@ struct ContentView: View {
         }
         .ignoresSafeArea()
         .accessibilityElement(children: .contain)
+    }
+
+    private var pointerMarkerOverlay: some View {
+        GeometryReader { geometry in
+            if let pointerPosition {
+                PointerMarkerView(color: drawing.selectedColor.color)
+                    .frame(width: HUDTheme.pointerMarkerSize,
+                           height: HUDTheme.pointerMarkerSize)
+                    .position(x: pointerPosition.x * geometry.size.width,
+                              y: pointerPosition.y * geometry.size.height)
+                    .gesture(pointerDrag(in: geometry.size))
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
+        }
+        .ignoresSafeArea()
     }
 
     // MARK: - Превью
@@ -447,6 +479,7 @@ struct ContentView: View {
                         get: { camera.videoFilter },
                         set: { camera.selectVideoFilter($0) }
                     ),
+                    pointerPosition: $pointerPosition,
                     hasImportedMedia: camera.hasImportedMedia,
                     isLandscape: geometry.size.width > geometry.size.height,
                     onClearImportedMedia: { camera.clearImportedMedia() }
@@ -455,12 +488,19 @@ struct ContentView: View {
                     isLandscape: geometry.size.width > geometry.size.height,
                     hasTorch: camera.hasTorch,
                     isTorchOn: camera.isTorchOn,
+                    isFrontLightOn: isFrontLightEnabled && isFrontLightAvailable,
+                    isFrontLightAvailable: isFrontLightAvailable,
                     isRecording: camera.isRecording,
                     isCapturing: camera.isCapturing,
                     isApplyingSettings: camera.isApplyingSettings,
                     hapticsEnabled: settings.hapticsEnabled,
                     recordingDuration: durationString(camera.recordingDuration),
                     onToggleTorch: { camera.toggleTorch() },
+                    onToggleFrontLight: {
+                        withAnimation(.easeInOut(duration: HUDTheme.frontLightTransitionDuration)) {
+                            isFrontLightEnabled.toggle()
+                        }
+                    },
                     onStopRecording: { camera.stopRecording(elements: drawing.elements) },
                     onCapturePhoto: {
                         camera.captureBothCameras(elements: drawing.elements,
@@ -514,42 +554,11 @@ struct ContentView: View {
     // MARK: - Зум и фонарик
 
     private var zoomControls: some View {
-        VStack(spacing: 8) {
-            if isZoomSliderVisible && camera.maxZoomFactor > camera.minZoomFactor {
-                Slider(
-                    value: Binding(
-                        get: { Double(camera.zoomFactor) },
-                        set: { camera.setZoom(CGFloat($0)) }
-                    ),
-                    in: Double(camera.minZoomFactor)...Double(camera.maxZoomFactor),
-                    step: 0.1
-                )
-                .tint(.yellow)
-                .padding(.horizontal, 24)
-            }
-
-            HStack(spacing: HUDTheme.zoomPresetSpacing) {
-                ForEach([0.5, 1.0], id: \.self) { value in
-                    Button {
-                        camera.setZoom(CGFloat(value))
-                    } label: {
-                        Text(value == 0.5 ? "0,5" : "1×")
-                            .font(.system(size: HUDTheme.zoomPresetFontSize,
-                                          weight: isZoomActive(value) ? .semibold : .regular))
-                            .foregroundStyle(isZoomActive(value) ? HUDTheme.yellow : .white)
-                            .frame(minWidth: HUDTheme.zoomPresetMinimumWidth)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(value == 0.5 && camera.minZoomFactor > 0.5)
-                    .accessibilityAddTraits(isZoomActive(value) ? .isSelected : [])
-                    .onLongPressGesture(minimumDuration: 0.4) {
-                        withAnimation { isZoomSliderVisible = true }
-                    }
-                }
-            }
-        }
-        .padding(.bottom, 8)
+        ZoomControlView(zoomFactor: camera.zoomFactor,
+                        minimumZoomFactor: camera.minZoomFactor,
+                        maximumZoomFactor: camera.maxZoomFactor,
+                        isExpanded: $isZoomSliderVisible,
+                        onZoomChanged: { camera.setZoom($0) })
     }
 
     private var importedPhotoSizeControl: some View {
@@ -573,8 +582,26 @@ struct ContentView: View {
         }
     }
 
-    private func isZoomActive(_ value: Double) -> Bool {
-        abs(camera.zoomFactor - CGFloat(value)) < 0.15
+    private var isFrontLightAvailable: Bool {
+        camera.isConfigured
+            && camera.importedVideoURL == nil
+            && (camera.isSecondaryCameraVisible || camera.isCamerasSwapped)
+    }
+
+    private func pointerDrag(in size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard size.width > 0, size.height > 0 else { return }
+                let start = pointerDragBase ?? pointerPosition ?? CGPoint(x: 0.5, y: 0.5)
+                pointerDragBase = start
+                let insetX = HUDTheme.pointerMarkerEdgeInset / size.width
+                let insetY = HUDTheme.pointerMarkerEdgeInset / size.height
+                pointerPosition = CGPoint(
+                    x: min(max(start.x + value.translation.width / size.width, insetX), 1 - insetX),
+                    y: min(max(start.y + value.translation.height / size.height, insetY), 1 - insetY)
+                )
+            }
+            .onEnded { _ in pointerDragBase = nil }
     }
 
     // MARK: - Биндинги для алертов и листа

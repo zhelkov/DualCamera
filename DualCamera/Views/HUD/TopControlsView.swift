@@ -9,6 +9,7 @@ struct TopControlsView: View {
     @Binding var isDrawingEnabled: Bool
     @Binding var selectedMediaItems: [PhotosPickerItem]
     @Binding var selectedFilter: VideoFilter
+    @Binding var pointerPosition: CGPoint?
 
     @State private var isFilterCarouselVisible = false
 
@@ -97,8 +98,26 @@ struct TopControlsView: View {
                         isDrawingEnabled.toggle()
                     }
                 }
-                iconButton("hand.point.up.left", label: "Указатель", size: buttonSize,
-                           active: false, enabled: false, action: {})
+                Button {
+                    withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
+                        pointerPosition = pointerPosition == nil
+                            ? CGPoint(x: 0.5, y: 0.5)
+                            : nil
+                    }
+                } label: {
+                    PointingHandShape()
+                        .stroke(pointerPosition == nil ? HUDTheme.primaryIcon : HUDTheme.yellow,
+                                style: StrokeStyle(lineWidth: HUDTheme.lineWidth,
+                                                   lineCap: .round,
+                                                   lineJoin: .round))
+                        .frame(width: HUDTheme.pointerIconSize, height: HUDTheme.pointerIconSize)
+                        .rotationEffect(.degrees(isLandscape ? 90 : 0))
+                        .animation(.easeInOut(duration: HUDTheme.rotationDuration), value: isLandscape)
+                        .frame(width: buttonSize, height: buttonSize)
+                }
+                .buttonStyle(HUDIconButtonStyle(isActive: pointerPosition != nil, size: buttonSize))
+                .accessibilityLabel(pointerPosition == nil ? "Добавить указатель" : "Убрать указатель")
+                .accessibilityAddTraits(pointerPosition == nil ? [] : .isSelected)
                 iconButton("camera.filters", label: "Фильтры", size: buttonSize,
                            active: isFilterCarouselVisible || selectedFilter != .original) {
                     withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
