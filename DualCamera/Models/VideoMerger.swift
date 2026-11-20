@@ -19,6 +19,8 @@ enum VideoMerger {
                       layout: CaptureLayout,
                       shape: PipShape,
                       splitOrientation: SplitOrientation = .vertical,
+                      outputSize: CGSize? = nil,
+                      frameRate: VideoFrameRate = .fps30,
                       mirrorFrontCamera: Bool = true,
                       pipOffsetFraction: CGSize = .zero,
                       pipWidthFraction: CGFloat = 0.3,
@@ -47,7 +49,7 @@ enum VideoMerger {
         let duration = CMTimeMinimum(backClip.duration, frontClip.duration)
 
         // Итоговый кадр — размер вертикального видео основной камеры.
-        let canvas = backClip.displaySize
+        let canvas = outputSize ?? backClip.displaySize
 
         // Рисунок поверх видео (если есть элементы).
         let effectiveDrawingKeyframes = drawingKeyframes.isEmpty
@@ -106,7 +108,7 @@ enum VideoMerger {
         }
 
         let videoComposition = AVMutableVideoComposition()
-        videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
+        videoComposition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(frameRate.rawValue))
         videoComposition.renderSize = canvas
 
         videoComposition.customVideoCompositorClass = DualCameraVideoCompositor.self

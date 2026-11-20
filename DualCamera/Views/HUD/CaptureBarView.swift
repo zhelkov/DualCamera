@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct CaptureBarView: View {
     let isLandscape: Bool
@@ -6,6 +7,8 @@ struct CaptureBarView: View {
     let isTorchOn: Bool
     let isRecording: Bool
     let isCapturing: Bool
+    let isApplyingSettings: Bool
+    let hapticsEnabled: Bool
     let recordingDuration: String
     let onToggleTorch: () -> Void
     let onStopRecording: () -> Void
@@ -24,14 +27,17 @@ struct CaptureBarView: View {
             .disabled(true)
             .accessibilityLabel("Фронтальная подсветка")
 
-            Button(action: onToggleTorch) {
+            Button {
+                playHaptic()
+                onToggleTorch()
+            } label: {
                 HUDIconGlyph(systemName: isTorchOn ? "bolt.fill" : "bolt.slash",
                              size: HUDTheme.captureButtonSize, isLandscape: isLandscape)
             }
             .buttonStyle(HUDIconButtonStyle(isActive: isTorchOn, isCapture: true,
                                             size: HUDTheme.captureButtonSize,
                                             cornerRadius: HUDTheme.captureButtonCornerRadius))
-            .disabled(!hasTorch)
+            .disabled(!hasTorch || isApplyingSettings)
             .accessibilityLabel(isTorchOn ? "Выключить фонарик" : "Включить фонарик")
 
             Spacer(minLength: 0)
@@ -42,7 +48,10 @@ struct CaptureBarView: View {
                     .frame(width: HUDTheme.recordButtonSize, height: HUDTheme.recordButtonSize)
                     .accessibilityLabel("Сохранение снимка")
             } else {
-                Button(action: isRecording ? onStopRecording : onStartRecording) {
+                Button {
+                    playHaptic()
+                    isRecording ? onStopRecording() : onStartRecording()
+                } label: {
                     ZStack {
                         Circle()
                             .fill(HUDTheme.glass)
@@ -62,26 +71,34 @@ struct CaptureBarView: View {
                     .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
+                .disabled(isApplyingSettings)
                 .accessibilityLabel(isRecording ? "Остановить запись" : "Начать запись")
             }
 
             Spacer(minLength: 0)
 
-            Button(action: onSwapCameras) {
+            Button {
+                playHaptic()
+                onSwapCameras()
+            } label: {
                 HUDIconGlyph(systemName: "arrow.triangle.2.circlepath",
                              size: HUDTheme.captureButtonSize, isLandscape: isLandscape)
             }
             .buttonStyle(HUDIconButtonStyle(isCapture: true, size: HUDTheme.captureButtonSize,
                                             cornerRadius: HUDTheme.captureButtonCornerRadius))
+            .disabled(isApplyingSettings)
             .accessibilityLabel("Поменять камеры местами")
 
-            Button(action: onCapturePhoto) {
+            Button {
+                playHaptic()
+                onCapturePhoto()
+            } label: {
                 HUDIconGlyph(systemName: "camera", size: HUDTheme.captureButtonSize,
                              isLandscape: isLandscape)
             }
             .buttonStyle(HUDIconButtonStyle(isCapture: true, size: HUDTheme.captureButtonSize,
                                             cornerRadius: HUDTheme.captureButtonCornerRadius))
-            .disabled(isRecording || isCapturing)
+            .disabled(isRecording || isCapturing || isApplyingSettings)
             .accessibilityLabel("Сделать фото")
         }
         .overlay(alignment: .top) {
@@ -95,5 +112,10 @@ struct CaptureBarView: View {
         }
         .padding(.horizontal, HUDTheme.captureBarInset)
         .padding(.top, HUDTheme.captureBarTopPadding)
+    }
+
+    private func playHaptic() {
+        guard hapticsEnabled else { return }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 }

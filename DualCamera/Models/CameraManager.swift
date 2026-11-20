@@ -31,6 +31,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private(set) var lastMergedVideoURL: URL?
     /// Идёт ли запись видео.
     private(set) var isRecording = false
+    private(set) var isApplyingSettings = false
     /// Длительность текущей записи.
     private(set) var recordingDuration: TimeInterval = 0
     /// Текущая раскладка превью (сплит или картинка в картинке).
@@ -68,6 +69,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private(set) var importedPhoto: UIImage?
     /// Импортированное видео (используется вместо передней камеры).
     private(set) var importedVideoURL: URL?
+    private var captureSettings = CameraSettingsSnapshot.defaults
+    private var recordingCaptureSettings = CameraSettingsSnapshot.defaults
+    private var recordingOutputSize = CGSize(width: 1080, height: 1920)
 
     /// Есть ли импортированный медиафайл.
     var hasImportedMedia: Bool {
@@ -311,9 +315,10 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                             pipOffsetFraction: CGSize = .zero,
                             photoOverlayOffsetFraction: CGSize = .zero,
                             photoOverlayWidthFraction: CGFloat = 0.3) {
-        guard isConfigured, !isCapturing else { return }
+        guard isConfigured, !isCapturing, !isApplyingSettings else { return }
         let filterAtCapture = videoFilter
         let filterTargetAtCapture = activeFilterTarget
+        let aspectRatioAtCapture = captureSettings.aspectRatio.ratio(isPortrait: isPortrait)
         updateOnMain { self.isCapturing = true }
 
         sessionQueue.async { [weak self] in
@@ -325,7 +330,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                                                 photoOverlayOffsetFraction: photoOverlayOffsetFraction,
                                                                 photoOverlayWidthFraction: photoOverlayWidthFraction,
                                                                 videoFilter: filterAtCapture,
-                                                                filterTarget: filterTargetAtCapture)
+                                                                filterTarget: filterTargetAtCapture,
+                                                                outputAspectRatio: aspectRatioAtCapture)
                     self.updateOnMain {
                         self.lastMergedPhoto = merged
                         self.isCapturing = false
@@ -355,6 +361,67 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
 
     func clearMergedVideo() {
         updateOnMain { self.lastMergedVideoURL = nil }
+    }
+
+    func applyCaptureSettings(_ settings: CameraSettingsSnapshot) {
+        let previous = captureSettings
+        let requiresSessionUpdate = previous.resolution != settings.resolution
+            || previous.frameRate != settings.frameRate
+            || previous.stabilizationEnabled != settings.stabilizationEnabled
+        guard requiresSessionUpdate, isConfigured else {
+            captureSettings = settings
+            return
+        }
+        guard !isRecording else {
+            updateOnMain { self.errorMessage = "Остановите запись перед изменением параметров камеры." }
+            return
+        }
+
+        updateOnMain { self.isApplyingSettings = true }
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            guard !self.isRecording,
+                  let backCamera = self.backCamera,
+                  let frontCamera = self.frontCamera else {
+                self.updateOnMain {
+                    self.isApplyingSettings = false
+                    self.errorMessage = "Не удалось изменить параметры во время работы камеры."
+                }
+                return
+            }
+
+            do {
+                guard let backFormat = self.bestMultiCamFormat(
+                    for: backCamera,
+                    target: settings.resolution.landscapeCaptureTarget,
+                    frameRate: settings.frameRate.rawValue
+                ), let frontFormat = self.bestMultiCamFormat(
+                    for: frontCamera,
+                    target: CGSize(width: 640, height: 480),
+                    frameRate: settings.frameRate.rawValue
+                ) else {
+                    throw CameraError.noCompatibleFormat
+                }
+
+                self.session.beginConfiguration()
+                do {
+                    try self.applyFormat(backFormat, to: backCamera, frameRate: settings.frameRate.rawValue)
+                    try self.applyFormat(frontFormat, to: frontCamera, frameRate: settings.frameRate.rawValue)
+                    self.captureSettings = settings
+                    self.applyStabilization(settings.stabilizationEnabled)
+                    self.session.commitConfiguration()
+                } catch {
+                    self.session.commitConfiguration()
+                    throw error
+                }
+                self.updateOnMain { self.isApplyingSettings = false }
+            } catch {
+                self.updateOnMain {
+                    self.isApplyingSettings = false
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+        }
     }
 
     // MARK: - Импортированные медиа
@@ -556,7 +623,11 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                         pipOffsetFraction: CGSize = .zero,
                         photoOverlayOffsetFraction: CGSize = .zero,
                         photoOverlayWidthFraction: CGFloat = 0.3) {
-        guard isConfigured, !isRecording else { return }
+        guard isConfigured, !isRecording, !isApplyingSettings else { return }
+        if importedVideoURL != nil, captureSettings.audioQuality == .appleLossless {
+            showError("Apple Lossless недоступен при записи с импортированным видео.")
+            return
+        }
         let importedPhotoAtStart = importedPhoto
         let orientationAtStart = currentInterfaceVideoOrientation()
         let swappedAtStart = isCamerasSwapped
@@ -569,6 +640,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         let secondaryCameraVisibleAtStart = isSecondaryCameraVisible
         let videoFilterAtStart = videoFilter
         let filterTargetAtStart = activeFilterTarget
+        let settingsAtStart = captureSettings
+        let portraitAtStart = orientationAtStart == .portrait || orientationAtStart == .portraitUpsideDown
         updateOnMain {
             self.isRecording = true
             self.recordingDuration = 0
@@ -585,7 +658,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                      splitRatio: splitRatioAtStart,
                                      isSecondaryCameraVisible: secondaryCameraVisibleAtStart,
                                      videoFilter: videoFilterAtStart,
-                                     filterTarget: filterTargetAtStart)
+                                     filterTarget: filterTargetAtStart,
+                                     captureSettings: settingsAtStart,
+                                     isPortrait: portraitAtStart)
         }
 
         sessionQueue.async { [weak self] in
@@ -633,12 +708,13 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             self.recordingImportedVideoURL = importedVideoAtStart
 
             if useRealtimeComposite {
-                let size = (orientationAtStart == .portrait || orientationAtStart == .portraitUpsideDown)
-                    ? CGSize(width: 1080, height: 1920)
-                    : CGSize(width: 1920, height: 1080)
+                let size = settingsAtStart.outputSize(isPortrait: portraitAtStart)
                 do {
                     let url = Self.tempMovieURL(camera: "live-composite")
-                    let recorder = try RealtimeCompositeRecorder(url: url, renderSize: size)
+                    let recorder = try RealtimeCompositeRecorder(url: url,
+                                                                 renderSize: size,
+                                                                 frameRate: settingsAtStart.frameRate,
+                                                                 audioQuality: settingsAtStart.audioQuality)
                     self.recordingLock.lock()
                     self.realtimeRecorder = recorder
                     self.isUsingRealtimeRecorder = true
@@ -894,6 +970,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                     connection.videoOrientation = orientation
                 }
             }
+            applyStabilization(captureSettings.stabilizationEnabled)
 
             if let audioInput, let audioPort = audioInput.ports.first(where: { $0.mediaType == .audio }),
                session.canAddOutput(audioDataOutput) {
@@ -985,9 +1062,13 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         frontRotationCoordinator = AVCaptureDevice.RotationCoordinator(device: front,
                                                                          previewLayer: frontPreviewLayer)
 
-        // 2. Подбираем форматы: задняя 1080p, передняя 480p для снижения нагрузки.
-        try configureFormat(for: back, target: CGSize(width: 1920, height: 1080))
-        try configureFormat(for: front, target: CGSize(width: 640, height: 480))
+        // Keep the front stream light enough for MultiCam while honoring the selected rate.
+        try configureFormat(for: back,
+                           target: captureSettings.resolution.landscapeCaptureTarget,
+                           frameRate: captureSettings.frameRate.rawValue)
+        try configureFormat(for: front,
+                           target: CGSize(width: 640, height: 480),
+                           frameRate: captureSettings.frameRate.rawValue)
 
         // 3. Добавляем входы БЕЗ автоматических соединений.
         let backDeviceInput = try AVCaptureDeviceInput(device: back)
@@ -1030,6 +1111,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         // Подключаем preview-layer к конкретным портам внутри той же транзакции,
         // где добавлены inputs/outputs, как в примере Apple AVMultiCamPiP.
         try connectPreviewLayers()
+        applyStabilization(captureSettings.stabilizationEnabled)
     }
 
     /// Добавляет микрофон и подключает его к обоим видео-выходам.
@@ -1181,10 +1263,18 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
     }
 
-    private func configureFormat(for device: AVCaptureDevice, target: CGSize) throws {
-        guard let format = bestMultiCamFormat(for: device, target: target) else {
+    private func configureFormat(for device: AVCaptureDevice,
+                                 target: CGSize,
+                                 frameRate: Int) throws {
+        guard let format = bestMultiCamFormat(for: device, target: target, frameRate: frameRate) else {
             throw CameraError.noCompatibleFormat
         }
+        try applyFormat(format, to: device, frameRate: frameRate)
+    }
+
+    private func applyFormat(_ format: AVCaptureDevice.Format,
+                             to device: AVCaptureDevice,
+                             frameRate: Int) throws {
         try device.lockForConfiguration()
         device.activeFormat = format
         // Принудительно SDR: на новых iOS HDR-видео в превью может
@@ -1192,16 +1282,16 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         device.activeColorSpace = .sRGB
         device.automaticallyAdjustsVideoHDREnabled = false
         device.isVideoHDREnabled = false
-        // Фиксируем 30 fps для стабильной совместной работы.
-        let fps = CMTime(value: 1, timescale: 30)
+        let fps = CMTime(value: 1, timescale: CMTimeScale(frameRate))
         device.activeVideoMinFrameDuration = fps
         device.activeVideoMaxFrameDuration = fps
         device.unlockForConfiguration()
     }
 
-    /// Подбирает формат: поддержка MultiCam обязательна,
-    /// 1080p@30fps — в приоритете.
-    private func bestMultiCamFormat(for device: AVCaptureDevice, target: CGSize) -> AVCaptureDevice.Format? {
+    /// Selects the closest format supported by MultiCam and the requested frame rate.
+    private func bestMultiCamFormat(for device: AVCaptureDevice,
+                                    target: CGSize,
+                                    frameRate: Int) -> AVCaptureDevice.Format? {
         var bestFormat: AVCaptureDevice.Format?
         var bestScore = CGFloat.greatestFiniteMagnitude
 
@@ -1212,9 +1302,10 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
             let size = CGSize(width: CGFloat(dims.width), height: CGFloat(dims.height))
 
-            // Формат должен уметь отдавать хотя бы 30 fps.
-            let supports30fps = format.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= 30 }
-            guard supports30fps else { continue }
+            let supportsFrameRate = format.videoSupportedFrameRateRanges.contains {
+                $0.minFrameRate <= Double(frameRate) && $0.maxFrameRate >= Double(frameRate)
+            }
+            guard supportsFrameRate else { continue }
 
             // Близость к 1080p: чем меньше суммарное отклонение, тем лучше.
             let score = abs(size.width - target.width) + abs(size.height - target.height)
@@ -1224,6 +1315,21 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             }
         }
         return bestFormat
+    }
+
+    private func applyStabilization(_ enabled: Bool) {
+        let connections: [AVCaptureConnection?] = [
+            backPreviewLayer.connection,
+            frontPreviewLayer.connection,
+            backMovieConnection,
+            frontMovieConnection,
+            backVideoDataConnection,
+            frontVideoDataConnection
+        ]
+        for connection in connections {
+            guard let connection, connection.isVideoStabilizationSupported else { continue }
+            connection.preferredVideoStabilizationMode = enabled ? .standard : .off
+        }
     }
 
     // MARK: - Ручное создание соединений (правило №3)
@@ -1314,7 +1420,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                  photoOverlayOffsetFraction: CGSize,
                                  photoOverlayWidthFraction: CGFloat,
                                  videoFilter: VideoFilter,
-                                 filterTarget: VideoFilterTarget) async throws -> UIImage {
+                                 filterTarget: VideoFilterTarget,
+                                 outputAspectRatio: CGFloat) async throws -> UIImage {
         defer { clearPhotoDelegates() }
 
         // Запускаем оба захвата подряд. Вызовы возвращаются мгновенно,
@@ -1343,6 +1450,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                  isSecondaryCameraVisible: isSecondaryCameraVisible,
                                  videoFilter: videoFilter,
                                  filterTarget: filterTarget,
+                                 outputAspectRatio: outputAspectRatio,
                                  pipOffsetFraction: pipOffsetFraction,
                                  photoOverlay: importedPhoto,
                                  photoOverlayOffsetFraction: photoOverlayOffsetFraction,
@@ -1477,6 +1585,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         let outputImportedVideoURL = recordingImportedVideoURL
         let outputCamerasSwapped = recordingCamerasSwapped
         let outputElements = recordingElements
+        let outputCaptureSettings = recordingCaptureSettings
+        let outputSize = recordingOutputSize
         // Склейку выполняем в фоне, чтобы не блокировать очередь сессии.
         Task { [weak self] in
             guard let self else { return }
@@ -1491,6 +1601,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                     layout: outputLayout,
                     shape: outputShape,
                     splitOrientation: outputSplitOrientation,
+                    outputSize: outputSize,
+                    frameRate: outputCaptureSettings.frameRate,
                     mirrorFrontCamera: outputImportedVideoURL == nil,
                     pipOffsetFraction: outputOffset,
                     pipWidthFraction: 0.3,
@@ -1570,9 +1682,13 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                      splitRatio: CGFloat,
                                      isSecondaryCameraVisible: Bool,
                                      videoFilter: VideoFilter,
-                                     filterTarget: VideoFilterTarget) {
+                                     filterTarget: VideoFilterTarget,
+                                     captureSettings: CameraSettingsSnapshot,
+                                     isPortrait: Bool) {
         recordingStartDate = Date()
         recordingPipWidthFraction = widthFraction
+        recordingCaptureSettings = captureSettings
+        recordingOutputSize = captureSettings.outputSize(isPortrait: isPortrait)
         recordingLock.lock()
         recordingPipPositionKeyframes = [
             PipPositionKeyframe(time: 0,

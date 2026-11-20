@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @State private var camera = CameraManager()
+    @State private var settings = CameraSettings()
     @Environment(\.scenePhase) private var scenePhase
     @State private var pipOffset: CGSize = .zero
     @State private var photoOverlayOffset: CGSize = .zero
@@ -14,19 +15,25 @@ struct ContentView: View {
     @State private var pipDragBase: CGSize?
     @State private var photoOverlayDragBase: CGSize?
     @State private var isZoomSliderVisible = false
+    @State private var isSettingsPresented = false
     @State private var drawing = DrawingEngine()
     @State private var selectedMediaItems: [PhotosPickerItem] = []
 
     var body: some View {
         @Bindable var camera = camera
+        @Bindable var settings = settings
         ZStack {
             previewStack
+            cameraSettingsOverlay
             DrawingCanvas(engine: drawing)
                 .allowsHitTesting(drawing.isDrawingEnabled)
             controls
         }
         .ignoresSafeArea()
-        .task { await camera.requestAccessAndSetup() }
+        .task {
+            camera.applyCaptureSettings(settings.snapshot)
+            await camera.requestAccessAndSetup()
+        }
         .onDisappear { camera.stopRunning() }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
@@ -40,6 +47,9 @@ struct ContentView: View {
         }
         .onChange(of: selectedMediaItems) { _, items in
             handlePickedMedia(items)
+        }
+        .onChange(of: settings.snapshot) { _, snapshot in
+            camera.applyCaptureSettings(snapshot)
         }
         .onChange(of: drawing.elements) { _, elements in
             camera.updateRecordingElements(elements)
@@ -98,6 +108,84 @@ struct ContentView: View {
                 MergedVideoView(videoURL: url)
             }
         }
+        .sheet(isPresented: $isSettingsPresented) {
+            SettingsSheetView(settings: settings,
+                              isRecording: camera.isRecording || camera.isApplyingSettings,
+                              hasImportedMedia: camera.importedVideoURL != nil)
+                .presentationDetents([.fraction(HUDTheme.settingsSheetHeight), .large])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(HUDTheme.settingsSheetCornerRadius)
+        }
+    }
+
+    private var cameraSettingsOverlay: some View {
+        GeometryReader { geometry in
+            let isLandscape = geometry.size.width > geometry.size.height
+            let topStripHeight = max(HUDTheme.topStripMinimumHeight,
+                                     geometry.safeAreaInsets.top + HUDTheme.topSafeAreaAddition)
+            let bottomStripHeight = isLandscape
+                ? HUDTheme.landscapeBottomStripMinimumHeight
+                : HUDTheme.bottomStripMinimumHeight
+            let previewRect = CGRect(x: 0,
+                                     y: topStripHeight,
+                                     width: geometry.size.width,
+                                     height: max(0, geometry.size.height - topStripHeight - bottomStripHeight))
+            let isPortrait = !isLandscape
+            let aspectRatio = settings.aspectRatio.ratio(isPortrait: isPortrait)
+            let guideWidth = min(previewRect.width, previewRect.height * aspectRatio)
+            let guideHeight = guideWidth / aspectRatio
+            let guideRect = CGRect(x: previewRect.minX + (previewRect.width - guideWidth) / 2,
+                                   y: previewRect.minY + (previewRect.height - guideHeight) / 2,
+                                   width: guideWidth,
+                                   height: guideHeight)
+            ZStack {
+                if settings.gridEnabled {
+                    CameraGridOverlay()
+                        .frame(width: guideWidth, height: guideHeight)
+                        .position(x: guideRect.midX, y: guideRect.midY)
+                        .allowsHitTesting(false)
+                }
+
+                CaptureAspectGuideView()
+                    .frame(width: guideWidth, height: guideHeight)
+                    .position(x: guideRect.midX, y: guideRect.midY)
+
+                if settings.dateTimeEnabled {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(context.date, format: .dateTime.year().month().day().hour().minute().second())
+                            .font(.system(size: HUDTheme.cameraDateTimeFontSize,
+                                          weight: .medium, design: .monospaced))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, HUDTheme.cameraOverlayHorizontalPadding)
+                            .padding(.vertical, HUDTheme.cameraOverlayVerticalPadding)
+                            .background(Color.black.opacity(0.56), in: Capsule())
+                            .position(x: guideRect.midX,
+                                      y: guideRect.maxY - HUDTheme.cameraDateTimeBottomInset)
+                    }
+                }
+
+                if settings.teleprompterEnabled {
+                    Text(settings.teleprompterText.isEmpty
+                         ? "Текст телесуфлёра"
+                         : settings.teleprompterText)
+                        .font(.system(size: HUDTheme.teleprompterFontSize, weight: .medium))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(HUDTheme.teleprompterPreviewLineLimit)
+                        .padding(HUDTheme.cameraOverlayHorizontalPadding)
+                        .frame(maxWidth: geometry.size.width * HUDTheme.teleprompterWidthFraction)
+                        .background(Color.black.opacity(0.48),
+                                    in: RoundedRectangle(cornerRadius: HUDTheme.settingsTextFieldCornerRadius))
+                        .position(x: previewRect.midX,
+                                  y: max(previewRect.minY + HUDTheme.teleprompterTopMinimum,
+                                         geometry.safeAreaInsets.top + HUDTheme.teleprompterTopInset)
+                                    + HUDTheme.teleprompterYOffset)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+        .ignoresSafeArea()
+        .accessibilityElement(children: .contain)
     }
 
     // MARK: - Превью
@@ -347,6 +435,7 @@ struct ContentView: View {
                 size: geometry.size,
                 safeTop: geometry.safeAreaInsets.top,
                 isLandscape: geometry.size.width > geometry.size.height,
+                isSettingsPresented: $isSettingsPresented,
                 topControls: TopControlsView(
                     layout: $camera.layout,
                     splitOrientation: $camera.splitOrientation,
@@ -368,6 +457,8 @@ struct ContentView: View {
                     isTorchOn: camera.isTorchOn,
                     isRecording: camera.isRecording,
                     isCapturing: camera.isCapturing,
+                    isApplyingSettings: camera.isApplyingSettings,
+                    hapticsEnabled: settings.hapticsEnabled,
                     recordingDuration: durationString(camera.recordingDuration),
                     onToggleTorch: { camera.toggleTorch() },
                     onStopRecording: { camera.stopRecording(elements: drawing.elements) },

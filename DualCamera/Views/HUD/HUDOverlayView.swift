@@ -4,6 +4,7 @@ struct HUDOverlayView: View {
     let size: CGSize
     let safeTop: CGFloat
     let isLandscape: Bool
+    @Binding var isSettingsPresented: Bool
     let topControls: TopControlsView
     let captureBar: CaptureBarView
     let zoomControls: AnyView
@@ -75,7 +76,9 @@ struct HUDOverlayView: View {
     }
 
     private var settingsButton: some View {
-        Button {} label: {
+        Button {
+            isSettingsPresented = true
+        } label: {
             Image(systemName: "gearshape")
                 .font(.system(size: HUDTheme.settingsIconSize, weight: .regular))
                 .rotationEffect(.degrees(isLandscape ? 90 : 0))

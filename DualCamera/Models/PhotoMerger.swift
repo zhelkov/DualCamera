@@ -26,6 +26,7 @@ enum PhotoMerger {
                       isSecondaryCameraVisible: Bool = true,
                       videoFilter: VideoFilter = .original,
                       filterTarget: VideoFilterTarget = .primary,
+                      outputAspectRatio: CGFloat? = nil,
                       pipOffsetFraction: CGSize = .zero,
                       pipWidthFraction: CGFloat = 0.3,
                       photoOverlay: UIImage? = nil,
@@ -61,12 +62,16 @@ enum PhotoMerger {
             }
         }
 
+        let aspectCorrected = outputAspectRatio.map { crop(merged, toAspectRatio: $0) } ?? merged
+
         let withPhoto = photoOverlay.map {
-            overlayPhoto($0, on: merged,
+            overlayPhoto($0, on: aspectCorrected,
                          offsetFraction: photoOverlayOffsetFraction,
                          widthFraction: photoOverlayWidthFraction)
-        } ?? merged
-        return elements.isEmpty ? withPhoto : overlay(DrawingRenderer.render(elements, size: merged.size), on: withPhoto)
+        } ?? aspectCorrected
+        return elements.isEmpty
+            ? withPhoto
+            : overlay(DrawingRenderer.render(elements, size: aspectCorrected.size), on: withPhoto)
     }
 
     private static func apply(_ filter: VideoFilter, to image: UIImage) throws -> UIImage {
@@ -76,6 +81,28 @@ enum PhotoMerger {
             throw CameraError.filterProcessingFailed
         }
         return UIImage(cgImage: cgImage, scale: image.scale, orientation: .up)
+    }
+
+    private static func crop(_ image: UIImage, toAspectRatio aspectRatio: CGFloat) -> UIImage {
+        let sourceSize = image.size
+        let sourceRatio = sourceSize.width / max(sourceSize.height, 1)
+        let cropSize: CGSize
+        if sourceRatio > aspectRatio {
+            cropSize = CGSize(width: sourceSize.height * aspectRatio, height: sourceSize.height)
+        } else {
+            cropSize = CGSize(width: sourceSize.width, height: sourceSize.width / aspectRatio)
+        }
+        let cropRect = CGRect(x: (sourceSize.width - cropSize.width) / 2,
+                              y: (sourceSize.height - cropSize.height) / 2,
+                              width: cropSize.width,
+                              height: cropSize.height)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = image.scale
+        let renderer = UIGraphicsImageRenderer(size: cropSize, format: format)
+        return renderer.image { _ in
+            image.draw(in: CGRect(x: -cropRect.minX, y: -cropRect.minY,
+                                  width: sourceSize.width, height: sourceSize.height))
+        }
     }
 
     /// Накладывает прозрачное изображение рисунка поверх снимка.

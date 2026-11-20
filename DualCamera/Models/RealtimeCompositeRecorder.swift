@@ -41,25 +41,43 @@ final class RealtimeCompositeRecorder {
     private var backSamplesDropped = 0
     private var frontSamplesDropped = 0
 
-    init(url: URL, renderSize: CGSize) throws {
+    init(url: URL,
+         renderSize: CGSize,
+         frameRate: VideoFrameRate,
+         audioQuality: AudioRecordingQuality) throws {
         self.renderSize = renderSize
         writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        let targetBitRate = Int(renderSize.width * renderSize.height
+                                * CGFloat(frameRate.rawValue) * 0.12)
         videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: Int(renderSize.width),
             AVVideoHeightKey: Int(renderSize.height),
             AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: 8_000_000,
-                AVVideoExpectedSourceFrameRateKey: 30,
-                AVVideoMaxKeyFrameIntervalKey: 60
+                AVVideoAverageBitRateKey: min(max(targetBitRate, 4_000_000), 60_000_000),
+                AVVideoExpectedSourceFrameRateKey: frameRate.rawValue,
+                AVVideoMaxKeyFrameIntervalKey: frameRate.rawValue * 2
             ]
         ])
-        audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVNumberOfChannelsKey: 1,
-            AVSampleRateKey: 44_100,
-            AVEncoderBitRateKey: 128_000
-        ])
+        let audioSettings: [String: Any]
+        switch audioQuality {
+        case .aac:
+            audioSettings = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVNumberOfChannelsKey: 1,
+                AVSampleRateKey: 44_100,
+                AVEncoderBitRateKey: 128_000
+            ]
+        case .appleLossless:
+            audioSettings = [
+                AVFormatIDKey: kAudioFormatAppleLossless,
+                AVNumberOfChannelsKey: 1,
+                AVSampleRateKey: 44_100,
+                AVEncoderBitDepthHintKey: 16,
+                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+            ]
+        }
+        audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
         videoInput.expectsMediaDataInRealTime = true
         audioInput.expectsMediaDataInRealTime = true
         adaptor = AVAssetWriterInputPixelBufferAdaptor(
