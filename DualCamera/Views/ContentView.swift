@@ -23,8 +23,6 @@ struct ContentView: View {
     @State private var selectedMediaItems: [PhotosPickerItem] = []
 
     var body: some View {
-        @Bindable var camera = camera
-        @Bindable var settings = settings
         cameraScene
         .ignoresSafeArea()
         .task {
