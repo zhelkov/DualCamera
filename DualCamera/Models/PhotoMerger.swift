@@ -1,7 +1,9 @@
 import UIKit
+import CoreImage
 
 /// Склеивает снимки передней и задней камер в одно изображение.
 enum PhotoMerger {
+    private static let filterContext = CIContext(options: [.cacheIntermediates: false])
 
     /// Mirrors a captured front-camera image while preserving its displayed orientation.
     static func mirrorHorizontally(_ image: UIImage) -> UIImage {
@@ -22,15 +24,26 @@ enum PhotoMerger {
                       splitOrientation: SplitOrientation = .vertical,
                       splitRatio: CGFloat = SplitRatio.defaultValue,
                       isSecondaryCameraVisible: Bool = true,
+                      videoFilter: VideoFilter = .original,
+                      filterTarget: VideoFilterTarget = .primary,
                       pipOffsetFraction: CGSize = .zero,
                       pipWidthFraction: CGFloat = 0.3,
                       photoOverlay: UIImage? = nil,
                       photoOverlayOffsetFraction: CGSize = .zero,
                       photoOverlayWidthFraction: CGFloat = 0.3,
-                      elements: [DrawingElement] = []) -> UIImage {
+                      elements: [DrawingElement] = []) throws -> UIImage {
         // Приводим к вертикальной ориентации, чтобы размеры были честными.
-        let back = normalized(back)
-        let front = normalized(front)
+        var back = normalized(back)
+        var front = normalized(front)
+
+        if videoFilter != .original {
+            switch filterTarget {
+            case .primary:
+                back = try apply(videoFilter, to: back)
+            case .secondary:
+                front = try apply(videoFilter, to: front)
+            }
+        }
 
         let merged: UIImage
         if !isSecondaryCameraVisible {
@@ -54,6 +67,15 @@ enum PhotoMerger {
                          widthFraction: photoOverlayWidthFraction)
         } ?? merged
         return elements.isEmpty ? withPhoto : overlay(DrawingRenderer.render(elements, size: merged.size), on: withPhoto)
+    }
+
+    private static func apply(_ filter: VideoFilter, to image: UIImage) throws -> UIImage {
+        guard let source = CIImage(image: image) else { throw CameraError.captureFailed }
+        let extent = source.extent.integral
+        guard let cgImage = filterContext.createCGImage(try filter.applying(to: source), from: extent) else {
+            throw CameraError.filterProcessingFailed
+        }
+        return UIImage(cgImage: cgImage, scale: image.scale, orientation: .up)
     }
 
     /// Накладывает прозрачное изображение рисунка поверх снимка.

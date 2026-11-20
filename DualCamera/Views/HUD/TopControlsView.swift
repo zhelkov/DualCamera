@@ -8,6 +8,9 @@ struct TopControlsView: View {
     @Binding var isSecondaryCameraVisible: Bool
     @Binding var isDrawingEnabled: Bool
     @Binding var selectedMediaItems: [PhotosPickerItem]
+    @Binding var selectedFilter: VideoFilter
+
+    @State private var isFilterCarouselVisible = false
 
     let hasImportedMedia: Bool
     let isLandscape: Bool
@@ -97,7 +100,11 @@ struct TopControlsView: View {
                 iconButton("hand.point.up.left", label: "Указатель", size: buttonSize,
                            active: false, enabled: false, action: {})
                 iconButton("camera.filters", label: "Фильтры", size: buttonSize,
-                           active: false, enabled: false, action: {})
+                           active: isFilterCarouselVisible || selectedFilter != .original) {
+                    withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
+                        isFilterCarouselVisible.toggle()
+                    }
+                }
             }
             .hudPanel()
 
@@ -108,7 +115,12 @@ struct TopControlsView: View {
                     isSecondaryCameraVisible.toggle()
                 }
             }
-                .hudPanel()
+            .hudPanel()
+
+            if isFilterCarouselVisible {
+                FilterCarouselView(selectedFilter: $selectedFilter)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+            }
         }
     }
 

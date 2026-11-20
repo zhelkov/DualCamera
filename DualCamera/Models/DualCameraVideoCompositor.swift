@@ -62,6 +62,9 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
     let frontImage: CIImage?
     let layoutKeyframes: [CaptureLayoutKeyframe]
     let cameraSwapKeyframes: [CameraSwapKeyframe]
+    let videoFilter: VideoFilter
+    let filterTarget: VideoFilterTarget
+    let filterKeyframes: [VideoFilterKeyframe]
     let initialCamerasSwapped: Bool
 
     var requiredSourceTrackIDs: [NSValue]? {
@@ -89,6 +92,9 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
          frontImage: CIImage?,
          layoutKeyframes: [CaptureLayoutKeyframe],
          cameraSwapKeyframes: [CameraSwapKeyframe],
+         videoFilter: VideoFilter,
+         filterTarget: VideoFilterTarget,
+         filterKeyframes: [VideoFilterKeyframe],
          initialCamerasSwapped: Bool) {
         self.timeRange = timeRange
         self.backTrackID = backTrackID
@@ -110,6 +116,9 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
         self.frontImage = frontImage
         self.layoutKeyframes = layoutKeyframes
         self.cameraSwapKeyframes = cameraSwapKeyframes
+        self.videoFilter = videoFilter
+        self.filterTarget = filterTarget
+        self.filterKeyframes = filterKeyframes
         self.initialCamerasSwapped = initialCamerasSwapped
     }
 }
@@ -219,6 +228,16 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
             let swapSources = swapState.isSwapped != instruction.initialCamerasSwapped
             let mainSource = swapSources ? frontSource : backSource
             let secondarySource = swapSources ? backSource : frontSource
+            let filterState = filterAt(instruction, time: request.compositionTime.seconds)
+            let filteredMainSource: CIImage
+            let filteredSecondarySource: CIImage
+            if filterState.target == .primary {
+                filteredMainSource = try filterState.filter.applying(to: mainSource)
+                filteredSecondarySource = secondarySource
+            } else {
+                filteredMainSource = mainSource
+                filteredSecondarySource = try filterState.filter.applying(to: secondarySource)
+            }
             let mainSize = swapSources ? instruction.frontSourceSize : instruction.backSourceSize
             let secondarySize = swapSources ? instruction.backSourceSize : instruction.frontSourceSize
             // Both camera outputs capture the same interface orientation. Use
@@ -237,8 +256,8 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
             let secondaryIsFrontCamera = instruction.mirrorFrontCamera && !mainIsFrontCamera
             let mainCell = frontRectForCoreImage(backRect,
                                                   canvasHeight: instruction.canvasSize.height)
-            let placedMain = place(mainSource,
-                                   sourceSize: instruction.backImage == nil ? mainSize : mainSource.extent.size,
+            let placedMain = place(filteredMainSource,
+                                   sourceSize: instruction.backImage == nil ? mainSize : filteredMainSource.extent.size,
                                    transform: instruction.backImage == nil ? mainTransform : .identity,
                                    in: backRect,
                                    canvasHeight: instruction.canvasSize.height)
@@ -253,8 +272,8 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
             if captureLayout.isSecondaryCameraVisible {
                 let frontCell = frontRectForCoreImage(frontRect,
                                                        canvasHeight: instruction.canvasSize.height)
-                let placedFront = place(secondarySource,
-                                        sourceSize: instruction.frontImage == nil ? secondarySize : secondarySource.extent.size,
+                let placedFront = place(filteredSecondarySource,
+                                        sourceSize: instruction.frontImage == nil ? secondarySize : filteredSecondarySource.extent.size,
                                         transform: instruction.frontImage == nil ? secondaryTransform : .identity,
                                         in: frontRect,
                                         canvasHeight: instruction.canvasSize.height)
@@ -361,6 +380,18 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                               time: TimeInterval) -> CameraSwapKeyframe {
         var result = CameraSwapKeyframe(time: 0, isSwapped: instruction.initialCamerasSwapped)
         for keyframe in instruction.cameraSwapKeyframes {
+            guard keyframe.time <= time else { break }
+            result = keyframe
+        }
+        return result
+    }
+
+    private func filterAt(_ instruction: DualCameraVideoCompositionInstruction,
+                          time: TimeInterval) -> VideoFilterKeyframe {
+        var result = VideoFilterKeyframe(time: 0,
+                                         filter: instruction.videoFilter,
+                                         target: instruction.filterTarget)
+        for keyframe in instruction.filterKeyframes {
             guard keyframe.time <= time else { break }
             result = keyframe
         }

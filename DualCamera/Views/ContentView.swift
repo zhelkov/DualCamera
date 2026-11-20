@@ -76,6 +76,9 @@ struct ContentView: View {
                                          isSecondaryCameraVisible: camera.isSecondaryCameraVisible)
         }
         .onChange(of: camera.isSecondaryCameraVisible) { _, _ in
+            if !camera.isSecondaryCameraVisible && camera.activeFilterTarget == .secondary {
+                camera.selectFilterTarget(.primary)
+            }
             camera.updateRecordingLayout(layout: camera.layout,
                                          shape: camera.pipShape,
                                          splitOrientation: camera.splitOrientation,
@@ -114,10 +117,10 @@ struct ContentView: View {
 
             ZStack(alignment: .topLeading) {
                 if backIsMain {
-                    CameraPreviewView(previewLayer: camera.backPreviewLayer, isMirrored: false)
+                    backCameraContent
                         .frame(width: frames.main.width, height: frames.main.height)
                         .offset(x: frames.main.minX, y: frames.main.minY)
-                        .gesture(focusTap(in: frames.main.size))
+                        .gesture(focusTap(in: frames.main.size, target: .primary))
 
                     if camera.isSecondaryCameraVisible {
                         frontCameraContent
@@ -125,19 +128,25 @@ struct ContentView: View {
                             .modifier(SecondaryPreviewClip(layout: camera.layout, radius: pipRadius))
                             .offset(x: frames.secondary.minX, y: frames.secondary.minY)
                             .gesture(pipDrag)
+                            .simultaneousGesture(SpatialTapGesture().onEnded { _ in
+                                camera.selectFilterTarget(.secondary)
+                            })
                     }
                 } else {
                     frontCameraContent
                         .frame(width: frames.main.width, height: frames.main.height)
                         .offset(x: frames.main.minX, y: frames.main.minY)
-                        .gesture(focusTap(in: frames.main.size))
+                        .gesture(focusTap(in: frames.main.size, target: .primary))
 
                     if camera.isSecondaryCameraVisible {
-                        CameraPreviewView(previewLayer: camera.backPreviewLayer, isMirrored: false)
+                        backCameraContent
                             .frame(width: frames.secondary.width, height: frames.secondary.height)
                             .modifier(SecondaryPreviewClip(layout: camera.layout, radius: pipRadius))
                             .offset(x: frames.secondary.minX, y: frames.secondary.minY)
                             .gesture(pipDrag)
+                            .simultaneousGesture(SpatialTapGesture().onEnded { _ in
+                                camera.selectFilterTarget(.secondary)
+                            })
                     }
                 }
 
@@ -161,6 +170,24 @@ struct ContentView: View {
                     }
                     .frame(width: size.width, height: size.height)
                 }
+
+                if camera.videoFilter != .original
+                    && (camera.activeFilterTarget == .primary || camera.isSecondaryCameraVisible) {
+                    let labelFrame = camera.activeFilterTarget == .primary
+                        ? frames.main
+                        : frames.secondary
+                    Text(camera.videoFilter.title)
+                        .font(.system(size: HUDTheme.filterLabelFontSize))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .frame(maxWidth: HUDTheme.filterLabelMaximumWidth)
+                        .padding(.horizontal, HUDTheme.filterLabelHorizontalPadding)
+                        .padding(.vertical, HUDTheme.filterLabelVerticalPadding)
+                        .background(Color.black.opacity(0.56), in: Capsule())
+                        .position(x: labelFrame.midX,
+                                  y: labelFrame.maxY - HUDTheme.filterLabelYOffset)
+                        .accessibilityLabel("Фильтр: \(camera.videoFilter.title)")
+                }
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.layout)
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.isCamerasSwapped)
@@ -172,8 +199,22 @@ struct ContentView: View {
         }
     }
 
+    @ViewBuilder
+    private var backCameraContent: some View {
+        if let image = camera.backFilteredPreviewImage {
+            FilteredCameraPreviewView(image: image, isMirrored: false)
+        } else {
+            CameraPreviewView(previewLayer: camera.backPreviewLayer, isMirrored: false)
+        }
+    }
+
+    @ViewBuilder
     private var frontCameraContent: some View {
-        CameraPreviewView(previewLayer: camera.frontPreviewLayer, isMirrored: false)
+        if let image = camera.frontFilteredPreviewImage {
+            FilteredCameraPreviewView(image: image, isMirrored: true)
+        } else {
+            CameraPreviewView(previewLayer: camera.frontPreviewLayer, isMirrored: false)
+        }
     }
 
     private var pipOffsetFraction: CGSize {
@@ -242,10 +283,11 @@ struct ContentView: View {
     }
 
     /// Фокус и экспозиция по касанию основной камеры.
-    private func focusTap(in size: CGSize) -> some Gesture {
+    private func focusTap(in size: CGSize, target: VideoFilterTarget) -> some Gesture {
         SpatialTapGesture()
             .onEnded { value in
                 guard size.width > 0, size.height > 0 else { return }
+                camera.selectFilterTarget(target)
                 let point = CGPoint(x: value.location.x / size.width,
                                     y: value.location.y / size.height)
                 camera.focusAndExpose(at: point)
@@ -312,6 +354,10 @@ struct ContentView: View {
                     isSecondaryCameraVisible: $camera.isSecondaryCameraVisible,
                     isDrawingEnabled: $drawing.isDrawingEnabled,
                     selectedMediaItems: $selectedMediaItems,
+                    selectedFilter: Binding(
+                        get: { camera.videoFilter },
+                        set: { camera.selectVideoFilter($0) }
+                    ),
                     hasImportedMedia: camera.hasImportedMedia,
                     isLandscape: geometry.size.width > geometry.size.height,
                     onClearImportedMedia: { camera.clearImportedMedia() }

@@ -10,6 +10,7 @@ enum CameraError: LocalizedError {
     case outputFailed
     case connectionFailed
     case captureFailed
+    case filterProcessingFailed
     case videoMergeFailed
 
     var errorDescription: String? {
@@ -30,6 +31,8 @@ enum CameraError: LocalizedError {
             return "Не удалось создать соединение для камеры."
         case .captureFailed:
             return "Не удалось сделать снимок."
+        case .filterProcessingFailed:
+            return "Не удалось применить фильтр к изображению."
         case .videoMergeFailed:
             return "Не удалось объединить видео."
         }

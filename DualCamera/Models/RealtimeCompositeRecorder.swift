@@ -10,6 +10,8 @@ final class RealtimeCompositeRecorder {
         let splitOrientation: SplitOrientation
         let splitRatio: CGFloat
         let isSecondaryCameraVisible: Bool
+        let videoFilter: VideoFilter
+        let filterTarget: VideoFilterTarget
         let camerasSwapped: Bool
         let pipOffsetFraction: CGSize
         let pipWidthFraction: CGFloat
@@ -132,12 +134,16 @@ final class RealtimeCompositeRecorder {
 
         var outputBuffer: CVPixelBuffer?
         let poolStatus = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &outputBuffer)
-        guard poolStatus == kCVReturnSuccess,
-              let outputBuffer,
-              let image = compose(back: CIImage(cvPixelBuffer: back),
+        guard poolStatus == kCVReturnSuccess, let outputBuffer else {
+            lastVideoError = "Не удалось подготовить кадр (код буферного пула \(poolStatus))."
+            return
+        }
+        guard let image = compose(back: CIImage(cvPixelBuffer: back),
                                   front: CIImage(cvPixelBuffer: front),
                                   state: state) else {
-            lastVideoError = "Не удалось подготовить кадр (код буферного пула \(poolStatus))."
+            if lastVideoError == nil {
+                lastVideoError = CameraError.videoMergeFailed.errorDescription
+            }
             return
         }
 
@@ -192,8 +198,22 @@ final class RealtimeCompositeRecorder {
         let canvas = CGRect(origin: .zero, size: renderSize)
         let rawMain = state.camerasSwapped ? front : back
         let rawSmall = state.camerasSwapped ? back : front
-        let mainSource = state.camerasSwapped ? mirrorHorizontally(rawMain) : rawMain
-        let smallSource = state.camerasSwapped ? rawSmall : mirrorHorizontally(rawSmall)
+        let filteredMain: CIImage
+        let filteredSmall: CIImage
+        do {
+            if state.filterTarget == .primary {
+                filteredMain = try state.videoFilter.applying(to: rawMain)
+                filteredSmall = rawSmall
+            } else {
+                filteredMain = rawMain
+                filteredSmall = try state.videoFilter.applying(to: rawSmall)
+            }
+        } catch {
+            lastVideoError = error.localizedDescription
+            return nil
+        }
+        let mainSource = state.camerasSwapped ? mirrorHorizontally(filteredMain) : filteredMain
+        let smallSource = state.camerasSwapped ? filteredSmall : mirrorHorizontally(filteredSmall)
         var composed: CIImage
 
         switch state.layout {

@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreImage
 import UIKit
 import Observation
 
@@ -44,6 +45,14 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     var isCamerasSwapped = false
     /// Форма окна «картинка в картинке».
     var pipShape: PipShape = .rectangle
+    /// Выбранный Core Image фильтр.
+    var videoFilter: VideoFilter = .original
+    /// Камера, к которой применяется выбранный фильтр.
+    private(set) var activeFilterTarget: VideoFilterTarget = .primary
+    /// Отфильтрованный кадр задней камеры для превью.
+    private(set) var backFilteredPreviewImage: UIImage?
+    /// Отфильтрованный кадр передней камеры для превью.
+    private(set) var frontFilteredPreviewImage: UIImage?
     /// Текущий зум основной камеры.
     private(set) var zoomFactor: CGFloat = 1.0
     /// Доступный диапазон зума.
@@ -90,7 +99,15 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private let audioDataOutput = AVCaptureAudioDataOutput()
     private let realtimeCaptureQueue = DispatchQueue(label: "com.dualcamera.realtime-capture", qos: .userInitiated)
     private let realtimeWriterQueue = DispatchQueue(label: "com.dualcamera.realtime-writer", qos: .userInitiated)
+    private let filterPreviewQueue = DispatchQueue(label: "com.dualcamera.filter-preview", qos: .userInitiated)
     private let realtimeWriterSlots = DispatchSemaphore(value: 2)
+    private let filterPreviewSlot = DispatchSemaphore(value: 1)
+    private let filterPreviewContext = CIContext(options: [.cacheIntermediates: false])
+    private let filterStateLock = NSLock()
+    private var captureVideoFilter: VideoFilter = .original
+    private var captureFilterTarget: VideoFilterTarget = .primary
+    private var filterPreviewCamera: MovieCaptureDelegate.Camera = .back
+    private var filterPreviewErrorReported = false
     private var videoDataSynchronizer: AVCaptureDataOutputSynchronizer?
     private var realtimeVideoOutputsReady = false
     private var realtimeRecorder: RealtimeCompositeRecorder?
@@ -136,6 +153,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private var recordingPipWidthFraction: CGFloat = 0.3
     private var recordingPipPositionKeyframes: [PipPositionKeyframe] = []
     private var recordingLayoutKeyframes: [CaptureLayoutKeyframe] = []
+    private var recordingFilterKeyframes: [VideoFilterKeyframe] = []
     private var recordingCameraSwapKeyframes: [CameraSwapKeyframe] = []
     private var recordingDrawingKeyframes: [DrawingElementsKeyframe] = []
     private var recordingPhotoOverlay: UIImage?
@@ -223,6 +241,12 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                 try self.configureSession()
                 self.applyInterfaceOrientation(initialOrientation, forceCaptureOutputs: true)
                 self.session.startRunning()
+                self.filterStateLock.lock()
+                let shouldCaptureFilteredPreview = self.captureVideoFilter != .original
+                self.filterStateLock.unlock()
+                if shouldCaptureFilteredPreview {
+                    try self.configureRealtimeOutputs()
+                }
                 self.checkPreviewLayersAfterStart()
                 // Характеристики читаем на очереди сессии, применяем на главной.
                 let minZoom = self.backCamera?.minAvailableVideoZoomFactor ?? 1
@@ -288,6 +312,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                             photoOverlayOffsetFraction: CGSize = .zero,
                             photoOverlayWidthFraction: CGFloat = 0.3) {
         guard isConfigured, !isCapturing else { return }
+        let filterAtCapture = videoFilter
+        let filterTargetAtCapture = activeFilterTarget
         updateOnMain { self.isCapturing = true }
 
         sessionQueue.async { [weak self] in
@@ -297,7 +323,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                     let merged = try await self.captureAndMerge(elements: elements,
                                                                 pipOffsetFraction: pipOffsetFraction,
                                                                 photoOverlayOffsetFraction: photoOverlayOffsetFraction,
-                                                                photoOverlayWidthFraction: photoOverlayWidthFraction)
+                                                                photoOverlayWidthFraction: photoOverlayWidthFraction,
+                                                                videoFilter: filterAtCapture,
+                                                                filterTarget: filterTargetAtCapture)
                     self.updateOnMain {
                         self.lastMergedPhoto = merged
                         self.isCapturing = false
@@ -356,6 +384,12 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     func swapCameras() {
         updateOnMain {
             self.isCamerasSwapped.toggle()
+            self.backFilteredPreviewImage = nil
+            self.frontFilteredPreviewImage = nil
+            self.filterStateLock.lock()
+            self.filterPreviewCamera = Self.physicalCamera(for: self.activeFilterTarget,
+                                                           isSwapped: self.isCamerasSwapped)
+            self.filterStateLock.unlock()
             guard self.isRecording else { return }
             self.recordingLock.lock()
             guard let start = self.recordingStartDate else {
@@ -371,6 +405,89 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             }
             self.recordingLock.unlock()
         }
+    }
+
+    func selectVideoFilter(_ filter: VideoFilter) {
+        guard filter != videoFilter else { return }
+        updateOnMain {
+            self.videoFilter = filter
+            self.backFilteredPreviewImage = nil
+            self.frontFilteredPreviewImage = nil
+        }
+
+        filterStateLock.lock()
+        captureVideoFilter = filter
+        filterPreviewErrorReported = false
+        let shouldCaptureFilteredPreview = filter != .original
+        filterPreviewCamera = Self.physicalCamera(for: captureFilterTarget,
+                                                  isSwapped: isCamerasSwapped)
+        filterStateLock.unlock()
+        updateRecordingFilter(filter, target: activeFilterTarget)
+
+        guard isConfigured else { return }
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            if shouldCaptureFilteredPreview && !self.realtimeVideoOutputsReady {
+                do {
+                    try self.configureRealtimeOutputs()
+                } catch {
+                    self.updateOnMain { self.errorMessage = error.localizedDescription }
+                }
+            } else if !shouldCaptureFilteredPreview && !self.isRecording && self.realtimeVideoOutputsReady {
+                self.removeRealtimeOutputs()
+            }
+        }
+    }
+
+    func selectFilterTarget(_ target: VideoFilterTarget) {
+        guard target != activeFilterTarget else { return }
+        updateOnMain {
+            self.activeFilterTarget = target
+            self.backFilteredPreviewImage = nil
+            self.frontFilteredPreviewImage = nil
+        }
+        filterStateLock.lock()
+        captureFilterTarget = target
+        filterPreviewCamera = Self.physicalCamera(for: target, isSwapped: isCamerasSwapped)
+        filterPreviewErrorReported = false
+        let shouldCaptureFilteredPreview = captureVideoFilter != .original
+        filterStateLock.unlock()
+        updateRecordingFilter(videoFilter, target: target)
+
+        if shouldCaptureFilteredPreview && isConfigured {
+            sessionQueue.async { [weak self] in
+                guard let self, !self.realtimeVideoOutputsReady else { return }
+                do {
+                    try self.configureRealtimeOutputs()
+                } catch {
+                    self.updateOnMain { self.errorMessage = error.localizedDescription }
+                }
+            }
+        }
+    }
+
+    private static func physicalCamera(for target: VideoFilterTarget,
+                                       isSwapped: Bool) -> MovieCaptureDelegate.Camera {
+        switch (target, isSwapped) {
+        case (.primary, false), (.secondary, true): return .back
+        case (.primary, true), (.secondary, false): return .front
+        }
+    }
+
+    private func updateRecordingFilter(_ filter: VideoFilter, target: VideoFilterTarget) {
+        guard isRecording else { return }
+        recordingLock.lock()
+        defer { recordingLock.unlock() }
+        guard let recordingStartDate else { return }
+        if let last = recordingFilterKeyframes.last,
+           last.filter == filter, last.target == target {
+            return
+        }
+        recordingFilterKeyframes.append(
+            VideoFilterKeyframe(time: Date().timeIntervalSince(recordingStartDate),
+                                filter: filter,
+                                target: target)
+        )
     }
 
     // MARK: - Зум, фонарик, фокус
@@ -450,6 +567,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         let splitOrientationAtStart = splitOrientation
         let splitRatioAtStart = splitRatio
         let secondaryCameraVisibleAtStart = isSecondaryCameraVisible
+        let videoFilterAtStart = videoFilter
+        let filterTargetAtStart = activeFilterTarget
         updateOnMain {
             self.isRecording = true
             self.recordingDuration = 0
@@ -464,13 +583,15 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                      shape: shapeAtStart,
                                      splitOrientation: splitOrientationAtStart,
                                      splitRatio: splitRatioAtStart,
-                                     isSecondaryCameraVisible: secondaryCameraVisibleAtStart)
+                                     isSecondaryCameraVisible: secondaryCameraVisibleAtStart,
+                                     videoFilter: videoFilterAtStart,
+                                     filterTarget: filterTargetAtStart)
         }
 
         sessionQueue.async { [weak self] in
             guard let self else { return }
 
-            if !useRealtimeComposite && self.realtimeVideoOutputsReady {
+            if !useRealtimeComposite && videoFilterAtStart == .original && self.realtimeVideoOutputsReady {
                 self.removeRealtimeOutputs()
             }
 
@@ -767,6 +888,12 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             session.addOutputWithNoConnections(frontVideoDataOutput)
             try connect(backInput, to: backVideoDataOutput, camera: .back)
             try connect(frontInput, to: frontVideoDataOutput, camera: .front)
+            let orientation = currentInterfaceVideoOrientation()
+            for connection in [backVideoDataConnection, frontVideoDataConnection] {
+                if let connection, connection.isVideoOrientationSupported {
+                    connection.videoOrientation = orientation
+                }
+            }
 
             if let audioInput, let audioPort = audioInput.ports.first(where: { $0.mediaType == .audio }),
                session.canAddOutput(audioDataOutput) {
@@ -1185,7 +1312,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private func captureAndMerge(elements: [DrawingElement],
                                  pipOffsetFraction: CGSize,
                                  photoOverlayOffsetFraction: CGSize,
-                                 photoOverlayWidthFraction: CGFloat) async throws -> UIImage {
+                                 photoOverlayWidthFraction: CGFloat,
+                                 videoFilter: VideoFilter,
+                                 filterTarget: VideoFilterTarget) async throws -> UIImage {
         defer { clearPhotoDelegates() }
 
         // Запускаем оба захвата подряд. Вызовы возвращаются мгновенно,
@@ -1205,13 +1334,15 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         let mirroredFrontImage = PhotoMerger.mirrorHorizontally(frontImage)
         let primary = isCamerasSwapped ? mirroredFrontImage : backImage
         let secondary = isCamerasSwapped ? backImage : mirroredFrontImage
-        return PhotoMerger.merge(back: primary,
+        return try PhotoMerger.merge(back: primary,
                                  front: secondary,
                                  layout: layout,
                                  shape: pipShape,
                                  splitOrientation: splitOrientation,
                                  splitRatio: splitRatio,
                                  isSecondaryCameraVisible: isSecondaryCameraVisible,
+                                 videoFilter: videoFilter,
+                                 filterTarget: filterTarget,
                                  pipOffsetFraction: pipOffsetFraction,
                                  photoOverlay: importedPhoto,
                                  photoOverlayOffsetFraction: photoOverlayOffsetFraction,
@@ -1331,6 +1462,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         recordingLock.lock()
         let pipKeyframes = recordingPipPositionKeyframes
         let layoutKeyframes = recordingLayoutKeyframes
+        let filterKeyframes = recordingFilterKeyframes
         let cameraSwapKeyframes = recordingCameraSwapKeyframes
         let drawingKeyframes = recordingDrawingKeyframes
         let photoKeyframes = recordingPhotoOverlayKeyframes
@@ -1365,6 +1497,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                     pipPositionKeyframes: pipKeyframes,
                     layoutKeyframes: layoutKeyframes,
                     cameraSwapKeyframes: cameraSwapKeyframes,
+                    filterKeyframes: filterKeyframes,
                     initialCamerasSwapped: outputCamerasSwapped,
                     drawingKeyframes: drawingKeyframes,
                     photoOverlay: outputPhotoOverlay,
@@ -1395,6 +1528,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         recordingError = nil
         recordingPipPositionKeyframes.removeAll()
         recordingLayoutKeyframes.removeAll()
+        recordingFilterKeyframes.removeAll()
         recordingCameraSwapKeyframes.removeAll()
         recordingDrawingKeyframes.removeAll()
         recordingPhotoOverlayKeyframes.removeAll()
@@ -1434,7 +1568,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                      shape: PipShape,
                                      splitOrientation: SplitOrientation,
                                      splitRatio: CGFloat,
-                                     isSecondaryCameraVisible: Bool) {
+                                     isSecondaryCameraVisible: Bool,
+                                     videoFilter: VideoFilter,
+                                     filterTarget: VideoFilterTarget) {
         recordingStartDate = Date()
         recordingPipWidthFraction = widthFraction
         recordingLock.lock()
@@ -1450,6 +1586,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                   splitOrientation: splitOrientation,
                                   splitRatio: splitRatio,
                                   isSecondaryCameraVisible: isSecondaryCameraVisible)
+        ]
+        recordingFilterKeyframes = [
+            VideoFilterKeyframe(time: 0, filter: videoFilter, target: filterTarget)
         ]
         recordingCameraSwapKeyframes = [
             CameraSwapKeyframe(time: 0, isSwapped: camerasSwapped)
@@ -1534,25 +1673,60 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         recordingLock.lock()
         let activeRecorder = isUsingRealtimeRecorder ? realtimeRecorder : nil
         recordingLock.unlock()
-        guard let activeRecorder else { return }
-        activeRecorder.recordSynchronizationEvent(
-            backPresent: backData != nil,
-            frontPresent: frontData != nil,
-            backDropped: backDropped,
-            frontDropped: frontDropped
-        )
+        filterStateLock.lock()
+        let filter = captureVideoFilter
+        let previewCamera = filterPreviewCamera
+        filterStateLock.unlock()
+        guard activeRecorder != nil || filter != .original else { return }
+        activeRecorder?.recordSynchronizationEvent(backPresent: backData != nil,
+                                                   frontPresent: frontData != nil,
+                                                   backDropped: backDropped,
+                                                   frontDropped: frontDropped)
 
         var backPTS = CMTime.invalid
+        var currentBackBuffer: CVPixelBuffer?
+        var currentFrontBuffer: CVPixelBuffer?
         if let backData, !backDropped,
            let buffer = CMSampleBufferGetImageBuffer(backData.sampleBuffer) {
             latestRealtimeBackBuffer = buffer
+            currentBackBuffer = buffer
             backPTS = CMSampleBufferGetPresentationTimeStamp(backData.sampleBuffer)
         }
         if let frontData, !frontDropped,
            let buffer = CMSampleBufferGetImageBuffer(frontData.sampleBuffer) {
             latestRealtimeFrontBuffer = buffer
+            currentFrontBuffer = buffer
         }
 
+        if filter != .original {
+            let buffer = previewCamera == .back ? currentBackBuffer : currentFrontBuffer
+            if let buffer, filterPreviewSlot.wait(timeout: .now()) == .success {
+                let previewSlot = filterPreviewSlot
+                filterPreviewQueue.async { [weak self, previewSlot] in
+                    defer { previewSlot.signal() }
+                    guard let self else { return }
+                    do {
+                        let image = try self.makeFilteredPreviewImage(buffer, filter: filter)
+                        self.updateOnMain {
+                            self.filterStateLock.lock()
+                            let isCurrent = self.captureVideoFilter == filter
+                                && self.filterPreviewCamera == previewCamera
+                            self.filterStateLock.unlock()
+                            guard isCurrent else { return }
+                            if previewCamera == .back {
+                                self.backFilteredPreviewImage = image
+                            } else {
+                                self.frontFilteredPreviewImage = image
+                            }
+                        }
+                    } catch {
+                        self.reportFilterPreviewError(error)
+                    }
+                }
+            }
+        }
+
+        guard let activeRecorder else { return }
         guard let backBuffer = latestRealtimeBackBuffer,
               let frontBuffer = latestRealtimeFrontBuffer,
               backPTS.isValid,
@@ -1569,9 +1743,34 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         }
     }
 
+    private func makeFilteredPreviewImage(_ buffer: CVPixelBuffer,
+                                          filter: VideoFilter) throws -> UIImage {
+        let source = CIImage(cvPixelBuffer: buffer)
+        let filtered = try filter.applying(to: source)
+        let maxDimension = max(filtered.extent.width, filtered.extent.height)
+        let scale = min(1, VideoFilter.previewMaxDimension / max(maxDimension, 1))
+        let preview = filtered.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let extent = preview.extent.integral
+        guard extent.width > 0, extent.height > 0,
+              let cgImage = filterPreviewContext.createCGImage(preview, from: extent) else {
+            throw CameraError.filterProcessingFailed
+        }
+        return UIImage(cgImage: cgImage)
+    }
+
+    private func reportFilterPreviewError(_ error: Error) {
+        filterStateLock.lock()
+        let shouldReport = !filterPreviewErrorReported
+        filterPreviewErrorReported = true
+        filterStateLock.unlock()
+        guard shouldReport else { return }
+        updateOnMain { self.errorMessage = error.localizedDescription }
+    }
+
     private func realtimeFrameStateLocked() -> RealtimeCompositeRecorder.FrameState {
         let pip = recordingPipPositionKeyframes.last
         let layout = recordingLayoutKeyframes.last
+        let filter = recordingFilterKeyframes.last
         let cameraSwap = recordingCameraSwapKeyframes.last
         let photo = recordingPhotoOverlayKeyframes.last
         let drawing = recordingDrawingKeyframes.last?.elements ?? recordingElements
@@ -1581,6 +1780,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             splitOrientation: layout?.splitOrientation ?? recordingSplitOrientation,
             splitRatio: layout?.splitRatio ?? recordingSplitRatio,
             isSecondaryCameraVisible: layout?.isSecondaryCameraVisible ?? true,
+            videoFilter: filter?.filter ?? .original,
+            filterTarget: filter?.target ?? .primary,
             camerasSwapped: cameraSwap?.isSwapped ?? recordingCamerasSwapped,
             pipOffsetFraction: pip?.offsetFraction ?? recordingPipOffsetFraction,
             pipWidthFraction: pip?.widthFraction ?? recordingPipWidthFraction,

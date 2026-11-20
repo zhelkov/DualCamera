@@ -25,6 +25,9 @@ enum VideoMerger {
                       pipPositionKeyframes: [PipPositionKeyframe] = [],
                       layoutKeyframes: [CaptureLayoutKeyframe] = [],
                       cameraSwapKeyframes: [CameraSwapKeyframe] = [],
+                      videoFilter: VideoFilter = .original,
+                      filterTarget: VideoFilterTarget = .primary,
+                      filterKeyframes: [VideoFilterKeyframe] = [],
                       initialCamerasSwapped: Bool = false,
                       drawingKeyframes: [DrawingElementsKeyframe] = [],
                       photoOverlay: UIImage? = nil,
@@ -68,6 +71,9 @@ enum VideoMerger {
                                      splitRatio: SplitRatio.defaultValue,
                                      isSecondaryCameraVisible: true)]
             : layoutKeyframes
+        let effectiveFilterKeyframes = filterKeyframes.isEmpty
+            ? [VideoFilterKeyframe(time: 0, filter: videoFilter, target: filterTarget)]
+            : filterKeyframes
         let normalizedBackImage = Self.normalizedCIImage(backImage)
         let normalizedFrontImage = Self.normalizedCIImage(frontImage)
         guard (backImage == nil || normalizedBackImage != nil),
@@ -126,6 +132,9 @@ enum VideoMerger {
                 frontImage: normalizedFrontImage,
                 layoutKeyframes: effectiveLayoutKeyframes,
                 cameraSwapKeyframes: cameraSwapKeyframes,
+                videoFilter: videoFilter,
+                filterTarget: filterTarget,
+                filterKeyframes: effectiveFilterKeyframes,
                 initialCamerasSwapped: initialCamerasSwapped
             )
         ]
