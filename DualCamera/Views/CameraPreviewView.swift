@@ -11,26 +11,26 @@ struct CameraPreviewView: UIViewRepresentable {
         PreviewContainerView(previewLayer: previewLayer, isMirrored: isMirrored)
     }
 
-    struct FilteredCameraPreviewView: View {
-        let image: UIImage
-        let isMirrored: Bool
-
-        var body: some View {
-            GeometryReader { geometry in
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-                    .scaleEffect(x: isMirrored ? -1 : 1, y: 1)
-                    .clipped()
-            }
-        }
-    }
-
     func updateUIView(_ uiView: PreviewContainerView, context: Context) {
         // Слой может смениться при перестановке камер местами.
         uiView.previewLayer = previewLayer
         uiView.isMirrored = isMirrored
+    }
+}
+
+struct FilteredCameraPreviewView: View {
+    let image: UIImage
+    let isMirrored: Bool
+
+    var body: some View {
+        GeometryReader { geometry in
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .scaleEffect(x: isMirrored ? -1 : 1, y: 1)
+                .clipped()
+        }
     }
 }
 
