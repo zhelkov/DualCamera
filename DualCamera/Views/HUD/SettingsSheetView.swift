@@ -73,7 +73,7 @@ struct SettingsSheetView: View {
     private var aspectRatioGroup: some View {
         optionGroup("Формат кадра") {
             HStack(spacing: HUDTheme.settingsOptionSpacing) {
-                ForEach(CaptureAspectRatio.allCases) { value in
+                ForEach(CaptureAspectRatio.allCases, id: \.id) { value in
                     optionButton(value.title, isSelected: settings.aspectRatio == value) {
                         settings.aspectRatio = value
                     }
@@ -85,7 +85,7 @@ struct SettingsSheetView: View {
     private var resolutionGroup: some View {
         optionGroup("Режим видео") {
             HStack(spacing: HUDTheme.settingsOptionSpacing) {
-                ForEach(VideoResolution.allCases) { value in
+                ForEach(VideoResolution.allCases, id: \.id) { value in
                     optionButton(value.rawValue, isSelected: settings.resolution == value) {
                         settings.resolution = value
                     }
@@ -97,7 +97,7 @@ struct SettingsSheetView: View {
     private var frameRateGroup: some View {
         optionGroup("Частота кадров") {
             HStack(spacing: HUDTheme.settingsOptionSpacing) {
-                ForEach([VideoFrameRate.fps30, .fps24, .fps60]) { value in
+                ForEach([VideoFrameRate.fps30, .fps24, .fps60], id: \.id) { value in
                     optionButton(value.title, isSelected: settings.frameRate == value) {
                         settings.frameRate = value
                     }
@@ -110,7 +110,7 @@ struct SettingsSheetView: View {
         optionGroup("Качество звука") {
             VStack(alignment: .leading, spacing: HUDTheme.settingsHintSpacing) {
                 HStack(spacing: HUDTheme.settingsOptionSpacing) {
-                    ForEach(AudioRecordingQuality.allCases) { value in
+                    ForEach(AudioRecordingQuality.allCases, id: \.id) { value in
                         optionButton(value.title,
                                      isSelected: settings.audioQuality == value,
                                      isEnabled: !(hasImportedMedia && value == .appleLossless)) {

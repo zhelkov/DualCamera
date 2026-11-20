@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-enum CaptureAspectRatio: String, CaseIterable, Identifiable {
+enum CaptureAspectRatio: String, CaseIterable, Identifiable, Hashable {
     case portrait916 = "9:16"
     case fourThree = "4:3"
     case square = "1:1"
@@ -21,7 +21,7 @@ enum CaptureAspectRatio: String, CaseIterable, Identifiable {
     }
 }
 
-enum VideoResolution: String, CaseIterable, Identifiable {
+enum VideoResolution: String, CaseIterable, Identifiable, Hashable {
     case p720 = "720p"
     case p1080 = "1080p"
     case uhd4k = "4K"
@@ -43,7 +43,7 @@ enum VideoResolution: String, CaseIterable, Identifiable {
     }
 }
 
-enum VideoFrameRate: Int, CaseIterable, Identifiable {
+enum VideoFrameRate: Int, CaseIterable, Identifiable, Hashable {
     case fps30 = 30
     case fps24 = 24
     case fps60 = 60
@@ -53,7 +53,7 @@ enum VideoFrameRate: Int, CaseIterable, Identifiable {
     var title: String { "\(rawValue) FPS" }
 }
 
-enum AudioRecordingQuality: String, CaseIterable, Identifiable {
+enum AudioRecordingQuality: String, CaseIterable, Identifiable, Hashable {
     case aac
     case appleLossless
 
