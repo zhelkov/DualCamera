@@ -4,6 +4,7 @@ import UIKit
 struct HUDOverlayView: View {
     let size: CGSize
     let safeTop: CGFloat
+    let isLandscape: Bool
     @Binding var isSettingsPresented: Bool
     let topControls: TopControlsView
     let statusLabels: AnyView

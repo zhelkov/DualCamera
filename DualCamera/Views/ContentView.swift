@@ -578,6 +578,7 @@ struct ContentView: View {
             HUDOverlayView(
                 size: geometry.size,
                 safeTop: geometry.safeAreaInsets.top,
+                isLandscape: isDeviceLandscape,
                 isSettingsPresented: $isSettingsPresented,
                 topControls: TopControlsView(
                     layout: $camera.layout,
