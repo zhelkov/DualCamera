@@ -69,59 +69,94 @@ struct PointerMarkerView: View {
 extension CGPath {
     /// Приближает путь ломаными: кривые Безье разбиваются на отрезки.
     func flattenedPolylines(curveSegments: Int = 12) -> [[CGPoint]] {
-        var polylines: [[CGPoint]] = []
-        var current: [CGPoint] = []
-        let steps = max(curveSegments, 2)
-
+        let builder = PolylineBuilder(steps: max(curveSegments, 2))
         applyWithBlock { elementPointer in
-            let element = elementPointer.pointee
-            switch element.type {
-            case .moveToPoint:
-                if current.count > 1 { polylines.append(current) }
-                current = [element.points[0]]
-
-            case .addLineToPoint:
-                current.append(element.points[0])
-
-            case .addQuadCurveToPoint:
-                let start = current.last ?? element.points[1]
-                let control = element.points[0]
-                let end = element.points[1]
-                for step in 1...steps {
-                    let t = CGFloat(step) / CGFloat(steps)
-                    let inverse = 1 - t
-                    current.append(CGPoint(
-                        x: inverse * inverse * start.x + 2 * inverse * t * control.x + t * t * end.x,
-                        y: inverse * inverse * start.y + 2 * inverse * t * control.y + t * t * end.y
-                    ))
-                }
-
-            case .addCurveToPoint:
-                let start = current.last ?? element.points[2]
-                let control1 = element.points[0]
-                let control2 = element.points[1]
-                let end = element.points[2]
-                for step in 1...steps {
-                    let point = Self.cubicPoint(start: start,
-                                                control1: control1,
-                                                control2: control2,
-                                                end: end,
-                                                t: CGFloat(step) / CGFloat(steps))
-                    current.append(point)
-                }
-
-            case .closeSubpath:
-                if let first = current.first { current.append(first) }
-                if current.count > 1 { polylines.append(current) }
-                current = []
-
-            @unknown default:
-                break
-            }
+            builder.handle(elementPointer.pointee)
         }
+        return builder.finish()
+    }
+}
 
-        if current.count > 1 { polylines.append(current) }
-        return polylines
+private final class PolylineBuilder {
+    let steps: Int
+    private var polylines: [[CGPoint]] = []
+    private var current: [CGPoint] = []
+
+    init(steps: Int) {
+        self.steps = steps
+    }
+
+    func handle(_ element: CGPathElement) {
+        switch element.type {
+        case .moveToPoint:
+            closeCurrent()
+            current = [element.points[0]]
+        case .addLineToPoint:
+            current.append(element.points[0])
+        case .addQuadCurveToPoint:
+            appendQuad(control: element.points[0], end: element.points[1])
+        case .addCurveToPoint:
+            appendCubic(control1: element.points[0],
+                        control2: element.points[1],
+                        end: element.points[2])
+        case .closeSubpath:
+            if let first = current.first {
+                current.append(first)
+            }
+            closeCurrent()
+        @unknown default:
+            break
+        }
+    }
+
+    func finish() -> [[CGPoint]] {
+        var result = polylines
+        if current.count > 1 {
+            result.append(current)
+        }
+        return result
+    }
+
+    private func closeCurrent() {
+        if current.count > 1 {
+            polylines.append(current)
+        }
+        current = []
+    }
+
+    private func appendQuad(control: CGPoint, end: CGPoint) {
+        let start = current.last ?? control
+        for step in 1...steps {
+            let t = CGFloat(step) / CGFloat(steps)
+            let point = Self.quadPoint(start: start, control: control, end: end, t: t)
+            current.append(point)
+        }
+    }
+
+    private func appendCubic(control1: CGPoint, control2: CGPoint, end: CGPoint) {
+        let start = current.last ?? control2
+        for step in 1...steps {
+            let t = CGFloat(step) / CGFloat(steps)
+            let point = Self.cubicPoint(start: start,
+                                        control1: control1,
+                                        control2: control2,
+                                        end: end,
+                                        t: t)
+            current.append(point)
+        }
+    }
+
+    private static func quadPoint(start: CGPoint,
+                                  control: CGPoint,
+                                  end: CGPoint,
+                                  t: CGFloat) -> CGPoint {
+        let inverse = 1 - t
+        let w0 = inverse * inverse
+        let w1 = 2 * inverse * t
+        let w2 = t * t
+        let x = w0 * start.x + w1 * control.x + w2 * end.x
+        let y = w0 * start.y + w1 * control.y + w2 * end.y
+        return CGPoint(x: x, y: y)
     }
 
     private static func cubicPoint(start: CGPoint,
