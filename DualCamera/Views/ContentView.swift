@@ -1,8 +1,10 @@
 import SwiftUI
 import AVFoundation
+import Combine
 import Photos
 import PhotosUI
 import CoreTransferable
+import UIKit
 import UniformTypeIdentifiers
 
 struct ContentView: View {
@@ -23,6 +25,9 @@ struct ContentView: View {
     @State private var focusIndicator: FocusIndicatorState?
     @State private var focusGestureStartDate: Date?
     @State private var exposureDragStartBias: Float?
+    @State private var isDeviceLandscape = false
+    @State private var isFilterLabelVisible = false
+    @State private var filterLabelHideWorkItem: DispatchWorkItem?
     @State private var drawing = DrawingEngine()
     @State private var selectedMediaItems: [PhotosPickerItem] = []
 
@@ -81,6 +86,9 @@ struct ContentView: View {
             .onChange(of: camera.importedVideoURL) { _, _ in
                 if !isFrontLightAvailable { isFrontLightEnabled = false }
             }
+            .onChange(of: camera.videoFilter) { _, _ in
+                showFilterLabelTemporarily()
+            }
     }
 
     private var lifecycleView: some View {
@@ -89,6 +97,13 @@ struct ContentView: View {
             .task {
                 camera.applyCaptureSettings(settings.snapshot)
                 await camera.requestAccessAndSetup()
+            }
+            .onAppear {
+                UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+                updateDeviceOrientation()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+                updateDeviceOrientation()
             }
             .onDisappear { camera.stopRunning() }
             .onChange(of: scenePhase) { _, newPhase in
@@ -137,29 +152,14 @@ struct ContentView: View {
 
     private var cameraSettingsOverlay: some View {
         GeometryReader { geometry in
-            let isLandscape = geometry.size.width > geometry.size.height
             let topStripHeight = max(HUDTheme.topStripMinimumHeight,
                                      geometry.safeAreaInsets.top + HUDTheme.topSafeAreaAddition)
-            let bottomStripHeight = isLandscape
-                ? HUDTheme.landscapeBottomStripMinimumHeight
-                : HUDTheme.bottomStripMinimumHeight
-            // В ландшафте тёмные полосы стоят вдоль малых сторон, поэтому
-            // область превью сужается по бокам, а не по высоте.
-            let sideStripWidth = max(HUDTheme.landscapeSideStripMinimumWidth,
-                                     max(geometry.safeAreaInsets.leading,
-                                         geometry.safeAreaInsets.trailing)
-                                        + HUDTheme.landscapeSideStripSafeAreaAddition)
-            let previewRect = isLandscape
-                ? CGRect(x: sideStripWidth,
-                         y: 0,
-                         width: max(0, geometry.size.width - 2 * sideStripWidth),
-                         height: geometry.size.height)
-                : CGRect(x: 0,
-                         y: topStripHeight,
-                         width: geometry.size.width,
-                         height: max(0, geometry.size.height - topStripHeight - bottomStripHeight))
-            let isPortrait = !isLandscape
-            let aspectRatio = settings.aspectRatio.ratio(isPortrait: isPortrait)
+            let bottomStripHeight = HUDTheme.bottomStripMinimumHeight
+            let previewRect = CGRect(x: 0,
+                                     y: topStripHeight,
+                                     width: geometry.size.width,
+                                     height: max(0, geometry.size.height - topStripHeight - bottomStripHeight))
+            let aspectRatio = settings.aspectRatio.ratio(isPortrait: true)
             let guideWidth = min(previewRect.width, previewRect.height * aspectRatio)
             let guideHeight = guideWidth / aspectRatio
             let guideRect = CGRect(x: previewRect.minX + (previewRect.width - guideWidth) / 2,
@@ -578,9 +578,6 @@ struct ContentView: View {
             HUDOverlayView(
                 size: geometry.size,
                 safeTop: geometry.safeAreaInsets.top,
-                safeLeft: geometry.safeAreaInsets.leading,
-                safeRight: geometry.safeAreaInsets.trailing,
-                isLandscape: geometry.size.width > geometry.size.height,
                 isSettingsPresented: $isSettingsPresented,
                 topControls: TopControlsView(
                     layout: $camera.layout,
@@ -595,7 +592,7 @@ struct ContentView: View {
                     ),
                     pointerPosition: $pointerPosition,
                     hasImportedMedia: camera.hasImportedMedia,
-                    isLandscape: geometry.size.width > geometry.size.height,
+                    isLandscape: isDeviceLandscape,
                     hapticsEnabled: settings.hapticsEnabled,
                     onClearImportedMedia: { camera.clearImportedMedia() }
                 ),
@@ -603,7 +600,7 @@ struct ContentView: View {
                 filterLabel: AnyView(filterLabelView),
                 hapticsEnabled: settings.hapticsEnabled,
                 captureBar: CaptureBarView(
-                    isLandscape: geometry.size.width > geometry.size.height,
+                    isLandscape: isDeviceLandscape,
                     hasTorch: camera.hasTorch,
                     isTorchOn: camera.isTorchOn,
                     isFrontLightOn: isFrontLightEnabled && isFrontLightAvailable,
@@ -653,6 +650,18 @@ struct ContentView: View {
         return String(format: "%02d:%02d", total / 60, total % 60)
     }
 
+    /// Интерфейс закреплён в портрете: по датчику поворачиваем только значки.
+    private func updateDeviceOrientation() {
+        switch UIDevice.current.orientation {
+        case .landscapeLeft, .landscapeRight:
+            isDeviceLandscape = true
+        case .portrait, .portraitUpsideDown:
+            isDeviceLandscape = false
+        default:
+            break
+        }
+    }
+
     private var statusLabels: some View {
         HStack(spacing: HUDTheme.statusLabelsSpacing) {
             Text(settings.resolution.rawValue)
@@ -676,8 +685,26 @@ struct ContentView: View {
             .foregroundStyle(.white)
             .lineLimit(1)
             .frame(maxWidth: HUDTheme.filterLabelMaximumWidth)
+            .opacity(isFilterLabelVisible ? 1 : 0)
+            .animation(.easeOut(duration: HUDTheme.stateTransitionDuration), value: isFilterLabelVisible)
             .accessibilityLabel("Фильтр: \(camera.videoFilter.title)")
             .allowsHitTesting(false)
+    }
+
+    /// Название фильтра показываем только в момент выбора и затем скрываем.
+    private func showFilterLabelTemporarily() {
+        filterLabelHideWorkItem?.cancel()
+        withAnimation(.easeIn(duration: HUDTheme.stateTransitionDuration)) {
+            isFilterLabelVisible = true
+        }
+        let workItem = DispatchWorkItem {
+            withAnimation(.easeOut(duration: HUDTheme.stateTransitionDuration)) {
+                isFilterLabelVisible = false
+            }
+        }
+        filterLabelHideWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + HUDTheme.filterLabelVisibleDuration,
+                                      execute: workItem)
     }
 
     private func dateTimeString(_ date: Date) -> String {

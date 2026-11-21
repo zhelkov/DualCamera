@@ -20,11 +20,11 @@ struct TopControlsView: View {
     let onClearImportedMedia: () -> Void
 
     private var buttonSize: CGFloat {
-        isLandscape ? HUDTheme.landscapeIconButtonSize : HUDTheme.iconButtonSize
+        HUDTheme.iconButtonSize
     }
 
     private var variantSize: CGFloat {
-        isLandscape ? HUDTheme.landscapeVariantButtonSize : HUDTheme.variantButtonSize
+        HUDTheme.variantButtonSize
     }
 
     var body: some View {
@@ -37,14 +37,14 @@ struct TopControlsView: View {
     }
 
     private var leftControls: some View {
-        VStack(spacing: isLandscape ? HUDTheme.landscapeModeColumnGap : HUDTheme.modeColumnGap) {
-            VStack(spacing: isLandscape ? HUDTheme.landscapeButtonGap : HUDTheme.controlBlockGap) {
+        VStack(spacing: HUDTheme.modeColumnGap) {
+            VStack(spacing: HUDTheme.controlBlockGap) {
                 modeButton(.splitScreen, symbol: "rectangle.split.2x1", label: "Сплит")
                 modeButton(.pip, symbol: "pip", label: "Картинка в картинке")
             }
             .hudPanel()
 
-            VStack(spacing: isLandscape ? HUDTheme.landscapeButtonGap : HUDTheme.controlBlockGap) {
+            VStack(spacing: HUDTheme.controlBlockGap) {
                 if layout == .splitScreen {
                     variantButton(
                         "rectangle.split.2x1",
@@ -72,15 +72,15 @@ struct TopControlsView: View {
                     }
                 }
             }
-            .frame(minHeight: isLandscape ? 0 : HUDTheme.splitVariantMinimumHeight)
+            .frame(minHeight: HUDTheme.splitVariantMinimumHeight)
             .hudPanel()
             .animation(.easeInOut(duration: HUDTheme.stateTransitionDuration), value: layout)
         }
     }
 
     private var rightControls: some View {
-        VStack(spacing: isLandscape ? HUDTheme.landscapeModeColumnGap : HUDTheme.modeColumnGap) {
-            VStack(spacing: isLandscape ? HUDTheme.landscapeButtonGap : HUDTheme.controlBlockGap) {
+        VStack(spacing: HUDTheme.modeColumnGap) {
+            VStack(spacing: HUDTheme.controlBlockGap) {
                 if hasImportedMedia {
                     iconButton("xmark", label: "Убрать импортированное медиа", size: buttonSize, active: false,
                                action: onClearImportedMedia)

@@ -132,6 +132,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     // MARK: - Ротация
 
     private var orientationObserverRegistered = false
+    /// Последняя известная ориентация кадра по датчику устройства.
+    private var lastVideoOrientation: AVCaptureVideoOrientation = .portrait
     private var backPhotoConnection: AVCaptureConnection?
     private var frontPhotoConnection: AVCaptureConnection?
     private var backMovieConnection: AVCaptureConnection?
@@ -1261,6 +1263,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private func registerOrientationObserver() {
         guard !orientationObserverRegistered else { return }
         UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+        updateVideoOrientationFromDevice()
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(deviceOrientationDidChange),
                                                name: UIDevice.orientationDidChangeNotification,
@@ -1269,28 +1272,27 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     }
 
     @objc private func deviceOrientationDidChange(_ notification: Notification) {
-        // Face-up/face-down readings are ambiguous for a camera preview. Use
-        // the interface orientation after iOS has completed its rotation.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            guard let self else { return }
-            let orientation = self.currentInterfaceVideoOrientation()
-            self.sessionQueue.async {
-                self.applyInterfaceOrientation(orientation)
-            }
+        updateVideoOrientationFromDevice()
+        let orientation = lastVideoOrientation
+        sessionQueue.async { [weak self] in
+            self?.applyInterfaceOrientation(orientation)
+        }
+    }
+
+    /// Интерфейс закреплён в портрете, поэтому ориентацию кадра берём
+    /// с датчика устройства.
+    private func updateVideoOrientationFromDevice() {
+        switch UIDevice.current.orientation {
+        case .portrait: lastVideoOrientation = .portrait
+        case .portraitUpsideDown: lastVideoOrientation = .portraitUpsideDown
+        case .landscapeLeft: lastVideoOrientation = .landscapeRight
+        case .landscapeRight: lastVideoOrientation = .landscapeLeft
+        default: break
         }
     }
 
     private func currentInterfaceVideoOrientation() -> AVCaptureVideoOrientation {
-        let scene = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }
-        switch scene?.interfaceOrientation ?? .unknown {
-        case .landscapeLeft: return .landscapeLeft
-        case .landscapeRight: return .landscapeRight
-        case .portraitUpsideDown: return .portraitUpsideDown
-        case .portrait, .unknown: return .portrait
-        @unknown default: return .portrait
-        }
+        lastVideoOrientation
     }
 
     private func applyInterfaceOrientation(_ orientation: AVCaptureVideoOrientation,

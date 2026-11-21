@@ -18,10 +18,10 @@ targets:
         TARGETED_DEVICE_FAMILY: '1'
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        CURRENT_PROJECT_VERSION: '71'
-        MARKETING_VERSION: '1.8.22'
+        CURRENT_PROJECT_VERSION: '72'
+        MARKETING_VERSION: '1.8.23'
         INFOPLIST_KEY_NSCameraUsageDescription: 'Для одновременной съёмки с передней и задней камер.'
         INFOPLIST_KEY_NSMicrophoneUsageDescription: 'Для записи звука вместе с видео.'
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: 'Для автоматического сохранения готовых фото и видео в медиатеку.'
-        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: 'UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight'
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: 'UIInterfaceOrientationPortrait'
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: 'UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight'
