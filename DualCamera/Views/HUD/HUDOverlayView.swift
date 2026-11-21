@@ -4,6 +4,8 @@ import UIKit
 struct HUDOverlayView: View {
     let size: CGSize
     let safeTop: CGFloat
+    let safeLeft: CGFloat
+    let safeRight: CGFloat
     let isLandscape: Bool
     @Binding var isSettingsPresented: Bool
     let topControls: TopControlsView
@@ -64,28 +66,56 @@ struct HUDOverlayView: View {
         .frame(width: size.width, height: size.height)
     }
 
+    private var sideStripWidth: CGFloat {
+        max(HUDTheme.landscapeSideStripMinimumWidth,
+            max(safeLeft, safeRight) + HUDTheme.landscapeSideStripSafeAreaAddition)
+    }
+
+    @ViewBuilder
     private var strips: some View {
-        VStack(spacing: 0) {
-            ZStack(alignment: .top) {
+        if isLandscape {
+            HStack(spacing: 0) {
                 HUDTheme.ink
-                Capsule()
-                    .fill(HUDTheme.islandFill)
-                    .frame(width: HUDTheme.islandWidth, height: HUDTheme.islandHeight)
+                    .frame(width: sideStripWidth)
                     .overlay {
-                        Capsule().stroke(HUDTheme.islandBorder, lineWidth: 1)
+                        Capsule()
+                            .fill(HUDTheme.islandFill)
+                            .frame(width: HUDTheme.islandWidth, height: HUDTheme.islandHeight)
+                            .overlay {
+                                Capsule().stroke(HUDTheme.islandBorder, lineWidth: 1)
+                            }
+                            .rotationEffect(.degrees(90))
                     }
-                    .padding(.top, HUDTheme.islandTopInset)
+                Spacer(minLength: 0)
+                HUDTheme.ink
+                    .frame(width: sideStripWidth)
             }
-            .frame(height: topStripHeight)
+            .frame(width: size.width, height: size.height)
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+        } else {
+            VStack(spacing: 0) {
+                ZStack(alignment: .top) {
+                    HUDTheme.ink
+                    Capsule()
+                        .fill(HUDTheme.islandFill)
+                        .frame(width: HUDTheme.islandWidth, height: HUDTheme.islandHeight)
+                        .overlay {
+                            Capsule().stroke(HUDTheme.islandBorder, lineWidth: 1)
+                        }
+                        .padding(.top, HUDTheme.islandTopInset)
+                }
+                .frame(height: topStripHeight)
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
 
-            HUDTheme.ink
-                .frame(height: bottomStripHeight)
+                HUDTheme.ink
+                    .frame(height: bottomStripHeight)
+            }
+            .frame(width: size.width, height: size.height)
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
         }
-        .frame(width: size.width, height: size.height)
-        .ignoresSafeArea()
-        .allowsHitTesting(false)
     }
 
     private var settingsButton: some View {

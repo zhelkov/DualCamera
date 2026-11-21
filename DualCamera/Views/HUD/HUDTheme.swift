@@ -24,6 +24,8 @@ enum HUDTheme {
     static let topStripMinimumHeight: CGFloat = 54
     static let bottomStripMinimumHeight: CGFloat = 110
     static let landscapeBottomStripMinimumHeight: CGFloat = 105
+    static let landscapeSideStripMinimumWidth: CGFloat = 56
+    static let landscapeSideStripSafeAreaAddition: CGFloat = 14
     static let topSafeAreaAddition: CGFloat = 36
     static let iconButtonSize: CGFloat = 38
     static let variantButtonSize: CGFloat = 34

@@ -143,10 +143,21 @@ struct ContentView: View {
             let bottomStripHeight = isLandscape
                 ? HUDTheme.landscapeBottomStripMinimumHeight
                 : HUDTheme.bottomStripMinimumHeight
-            let previewRect = CGRect(x: 0,
-                                     y: topStripHeight,
-                                     width: geometry.size.width,
-                                     height: max(0, geometry.size.height - topStripHeight - bottomStripHeight))
+            // В ландшафте тёмные полосы стоят вдоль малых сторон, поэтому
+            // область превью сужается по бокам, а не по высоте.
+            let sideStripWidth = max(HUDTheme.landscapeSideStripMinimumWidth,
+                                     max(geometry.safeAreaInsets.leading,
+                                         geometry.safeAreaInsets.trailing)
+                                        + HUDTheme.landscapeSideStripSafeAreaAddition)
+            let previewRect = isLandscape
+                ? CGRect(x: sideStripWidth,
+                         y: 0,
+                         width: max(0, geometry.size.width - 2 * sideStripWidth),
+                         height: geometry.size.height)
+                : CGRect(x: 0,
+                         y: topStripHeight,
+                         width: geometry.size.width,
+                         height: max(0, geometry.size.height - topStripHeight - bottomStripHeight))
             let isPortrait = !isLandscape
             let aspectRatio = settings.aspectRatio.ratio(isPortrait: isPortrait)
             let guideWidth = min(previewRect.width, previewRect.height * aspectRatio)
@@ -567,6 +578,8 @@ struct ContentView: View {
             HUDOverlayView(
                 size: geometry.size,
                 safeTop: geometry.safeAreaInsets.top,
+                safeLeft: geometry.safeAreaInsets.leading,
+                safeRight: geometry.safeAreaInsets.trailing,
                 isLandscape: geometry.size.width > geometry.size.height,
                 isSettingsPresented: $isSettingsPresented,
                 topControls: TopControlsView(
