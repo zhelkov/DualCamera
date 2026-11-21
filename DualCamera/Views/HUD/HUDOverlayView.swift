@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct HUDOverlayView: View {
     let size: CGSize
@@ -6,6 +7,8 @@ struct HUDOverlayView: View {
     let isLandscape: Bool
     @Binding var isSettingsPresented: Bool
     let topControls: TopControlsView
+    let statusLabels: AnyView
+    let hapticsEnabled: Bool
     let captureBar: CaptureBarView
     let zoomControls: AnyView
     let drawingPalette: AnyView
@@ -23,6 +26,11 @@ struct HUDOverlayView: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             strips
+
+            statusLabels
+                .frame(maxWidth: size.width - 2 * HUDTheme.controlColumnInset)
+                .position(x: size.width / 2,
+                          y: topStripHeight + HUDTheme.statusLabelsYOffset)
 
             topControls
                 .frame(width: max(0, size.width - 2 * HUDTheme.controlColumnInset))
@@ -77,12 +85,13 @@ struct HUDOverlayView: View {
 
     private var settingsButton: some View {
         Button {
+            if hapticsEnabled {
+                UISelectionFeedbackGenerator().selectionChanged()
+            }
             isSettingsPresented = true
         } label: {
             Image(systemName: "gearshape")
                 .font(.system(size: HUDTheme.settingsIconSize, weight: .regular))
-                .rotationEffect(.degrees(isLandscape ? 90 : 0))
-                .animation(.easeInOut(duration: HUDTheme.rotationDuration), value: isLandscape)
                 .foregroundStyle(HUDTheme.primaryIcon)
                 .frame(width: HUDTheme.settingsButtonSize, height: HUDTheme.settingsButtonSize)
                 .background(HUDTheme.glass, in: Circle())

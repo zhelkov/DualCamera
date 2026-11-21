@@ -19,6 +19,8 @@ final class RealtimeCompositeRecorder {
         let photoOffsetFraction: CGSize
         let photoWidthFraction: CGFloat
         let drawing: [DrawingElement]
+        let dateTimeEnabled: Bool
+        let recordingStartDate: Date?
     }
 
     private let writer: AVAssetWriter
@@ -35,6 +37,8 @@ final class RealtimeCompositeRecorder {
     private var receivedVideoFrames = 0
     private var appendedVideoFrames = 0
     private var lastVideoError: String?
+    private var cachedTimestampSecond: Int?
+    private var cachedTimestamp: CIImage?
     private var synchronizationCallbacks = 0
     private var backSamplesPresent = 0
     private var frontSamplesPresent = 0
@@ -156,9 +160,11 @@ final class RealtimeCompositeRecorder {
             lastVideoError = "Не удалось подготовить кадр (код буферного пула \(poolStatus))."
             return
         }
+        let elapsed = CMTimeGetSeconds(CMTimeSubtract(time, sessionStartTime))
         guard let image = compose(back: CIImage(cvPixelBuffer: back),
                                   front: CIImage(cvPixelBuffer: front),
-                                  state: state) else {
+                                  state: state,
+                                  elapsed: elapsed) else {
             if lastVideoError == nil {
                 lastVideoError = CameraError.videoMergeFailed.errorDescription
             }
@@ -212,7 +218,10 @@ final class RealtimeCompositeRecorder {
         }
     }
 
-    private func compose(back: CIImage, front: CIImage, state: FrameState) -> CIImage? {
+    private func compose(back: CIImage,
+                         front: CIImage,
+                         state: FrameState,
+                         elapsed: TimeInterval) -> CIImage? {
         let canvas = CGRect(origin: .zero, size: renderSize)
         let rawMain = state.camerasSwapped ? front : back
         let rawSmall = state.camerasSwapped ? back : front
@@ -262,7 +271,9 @@ final class RealtimeCompositeRecorder {
             let height = width * state.pipShape.aspectRatio
             let rect = CGRect(
                 x: min(max(0, renderSize.width - width - 16 + state.pipOffsetFraction.width * renderSize.width), renderSize.width - width),
-                y: min(max(0, 16 - state.pipOffsetFraction.height * renderSize.height), renderSize.height - height),
+                y: min(max(0, renderSize.height - height - 16
+                           - state.pipOffsetFraction.height * renderSize.height),
+                       renderSize.height - height),
                 width: width,
                 height: height
             )
@@ -298,7 +309,22 @@ final class RealtimeCompositeRecorder {
                 composed = blend.outputImage ?? composed
             }
         }
+        if state.dateTimeEnabled, let startDate = state.recordingStartDate,
+           let timestamp = timestampOverlay(at: startDate.addingTimeInterval(elapsed)) {
+            composed = timestamp.composited(over: composed)
+        }
         return composed.cropped(to: canvas)
+    }
+
+    private func timestampOverlay(at date: Date) -> CIImage? {
+        let second = Int(date.timeIntervalSince1970)
+        if cachedTimestampSecond == second { return cachedTimestamp }
+        let image = DrawingRenderer.renderTimestamp(date, size: renderSize)
+        guard let cgImage = image.cgImage else { return nil }
+        let overlay = CIImage(cgImage: cgImage)
+        cachedTimestampSecond = second
+        cachedTimestamp = overlay
+        return overlay
     }
 
     private func fill(_ image: CIImage, in rect: CGRect) -> CIImage {

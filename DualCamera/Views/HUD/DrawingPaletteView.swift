@@ -1,13 +1,16 @@
 import SwiftUI
+import UIKit
 
 struct DrawingPaletteView: View {
     @Bindable var engine: DrawingEngine
+    let hapticsEnabled: Bool
 
     var body: some View {
         VStack(spacing: HUDTheme.drawingPaletteRowSpacing) {
             HStack(spacing: HUDTheme.drawingToolSpacing) {
                 ForEach(ToolMode.allCases) { mode in
                     Button {
+                        playHaptic()
                         engine.toolMode = mode
                     } label: {
                         HUDIconGlyph(systemName: mode.systemImage,
@@ -24,6 +27,7 @@ struct DrawingPaletteView: View {
             HStack(spacing: HUDTheme.drawingColorSpacing) {
                 ForEach(DrawColor.allCases) { color in
                     Button {
+                        playHaptic()
                         engine.selectedColor = color
                     } label: {
                         Circle()
@@ -37,7 +41,9 @@ struct DrawingPaletteView: View {
                                             : .clear,
                                             lineWidth: HUDTheme.drawingSelectedColorBorderWidth)
                             }
-                            .contentShape(Circle())
+                            .frame(width: HUDTheme.drawingToolButtonSize,
+                                   height: HUDTheme.drawingToolButtonSize)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(color.title)
@@ -47,11 +53,10 @@ struct DrawingPaletteView: View {
             .frame(maxWidth: .infinity)
 
             HStack(spacing: HUDTheme.drawingAdjustmentSpacing) {
-                Slider(value: $engine.brushWidth,
-                       in: HUDTheme.drawingMinimumBrushWidth...HUDTheme.drawingMaximumBrushWidth,
-                       step: 1)
-                    .frame(width: HUDTheme.drawingBrushSliderWidth)
-                    .tint(.white)
+                CompactBrushSlider(value: $engine.brushWidth,
+                                    range: HUDTheme.drawingMinimumBrushWidth...HUDTheme.drawingMaximumBrushWidth)
+                    .frame(width: HUDTheme.drawingBrushSliderWidth,
+                           height: HUDTheme.drawingActionButtonSize)
                     .accessibilityLabel("Толщина кисти")
 
                 Text("\(Int(engine.brushWidth))")
@@ -62,6 +67,7 @@ struct DrawingPaletteView: View {
                     .accessibilityHidden(true)
 
                 Button {
+                    playHaptic()
                     engine.undo()
                 } label: {
                     actionIcon("arrow.uturn.backward")
@@ -71,6 +77,7 @@ struct DrawingPaletteView: View {
                 .accessibilityLabel("Отменить последнее действие")
 
                 Button {
+                    playHaptic()
                     engine.clear()
                 } label: {
                     actionIcon("trash")
@@ -102,5 +109,65 @@ struct DrawingPaletteView: View {
             .frame(width: HUDTheme.drawingActionButtonSize,
                    height: HUDTheme.drawingActionButtonSize)
             .contentShape(Rectangle())
+    }
+
+    private func playHaptic() {
+        guard hapticsEnabled else { return }
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
+}
+
+private struct CompactBrushSlider: UIViewRepresentable {
+    @Binding var value: CGFloat
+    let range: ClosedRange<CGFloat>
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(value: $value)
+    }
+
+    func makeUIView(context: Context) -> UISlider {
+        let slider = UISlider()
+        slider.minimumValue = Float(range.lowerBound)
+        slider.maximumValue = Float(range.upperBound)
+        slider.value = Float(value)
+        slider.minimumTrackTintColor = .white
+        slider.maximumTrackTintColor = UIColor.white.withAlphaComponent(0.25)
+        slider.setThumbImage(Self.thumbImage, for: .normal)
+        slider.setThumbImage(Self.thumbImage, for: .highlighted)
+        slider.addTarget(context.coordinator, action: #selector(Coordinator.valueChanged(_:)),
+                         for: .valueChanged)
+        return slider
+    }
+
+    func updateUIView(_ slider: UISlider, context: Context) {
+        slider.minimumValue = Float(range.lowerBound)
+        slider.maximumValue = Float(range.upperBound)
+        if abs(CGFloat(slider.value) - value) > 0.01 {
+            slider.value = Float(value)
+        }
+    }
+
+    private static var thumbImage: UIImage {
+        let size = CGSize(width: HUDTheme.drawingBrushThumbSize,
+                          height: HUDTheme.drawingBrushThumbSize)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { context in
+            UIColor.white.setFill()
+            context.cgContext.fillEllipse(in: CGRect(origin: .zero, size: size))
+        }
+    }
+
+    private final class Coordinator: NSObject {
+        private var value: Binding<CGFloat>
+
+        init(value: Binding<CGFloat>) {
+            self.value = value
+        }
+
+        @objc func valueChanged(_ slider: UISlider) {
+            let snappedValue = CGFloat(slider.value).rounded()
+            slider.value = Float(snappedValue)
+            value.wrappedValue = snappedValue
+        }
     }
 }

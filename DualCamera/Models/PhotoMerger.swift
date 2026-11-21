@@ -32,7 +32,8 @@ enum PhotoMerger {
                       photoOverlay: UIImage? = nil,
                       photoOverlayOffsetFraction: CGSize = .zero,
                       photoOverlayWidthFraction: CGFloat = 0.3,
-                      elements: [DrawingElement] = []) throws -> UIImage {
+                      elements: [DrawingElement] = [],
+                      timestamp: Date? = nil) throws -> UIImage {
         // Приводим к вертикальной ориентации, чтобы размеры были честными.
         var back = normalized(back)
         var front = normalized(front)
@@ -69,9 +70,13 @@ enum PhotoMerger {
                          offsetFraction: photoOverlayOffsetFraction,
                          widthFraction: photoOverlayWidthFraction)
         } ?? aspectCorrected
-        return elements.isEmpty
+        var result = elements.isEmpty
             ? withPhoto
             : overlay(DrawingRenderer.render(elements, size: aspectCorrected.size), on: withPhoto)
+        if let timestamp {
+            result = overlay(DrawingRenderer.renderTimestamp(timestamp, size: result.size), on: result)
+        }
+        return result
     }
 
     private static func apply(_ filter: VideoFilter, to image: UIImage) throws -> UIImage {
@@ -214,7 +219,7 @@ enum PhotoMerger {
             let inset: CGFloat = 16
             let x = min(max(0, size.width - pipWidth - inset + pipOffsetFraction.width * size.width),
                         size.width - pipWidth)
-            let y = min(max(0, size.height - pipHeight - inset + pipOffsetFraction.height * size.height),
+            let y = min(max(0, inset + pipOffsetFraction.height * size.height),
                         size.height - pipHeight)
             let pipRect = CGRect(x: x,
                                  y: y,

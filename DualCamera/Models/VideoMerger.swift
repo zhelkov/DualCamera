@@ -38,7 +38,9 @@ enum VideoMerger {
                       photoOverlayKeyframes: [PhotoOverlayKeyframe] = [],
                       backImage: UIImage? = nil,
                       frontImage: UIImage? = nil,
-                      elements: [DrawingElement] = []) async throws -> URL {
+                      elements: [DrawingElement] = [],
+                      dateTimeEnabled: Bool = false,
+                      timestampStartDate: Date? = nil) async throws -> URL {
         let backAsset = AVURLAsset(url: back)
         let frontAsset = AVURLAsset(url: front)
 
@@ -137,7 +139,9 @@ enum VideoMerger {
                 videoFilter: videoFilter,
                 filterTarget: filterTarget,
                 filterKeyframes: effectiveFilterKeyframes,
-                initialCamerasSwapped: initialCamerasSwapped
+                initialCamerasSwapped: initialCamerasSwapped,
+                dateTimeEnabled: dateTimeEnabled,
+                timestampStartDate: timestampStartDate
             )
         ]
 

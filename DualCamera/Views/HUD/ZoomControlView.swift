@@ -1,10 +1,12 @@
 import SwiftUI
+import UIKit
 
 struct ZoomControlView: View {
     let zoomFactor: CGFloat
     let minimumZoomFactor: CGFloat
     let maximumZoomFactor: CGFloat
     @Binding var isExpanded: Bool
+    let hapticsEnabled: Bool
     let onZoomChanged: (CGFloat) -> Void
 
     private var zoomRange: ClosedRange<Double>? {
@@ -25,6 +27,7 @@ struct ZoomControlView: View {
 
                     HStack(spacing: HUDTheme.zoomAdjusterItemSpacing) {
                         Button {
+                            playHaptic()
                             adjustZoom(by: -HUDTheme.zoomAdjustmentStep, in: zoomRange)
                         } label: {
                             Image(systemName: "minus")
@@ -47,6 +50,7 @@ struct ZoomControlView: View {
                         .accessibilityLabel("Увеличение")
 
                         Button {
+                            playHaptic()
                             adjustZoom(by: HUDTheme.zoomAdjustmentStep, in: zoomRange)
                         } label: {
                             Image(systemName: "plus")
@@ -61,40 +65,35 @@ struct ZoomControlView: View {
                 .padding(.horizontal, HUDTheme.zoomAdjusterHorizontalPadding)
                 .padding(.vertical, HUDTheme.zoomAdjusterVerticalPadding)
                 .frame(maxWidth: HUDTheme.zoomAdjusterMaximumWidth)
-                .background(HUDTheme.glass,
-                            in: RoundedRectangle(cornerRadius: HUDTheme.zoomAdjusterCornerRadius))
-                .overlay {
-                    RoundedRectangle(cornerRadius: HUDTheme.zoomAdjusterCornerRadius)
-                        .stroke(Color.white.opacity(0.16), lineWidth: HUDTheme.buttonBorderWidth)
-                }
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            HStack(spacing: HUDTheme.zoomPresetSpacing) {
-                presetButton(0.5,
-                             isEnabled: minimumZoomFactor <= CGFloat(HUDTheme.minimumZoomPreset))
-                Button {
-                    onZoomChanged(1)
-                    withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
-                        isExpanded = false
+            if !isExpanded {
+                HStack(spacing: HUDTheme.zoomPresetSpacing) {
+                    presetButton(0.5,
+                                 isEnabled: minimumZoomFactor <= CGFloat(HUDTheme.minimumZoomPreset))
+                    Button {
+                        playHaptic()
+                        onZoomChanged(1)
+                    } label: {
+                        Text(isNear(zoomFactor, 1) ? "1×" : zoomLabel(zoomFactor))
+                            .font(.system(size: HUDTheme.zoomPresetFontSize,
+                                          weight: isNear(zoomFactor, 1) ? .semibold : .regular))
+                            .foregroundStyle(isNear(zoomFactor, 1) ? HUDTheme.yellow : .white)
+                            .frame(minWidth: HUDTheme.zoomPresetHitSize,
+                                   minHeight: HUDTheme.zoomPresetHitSize)
+                            .contentShape(Rectangle())
                     }
-                } label: {
-                    Text(isNear(zoomFactor, 1) ? "1×" : zoomLabel(zoomFactor))
-                        .font(.system(size: HUDTheme.zoomPresetFontSize,
-                                      weight: isNear(zoomFactor, 1) ? .semibold : .regular))
-                        .foregroundStyle(isNear(zoomFactor, 1) ? HUDTheme.yellow : .white)
-                        .frame(minWidth: HUDTheme.zoomPresetMinimumWidth)
-                        .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Зум \(zoomLabel(zoomFactor))")
+                    .accessibilityAddTraits(isNear(zoomFactor, 1) ? .isSelected : [])
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Зум \(zoomLabel(zoomFactor))")
-                .accessibilityAddTraits(isNear(zoomFactor, 1) ? .isSelected : [])
-            }
-            .contentShape(Rectangle())
-            .onLongPressGesture(minimumDuration: HUDTheme.zoomLongPressDuration) {
-                guard zoomRange != nil else { return }
-                withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
-                    isExpanded = true
+                .contentShape(Rectangle())
+                .onLongPressGesture(minimumDuration: HUDTheme.zoomLongPressDuration) {
+                    guard zoomRange != nil else { return }
+                    withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
+                        isExpanded = true
+                    }
                 }
             }
         }
@@ -104,16 +103,18 @@ struct ZoomControlView: View {
 
     private func presetButton(_ value: Double, isEnabled: Bool) -> some View {
         Button {
+            playHaptic()
             onZoomChanged(CGFloat(value))
             withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
                 isExpanded = false
             }
         } label: {
-            Text("0,5")
+            Text("0,5×")
                 .font(.system(size: HUDTheme.zoomPresetFontSize,
                               weight: isNear(zoomFactor, value) ? .semibold : .regular))
                 .foregroundStyle(isNear(zoomFactor, value) ? HUDTheme.yellow : .white)
-                .frame(minWidth: HUDTheme.zoomPresetMinimumWidth)
+                .frame(minWidth: HUDTheme.zoomPresetHitSize,
+                       minHeight: HUDTheme.zoomPresetHitSize)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -133,5 +134,10 @@ struct ZoomControlView: View {
 
     private func isNear(_ value: CGFloat, _ preset: Double) -> Bool {
         abs(value - CGFloat(preset)) < HUDTheme.zoomPresetTolerance
+    }
+
+    private func playHaptic() {
+        guard hapticsEnabled else { return }
+        UISelectionFeedbackGenerator().selectionChanged()
     }
 }

@@ -19,6 +19,7 @@ enum HUDTheme {
     static let splitHandleFill = Color.white.opacity(0.96)
     static let splitHandleBorder = Color.white.opacity(0.7)
     static let splitHandleShadow = Color.black.opacity(0.4)
+    static let pipPreviewInset: CGFloat = 16
 
     static let topStripMinimumHeight: CGFloat = 54
     static let bottomStripMinimumHeight: CGFloat = 110
@@ -57,6 +58,8 @@ enum HUDTheme {
     static let settingsTopInset: CGFloat = 10
     static let recordingLabelFontSize: CGFloat = 12
     static let recordingLabelOffset: CGFloat = 24
+    static let statusLabelsYOffset: CGFloat = 12
+    static let statusLabelsSpacing: CGFloat = 9
     static let captureBarTopPadding: CGFloat = 16
     static let splitVariantMinimumHeight: CGFloat = 44
     static let splitHandleWidth: CGFloat = 25
@@ -68,6 +71,7 @@ enum HUDTheme {
     static let splitRatioAccessibilityStep: CGFloat = 0.02
     static let zoomPresetSpacing: CGFloat = 2
     static let zoomPresetMinimumWidth: CGFloat = 30
+    static let zoomPresetHitSize: CGFloat = 42
     static let zoomPresetFontSize: CGFloat = 13
     static let drawingPalettePadding: CGFloat = 10
     static let drawingPaletteCornerRadius: CGFloat = 18
@@ -76,12 +80,13 @@ enum HUDTheme {
     static let drawingToolSpacing: CGFloat = 8
     static let drawingToolButtonSize: CGFloat = 34
     static let drawingColorSpacing: CGFloat = 8
-    static let drawingColorSize: CGFloat = 30
+    static let drawingColorSize: CGFloat = 18
     static let drawingSelectedColorBorderWidth: CGFloat = 2
     static let drawingAdjustmentSpacing: CGFloat = 10
     static let drawingMinimumBrushWidth: CGFloat = 2
     static let drawingMaximumBrushWidth: CGFloat = 20
     static let drawingBrushSliderWidth: CGFloat = 112
+    static let drawingBrushThumbSize: CGFloat = 14
     static let drawingBrushValueFontSize: CGFloat = 11
     static let drawingBrushValueWidth: CGFloat = 16
     static let drawingActionButtonSize: CGFloat = 32
@@ -161,7 +166,22 @@ enum HUDTheme {
     static let pointerMarkerSize: CGFloat = 40
     static let pointerMarkerEdgeInset: CGFloat = 20
     static let pointerIconSize: CGFloat = 21
-    static let zoomLongPressDuration: Double = 0.5
+    static let focusTapMovementThreshold: CGFloat = 12
+    static let focusLockLongPressDuration: TimeInterval = 0.55
+    static let focusIndicatorDuration: TimeInterval = 2
+    static let focusReticleSize: CGFloat = 76
+    static let focusReticleStrokeWidth: CGFloat = 1.5
+    static let focusLockFontSize: CGFloat = 10
+    static let focusLockHorizontalPadding: CGFloat = 7
+    static let focusLockVerticalPadding: CGFloat = 4
+    static let focusLockVerticalOffset: CGFloat = 15
+    static let exposureIndicatorSpacing: CGFloat = 0
+    static let exposureSunSize: CGFloat = 17
+    static let exposureSunHitSize: CGFloat = 32
+    static let exposureIndicatorXOffset: CGFloat = 62
+    static let exposureValueFontSize: CGFloat = 10
+    static let exposureSwipeTravel: CGFloat = 130
+    static let zoomLongPressDuration: Double = 0.3
     static let minimumZoomPreset: Double = 0.5
     static let maximumZoomPreset: Double = 5
     static let zoomAdjustmentStep: Double = 0.1
@@ -185,7 +205,8 @@ enum HUDTheme {
     static let aspectGuideStrokeWidth: CGFloat = 1
     static let zoomControlBottomOffset: CGFloat = 22
     static let paletteTopMinimum: CGFloat = 48
-    static let paletteYOffset: CGFloat = 36
+    static let paletteYOffset: CGFloat = 55
+    static let filterSelectionDuration: TimeInterval = 0.25
     static let rotationDuration: TimeInterval = 0.24
     static let stateTransitionDuration: TimeInterval = 0.18
     static let pressedTransitionDuration: TimeInterval = 0.16

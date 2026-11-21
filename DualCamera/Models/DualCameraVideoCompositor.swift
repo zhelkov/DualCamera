@@ -66,6 +66,8 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
     let filterTarget: VideoFilterTarget
     let filterKeyframes: [VideoFilterKeyframe]
     let initialCamerasSwapped: Bool
+    let dateTimeEnabled: Bool
+    let timestampStartDate: Date?
 
     var requiredSourceTrackIDs: [NSValue]? {
         [NSNumber(value: backTrackID) as NSValue,
@@ -95,7 +97,9 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
          videoFilter: VideoFilter,
          filterTarget: VideoFilterTarget,
          filterKeyframes: [VideoFilterKeyframe],
-         initialCamerasSwapped: Bool) {
+         initialCamerasSwapped: Bool,
+         dateTimeEnabled: Bool,
+         timestampStartDate: Date?) {
         self.timeRange = timeRange
         self.backTrackID = backTrackID
         self.frontTrackID = frontTrackID
@@ -120,6 +124,8 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
         self.filterTarget = filterTarget
         self.filterKeyframes = filterKeyframes
         self.initialCamerasSwapped = initialCamerasSwapped
+        self.dateTimeEnabled = dateTimeEnabled
+        self.timestampStartDate = timestampStartDate
     }
 }
 
@@ -129,6 +135,8 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
     private let overlayCacheLock = NSLock()
     private var overlayCache: [Int: CIImage] = [:]
     private var overlayCacheOrder: [Int] = []
+    private var cachedTimestampSecond: Int?
+    private var cachedTimestamp: CIImage?
 
     var sourcePixelBufferAttributes: [String: Any]? {
         [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
@@ -164,8 +172,7 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                 let x = min(max(0, instruction.canvasSize.width - width - 16
                                 + layout.offset.width * instruction.canvasSize.width),
                             instruction.canvasSize.width - width)
-                let y = min(max(0, instruction.canvasSize.height - height - 16
-                                + layout.offset.height * instruction.canvasSize.height),
+                let y = min(max(0, 16 + layout.offset.height * instruction.canvasSize.height),
                             instruction.canvasSize.height - height)
                 frontRect = captureLayout.isSecondaryCameraVisible
                     ? CGRect(x: x,
@@ -345,6 +352,24 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                 composed = overlay.composited(over: composed)
             }
 
+            if instruction.dateTimeEnabled,
+               let startDate = instruction.timestampStartDate,
+               let overlayImage = timestampOverlay(
+                at: startDate.addingTimeInterval(request.compositionTime.seconds),
+                canvasSize: instruction.canvasSize
+               ) {
+                let correctedOverlay = overlayImage.transformed(by: CGAffineTransform(a: -1, b: 0,
+                                                                                       c: 0, d: -1,
+                                                                                       tx: canvas.width,
+                                                                                       ty: canvas.height))
+                let overlay = place(correctedOverlay,
+                                    sourceSize: instruction.canvasSize,
+                                    transform: .identity,
+                                    in: canvas,
+                                    canvasHeight: instruction.canvasSize.height)
+                composed = overlay.composited(over: composed)
+            }
+
             let uprightFrame = composed.transformed(by: CGAffineTransform(a: -1, b: 0,
                                                                            c: 0, d: -1,
                                                                            tx: canvas.width,
@@ -440,6 +465,26 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
             overlayCache.removeValue(forKey: overlayCacheOrder.removeFirst())
         }
         return result
+    }
+
+    private func timestampOverlay(at date: Date, canvasSize: CGSize) -> CIImage? {
+        let second = Int(date.timeIntervalSince1970)
+        overlayCacheLock.lock()
+        if cachedTimestampSecond == second {
+            let cached = cachedTimestamp
+            overlayCacheLock.unlock()
+            return cached
+        }
+        overlayCacheLock.unlock()
+
+        let image = DrawingRenderer.renderTimestamp(date, size: canvasSize)
+        guard let cgImage = image.cgImage else { return nil }
+        let rendered = CIImage(cgImage: cgImage)
+        overlayCacheLock.lock()
+        cachedTimestampSecond = second
+        cachedTimestamp = rendered
+        overlayCacheLock.unlock()
+        return rendered
     }
 
     private func place(_ source: CIImage,

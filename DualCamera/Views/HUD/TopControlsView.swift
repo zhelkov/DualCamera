@@ -1,5 +1,6 @@
 import PhotosUI
 import SwiftUI
+import UIKit
 
 struct TopControlsView: View {
     @Binding var layout: CaptureLayout
@@ -15,6 +16,7 @@ struct TopControlsView: View {
 
     let hasImportedMedia: Bool
     let isLandscape: Bool
+    let hapticsEnabled: Bool
     let onClearImportedMedia: () -> Void
 
     private var buttonSize: CGFloat {
@@ -99,6 +101,7 @@ struct TopControlsView: View {
                     }
                 }
                 Button {
+                    playHaptic()
                     withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
                         pointerPosition = pointerPosition == nil
                             ? CGPoint(x: 0.5, y: 0.5)
@@ -111,8 +114,6 @@ struct TopControlsView: View {
                                                    lineCap: .round,
                                                    lineJoin: .round))
                         .frame(width: HUDTheme.pointerIconSize, height: HUDTheme.pointerIconSize)
-                        .rotationEffect(.degrees(isLandscape ? 90 : 0))
-                        .animation(.easeInOut(duration: HUDTheme.rotationDuration), value: isLandscape)
                         .frame(width: buttonSize, height: buttonSize)
                 }
                 .buttonStyle(HUDIconButtonStyle(isActive: pointerPosition != nil, size: buttonSize))
@@ -137,7 +138,8 @@ struct TopControlsView: View {
             .hudPanel()
 
             if isFilterCarouselVisible {
-                FilterCarouselView(selectedFilter: $selectedFilter)
+                FilterCarouselView(selectedFilter: $selectedFilter,
+                                   hapticsEnabled: hapticsEnabled)
                     .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
             }
         }
@@ -145,6 +147,7 @@ struct TopControlsView: View {
 
     private func modeButton(_ value: CaptureLayout, symbol: String, label: String) -> some View {
         Button {
+            playHaptic()
             withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) { layout = value }
         } label: {
             HUDIconGlyph(systemName: symbol, size: buttonSize, isLandscape: isLandscape)
@@ -158,7 +161,10 @@ struct TopControlsView: View {
                                label: String,
                                active: Bool,
                                action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button {
+            playHaptic()
+            action()
+        } label: {
             HUDIconGlyph(systemName: symbol, size: variantSize, isLandscape: isLandscape)
         }
         .buttonStyle(HUDIconButtonStyle(isActive: active, size: variantSize,
@@ -173,11 +179,19 @@ struct TopControlsView: View {
                             active: Bool,
                             enabled: Bool = true,
                             action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button {
+            playHaptic()
+            action()
+        } label: {
             HUDIconGlyph(systemName: symbol, size: size, isLandscape: isLandscape)
         }
         .buttonStyle(HUDIconButtonStyle(isActive: active, size: size))
         .disabled(!enabled)
         .accessibilityLabel(label)
+    }
+
+    private func playHaptic() {
+        guard hapticsEnabled else { return }
+        UISelectionFeedbackGenerator().selectionChanged()
     }
 }

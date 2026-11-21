@@ -1,7 +1,9 @@
 import SwiftUI
+import UIKit
 
 struct FilterCarouselView: View {
     @Binding var selectedFilter: VideoFilter
+    let hapticsEnabled: Bool
     @State private var scrollPosition: VideoFilter?
 
     var body: some View {
@@ -10,7 +12,10 @@ struct FilterCarouselView: View {
                 LazyVStack(spacing: HUDTheme.filterOptionSpacing) {
                     ForEach(VideoFilter.allCases) { filter in
                         Button {
-                            withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
+                            if hapticsEnabled {
+                                UISelectionFeedbackGenerator().selectionChanged()
+                            }
+                            withAnimation(.easeOut(duration: HUDTheme.filterSelectionDuration)) {
                                 selectedFilter = filter
                             }
                         } label: {
@@ -38,7 +43,6 @@ struct FilterCarouselView: View {
                 .padding(.vertical, HUDTheme.filterCarouselVerticalInset)
             }
             .scrollIndicators(.hidden)
-            .scrollTargetBehavior(.viewAligned)
             .scrollPosition(id: $scrollPosition, anchor: .center)
             .frame(width: HUDTheme.filterMenuWidth, height: HUDTheme.filterMenuHeight)
             .background(HUDTheme.glass, in: RoundedRectangle(cornerRadius: HUDTheme.filterMenuCornerRadius))
@@ -66,8 +70,9 @@ struct FilterCarouselView: View {
                 proxy.scrollTo(selectedFilter, anchor: .center)
             }
             .onChange(of: selectedFilter) { _, filter in
+                guard scrollPosition != filter else { return }
                 scrollPosition = filter
-                withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
+                withAnimation(.easeOut(duration: HUDTheme.filterSelectionDuration)) {
                     proxy.scrollTo(filter, anchor: .center)
                 }
             }

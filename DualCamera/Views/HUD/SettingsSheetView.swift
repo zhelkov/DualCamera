@@ -68,6 +68,15 @@ struct SettingsSheetView: View {
             Toggle("Тактильная отдача", isOn: $settings.hapticsEnabled)
         }
         .padding(.bottom, HUDTheme.settingsBottomPadding)
+        .sensoryFeedback(.selection, trigger: settings.aspectRatio) { _, _ in settings.hapticsEnabled }
+        .sensoryFeedback(.selection, trigger: settings.resolution) { _, _ in settings.hapticsEnabled }
+        .sensoryFeedback(.selection, trigger: settings.frameRate) { _, _ in settings.hapticsEnabled }
+        .sensoryFeedback(.selection, trigger: settings.audioQuality) { _, _ in settings.hapticsEnabled }
+        .sensoryFeedback(.selection, trigger: settings.stabilizationEnabled) { _, _ in settings.hapticsEnabled }
+        .sensoryFeedback(.selection, trigger: settings.teleprompterEnabled) { _, _ in settings.hapticsEnabled }
+        .sensoryFeedback(.selection, trigger: settings.dateTimeEnabled) { _, _ in settings.hapticsEnabled }
+        .sensoryFeedback(.selection, trigger: settings.gridEnabled) { _, _ in settings.hapticsEnabled }
+        .sensoryFeedback(.selection, trigger: settings.hapticsEnabled) { _, _ in settings.hapticsEnabled }
     }
 
     private var aspectRatioGroup: some View {

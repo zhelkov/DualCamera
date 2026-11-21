@@ -35,7 +35,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     /// Длительность текущей записи.
     private(set) var recordingDuration: TimeInterval = 0
     /// Текущая раскладка превью (сплит или картинка в картинке).
-    var layout: CaptureLayout = .splitScreen
+    var layout: CaptureLayout = .pip
     /// Ориентация сплита: вертикально или горизонтально.
     var splitOrientation: SplitOrientation = .vertical
     /// Доля кадра, занимаемая основной камерой в сплит-режиме.
@@ -59,6 +59,10 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     /// Доступный диапазон зума.
     private(set) var minZoomFactor: CGFloat = 1.0
     private(set) var maxZoomFactor: CGFloat = 1.0
+    private(set) var exposureTargetBias: Float = 0
+    private(set) var minExposureTargetBias: Float = -2
+    private(set) var maxExposureTargetBias: Float = 2
+    private(set) var isFocusExposureLocked = false
     /// Включён ли фонарик.
     private(set) var isTorchOn = false
     /// Поддерживает ли основная камера фонарик.
@@ -166,7 +170,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private var recordingPhotoOverlayWidthFraction: CGFloat = 0.3
     private var recordingPhotoOverlayKeyframes: [PhotoOverlayKeyframe] = []
     private var recordingImportedVideoURL: URL?
-    private var recordingLayout: CaptureLayout = .splitScreen
+    private var recordingLayout: CaptureLayout = .pip
     private var recordingShape: PipShape = .rectangle
     private var recordingSplitOrientation: SplitOrientation = .vertical
     private var recordingSplitRatio: CGFloat = SplitRatio.defaultValue
@@ -319,6 +323,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         let filterAtCapture = videoFilter
         let filterTargetAtCapture = activeFilterTarget
         let aspectRatioAtCapture = captureSettings.aspectRatio.ratio(isPortrait: isPortrait)
+        let timestampAtCapture = captureSettings.dateTimeEnabled ? Date() : nil
         updateOnMain { self.isCapturing = true }
 
         sessionQueue.async { [weak self] in
@@ -331,7 +336,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                                                 photoOverlayWidthFraction: photoOverlayWidthFraction,
                                                                 videoFilter: filterAtCapture,
                                                                 filterTarget: filterTargetAtCapture,
-                                                                outputAspectRatio: aspectRatioAtCapture)
+                                                                outputAspectRatio: aspectRatioAtCapture,
+                                                                timestamp: timestampAtCapture)
                     self.updateOnMain {
                         self.lastMergedPhoto = merged
                         self.isCapturing = false
@@ -590,28 +596,97 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         }
     }
 
-    /// Фокусировка и экспозиция по точке касания (координаты нормализованы 0...1).
-    func focusAndExpose(at normalizedPoint: CGPoint) {
+    /// Sets focus and auto-exposure at a point converted by the camera preview layer.
+    func focusAndExpose(at normalizedPoint: CGPoint,
+                        target: VideoFilterTarget,
+                        lock: Bool = false,
+                        completion: @escaping (Bool) -> Void) {
         let point = CGPoint(x: min(max(normalizedPoint.x, 0), 1),
                             y: min(max(normalizedPoint.y, 0), 1))
 
         sessionQueue.async { [weak self] in
-            guard let self, let device = self.backCamera else { return }
-            guard (try? device.lockForConfiguration()) != nil else { return }
+            guard let self else { return }
+            let isBackCamera = target == .primary ? !self.isCamerasSwapped : self.isCamerasSwapped
+            guard let device = isBackCamera ? self.backCamera : self.frontCamera else {
+                self.updateOnMain { completion(false) }
+                return
+            }
+            do {
+                try device.lockForConfiguration()
+                if device.isFocusPointOfInterestSupported {
+                    device.focusPointOfInterest = point
+                }
 
-            if device.isFocusPointOfInterestSupported {
-                device.focusPointOfInterest = point
-                if device.isFocusModeSupported(.autoFocus) {
-                    device.focusMode = .autoFocus
+                let didLock = lock
+                    && device.isFocusModeSupported(.locked)
+                    && device.isExposureModeSupported(.locked)
+                if didLock {
+                    if device.isFocusPointOfInterestSupported { device.focusMode = .locked }
+                    if device.isExposurePointOfInterestSupported {
+                        device.exposurePointOfInterest = point
+                        device.exposureMode = .locked
+                    }
+                } else {
+                    if device.isFocusModeSupported(.continuousAutoFocus) {
+                        device.focusMode = .continuousAutoFocus
+                    } else if device.isFocusModeSupported(.autoFocus) {
+                        device.focusMode = .autoFocus
+                    }
+                    if device.isExposurePointOfInterestSupported {
+                        device.exposurePointOfInterest = point
+                    }
+                    if device.isExposureModeSupported(.continuousAutoExposure) {
+                        device.exposureMode = .continuousAutoExposure
+                    } else if device.isExposureModeSupported(.autoExpose) {
+                        device.exposureMode = .autoExpose
+                    }
+                    device.setExposureTargetBias(0, completionHandler: nil)
+                }
+
+                let minimumBias = device.minExposureTargetBias
+                let maximumBias = device.maxExposureTargetBias
+                let currentBias = didLock ? device.exposureTargetBias : 0
+                device.unlockForConfiguration()
+                self.updateOnMain {
+                    self.minExposureTargetBias = minimumBias
+                    self.maxExposureTargetBias = maximumBias
+                    self.exposureTargetBias = currentBias
+                    self.isFocusExposureLocked = didLock
+                    if lock && !didLock {
+                        self.errorMessage = "Фиксация AE/AF недоступна на выбранной камере."
+                    }
+                    completion(didLock)
+                }
+            } catch {
+                self.updateOnMain {
+                    self.errorMessage = error.localizedDescription
+                    completion(false)
                 }
             }
-            if device.isExposurePointOfInterestSupported {
-                device.exposurePointOfInterest = point
-                if device.isExposureModeSupported(.autoExpose) {
-                    device.exposureMode = .autoExpose
+        }
+    }
+
+    func setExposureTargetBias(_ bias: Float, target: VideoFilterTarget) {
+        guard !isFocusExposureLocked else { return }
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            let isBackCamera = target == .primary ? !self.isCamerasSwapped : self.isCamerasSwapped
+            guard let device = isBackCamera ? self.backCamera : self.frontCamera else { return }
+            do {
+                try device.lockForConfiguration()
+                let clamped = min(max(bias, device.minExposureTargetBias), device.maxExposureTargetBias)
+                device.setExposureTargetBias(clamped, completionHandler: nil)
+                let minimumBias = device.minExposureTargetBias
+                let maximumBias = device.maxExposureTargetBias
+                device.unlockForConfiguration()
+                self.updateOnMain {
+                    self.exposureTargetBias = clamped
+                    self.minExposureTargetBias = minimumBias
+                    self.maxExposureTargetBias = maximumBias
                 }
+            } catch {
+                self.updateOnMain { self.errorMessage = error.localizedDescription }
             }
-            device.unlockForConfiguration()
         }
     }
 
@@ -1250,15 +1325,28 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     /// Находит пару «передняя + задняя», которую система разрешает
     /// использовать одновременно.
     private func selectMultiCamPair() -> (back: AVCaptureDevice?, front: AVCaptureDevice?) {
-        let back = preferredBackDevice()
-        let front = AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front)
-            ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
-        return (back, front)
+        let fronts = [
+            AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front),
+            AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
+        ].compactMap { $0 }
+        let backs = [
+            AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back),
+            preferredBackDevice()
+        ].compactMap { $0 }
+        let supportedSets = AVCaptureMultiCamSession.supportedMultiCamDeviceSets
+
+        for back in backs {
+            for front in fronts {
+                if supportedSets.contains(where: { $0.contains(back) && $0.contains(front) }) {
+                    return (back, front)
+                }
+            }
+        }
+        return (backs.last, fronts.first)
     }
 
-    /// Для задней камеры используем обычную широкоугольную. Виртуальное
-    /// устройство (сверхширокоугольная + широкоугольная) может занимать
-    /// ресурсы портов и оставлять превью передней камеры пустым.
+    /// The physical wide camera remains a fallback if a virtual dual-wide pair
+    /// isn't supported by the current MultiCam configuration.
     private func preferredBackDevice() -> AVCaptureDevice? {
         return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
     }
@@ -1421,7 +1509,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                  photoOverlayWidthFraction: CGFloat,
                                  videoFilter: VideoFilter,
                                  filterTarget: VideoFilterTarget,
-                                 outputAspectRatio: CGFloat) async throws -> UIImage {
+                                 outputAspectRatio: CGFloat,
+                                 timestamp: Date?) async throws -> UIImage {
         defer { clearPhotoDelegates() }
 
         // Запускаем оба захвата подряд. Вызовы возвращаются мгновенно,
@@ -1455,7 +1544,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                  photoOverlay: importedPhoto,
                                  photoOverlayOffsetFraction: photoOverlayOffsetFraction,
                                  photoOverlayWidthFraction: photoOverlayWidthFraction,
-                                 elements: elements)
+                                 elements: elements,
+                                 timestamp: timestamp)
     }
 
     private func capturePhoto(from output: AVCapturePhotoOutput) async throws -> Data {
@@ -1616,7 +1706,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                     photoOverlayOffsetFraction: outputPhotoOffset,
                     photoOverlayWidthFraction: outputPhotoWidth,
                     photoOverlayKeyframes: photoKeyframes,
-                    elements: outputElements
+                    elements: outputElements,
+                    dateTimeEnabled: outputCaptureSettings.dateTimeEnabled,
+                    timestampStartDate: recordingStartDate
                 )
                 // Удаляем исходные клипы — остаётся только объединённый файл.
                 Self.removeTemporaryFiles([backURL, frontURL])
@@ -1660,7 +1752,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         recordingPipOffsetFraction = .zero
         recordingPipWidthFraction = 0.3
         recordingImportedVideoURL = nil
-        recordingLayout = .splitScreen
+        recordingLayout = .pip
         recordingShape = .rectangle
         recordingSplitOrientation = .vertical
         recordingSplitRatio = SplitRatio.defaultValue
@@ -1904,7 +1996,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             photo: photo?.image,
             photoOffsetFraction: photo?.offsetFraction ?? recordingPhotoOverlayOffsetFraction,
             photoWidthFraction: photo?.widthFraction ?? recordingPhotoOverlayWidthFraction,
-            drawing: drawing
+            drawing: drawing,
+            dateTimeEnabled: recordingCaptureSettings.dateTimeEnabled,
+            recordingStartDate: recordingStartDate
         )
     }
 }

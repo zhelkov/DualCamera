@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 import Photos
 import PhotosUI
 import CoreTransferable
@@ -19,6 +20,9 @@ struct ContentView: View {
     @State private var isFrontLightEnabled = false
     @State private var pointerPosition: CGPoint?
     @State private var pointerDragBase: CGPoint?
+    @State private var focusIndicator: FocusIndicatorState?
+    @State private var focusGestureStartDate: Date?
+    @State private var exposureDragStartBias: Float?
     @State private var drawing = DrawingEngine()
     @State private var selectedMediaItems: [PhotosPickerItem] = []
 
@@ -51,11 +55,14 @@ struct ContentView: View {
 
     private var recordingStateView: some View {
         lifecycleView
-            .onChange(of: drawing.elements) { _, elements in
-                camera.updateRecordingElements(elements)
+            .onChange(of: drawing.elements) { _, _ in
+                camera.updateRecordingElements(mediaDrawingElements())
             }
             .onChange(of: drawing.draftElement) { _, _ in
-                camera.updateRecordingElements(drawing.elementsIncludingDraft)
+                camera.updateRecordingElements(mediaDrawingElements(includeDraft: true))
+            }
+            .onChange(of: pointerPosition) { _, _ in
+                camera.updateRecordingElements(mediaDrawingElements(includeDraft: drawing.isDragging))
             }
             .onChange(of: camera.layout) { _, _ in updateRecordingLayout() }
             .onChange(of: camera.pipShape) { _, _ in updateRecordingLayout() }
@@ -114,6 +121,7 @@ struct ContentView: View {
             cameraSettingsOverlay
             DrawingCanvas(engine: drawing)
                 .allowsHitTesting(drawing.isDrawingEnabled)
+            focusIndicatorOverlay
             pointerMarkerOverlay
             controls
         }
@@ -161,7 +169,7 @@ struct ContentView: View {
 
                 if settings.dateTimeEnabled {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
-                        Text(context.date, format: .dateTime.year().month().day().hour().minute().second())
+                        Text(dateTimeString(context.date))
                             .font(.system(size: HUDTheme.cameraDateTimeFontSize,
                                           weight: .medium, design: .monospaced))
                             .foregroundStyle(.white)
@@ -195,12 +203,13 @@ struct ContentView: View {
         }
         .ignoresSafeArea()
         .accessibilityElement(children: .contain)
+        .allowsHitTesting(false)
     }
 
     private var pointerMarkerOverlay: some View {
         GeometryReader { geometry in
             if let pointerPosition {
-                PointerMarkerView(color: drawing.selectedColor.color)
+                PointerMarkerView(color: .red)
                     .frame(width: HUDTheme.pointerMarkerSize,
                            height: HUDTheme.pointerMarkerSize)
                     .position(x: pointerPosition.x * geometry.size.width,
@@ -210,6 +219,56 @@ struct ContentView: View {
             }
         }
         .ignoresSafeArea()
+    }
+
+    private var focusIndicatorOverlay: some View {
+        GeometryReader { geometry in
+            if let focusIndicator {
+                let center = CGPoint(x: focusIndicator.position.x * geometry.size.width,
+                                     y: focusIndicator.position.y * geometry.size.height)
+                ZStack {
+                    Rectangle()
+                        .stroke(HUDTheme.yellow, lineWidth: HUDTheme.focusReticleStrokeWidth)
+                        .frame(width: HUDTheme.focusReticleSize,
+                               height: HUDTheme.focusReticleSize)
+                        .position(x: center.x, y: center.y)
+
+                    if focusIndicator.isLocked {
+                        Text("AE/AF LOCK")
+                            .font(.system(size: HUDTheme.focusLockFontSize, weight: .semibold))
+                            .foregroundStyle(HUDTheme.yellow)
+                            .padding(.horizontal, HUDTheme.focusLockHorizontalPadding)
+                            .padding(.vertical, HUDTheme.focusLockVerticalPadding)
+                            .background(Color.black.opacity(0.68), in: Capsule())
+                            .position(x: center.x,
+                                      y: center.y + HUDTheme.focusReticleSize / 2 + HUDTheme.focusLockVerticalOffset)
+                            .accessibilityLabel("Фокус и экспозиция заблокированы")
+                    } else {
+                        VStack(spacing: HUDTheme.exposureIndicatorSpacing) {
+                            Image(systemName: "sun.max.fill")
+                                .font(.system(size: HUDTheme.exposureSunSize, weight: .medium))
+                                .foregroundStyle(HUDTheme.yellow)
+                                .frame(width: HUDTheme.exposureSunHitSize,
+                                       height: HUDTheme.exposureSunHitSize)
+                                .contentShape(Rectangle())
+                                .gesture(exposureBiasDrag(target: focusIndicator.target))
+                                .accessibilityLabel("Изменить экспозицию")
+                            Text(exposureBiasLabel(camera.exposureTargetBias))
+                                .font(.system(size: HUDTheme.exposureValueFontSize, weight: .medium))
+                                .foregroundStyle(.white)
+                                .monospacedDigit()
+                        }
+                        .position(x: min(max(center.x + HUDTheme.exposureIndicatorXOffset,
+                                             HUDTheme.exposureSunHitSize / 2),
+                                         geometry.size.width - HUDTheme.exposureSunHitSize / 2),
+                                  y: center.y)
+                    }
+                }
+                .transition(.opacity)
+            }
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(true)
     }
 
     // MARK: - Превью
@@ -222,6 +281,9 @@ struct ContentView: View {
             let pip = Self.pipSize(for: camera.pipShape, in: size, widthFraction: 0.3)
             let frames = Self.layoutFrames(layout: camera.layout, size: size, pipSize: pip,
                                            pipOffset: pipOffset,
+                                           pipTopInset: max(HUDTheme.topStripMinimumHeight,
+                                                            geo.safeAreaInsets.top + HUDTheme.topSafeAreaAddition)
+                                               + HUDTheme.pipPreviewInset,
                                            splitOrientation: camera.splitOrientation,
                                            splitRatio: camera.splitRatio,
                                            isSecondaryCameraVisible: camera.isSecondaryCameraVisible)
@@ -232,7 +294,9 @@ struct ContentView: View {
                     backCameraContent
                         .frame(width: frames.main.width, height: frames.main.height)
                         .offset(x: frames.main.minX, y: frames.main.minY)
-                        .gesture(focusTap(in: frames.main.size, target: .primary))
+                        .gesture(focusTap(in: frames.main.size,
+                                         origin: CGPoint(x: frames.main.minX, y: frames.main.minY),
+                                         target: .primary))
 
                     if camera.isSecondaryCameraVisible {
                         frontCameraContent
@@ -240,15 +304,19 @@ struct ContentView: View {
                             .modifier(SecondaryPreviewClip(layout: camera.layout, radius: pipRadius))
                             .offset(x: frames.secondary.minX, y: frames.secondary.minY)
                             .gesture(pipDrag)
-                            .simultaneousGesture(SpatialTapGesture().onEnded { _ in
-                                camera.selectFilterTarget(.secondary)
-                            })
+                            .simultaneousGesture(focusTap(
+                                in: frames.secondary.size,
+                                origin: CGPoint(x: frames.secondary.minX, y: frames.secondary.minY),
+                                target: .secondary
+                            ))
                     }
                 } else {
                     frontCameraContent
                         .frame(width: frames.main.width, height: frames.main.height)
                         .offset(x: frames.main.minX, y: frames.main.minY)
-                        .gesture(focusTap(in: frames.main.size, target: .primary))
+                        .gesture(focusTap(in: frames.main.size,
+                                         origin: CGPoint(x: frames.main.minX, y: frames.main.minY),
+                                         target: .primary))
 
                     if camera.isSecondaryCameraVisible {
                         backCameraContent
@@ -256,9 +324,11 @@ struct ContentView: View {
                             .modifier(SecondaryPreviewClip(layout: camera.layout, radius: pipRadius))
                             .offset(x: frames.secondary.minX, y: frames.secondary.minY)
                             .gesture(pipDrag)
-                            .simultaneousGesture(SpatialTapGesture().onEnded { _ in
-                                camera.selectFilterTarget(.secondary)
-                            })
+                            .simultaneousGesture(focusTap(
+                                in: frames.secondary.size,
+                                origin: CGPoint(x: frames.secondary.minX, y: frames.secondary.minY),
+                                target: .secondary
+                            ))
                     }
                 }
 
@@ -283,8 +353,7 @@ struct ContentView: View {
                     .frame(width: size.width, height: size.height)
                 }
 
-                if camera.videoFilter != .original
-                    && (camera.activeFilterTarget == .primary || camera.isSecondaryCameraVisible) {
+                if camera.activeFilterTarget == .primary || camera.isSecondaryCameraVisible {
                     let labelFrame = camera.activeFilterTarget == .primary
                         ? frames.main
                         : frames.secondary
@@ -293,12 +362,10 @@ struct ContentView: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .frame(maxWidth: HUDTheme.filterLabelMaximumWidth)
-                        .padding(.horizontal, HUDTheme.filterLabelHorizontalPadding)
-                        .padding(.vertical, HUDTheme.filterLabelVerticalPadding)
-                        .background(Color.black.opacity(0.56), in: Capsule())
                         .position(x: labelFrame.midX,
                                   y: labelFrame.maxY - HUDTheme.filterLabelYOffset)
                         .accessibilityLabel("Фильтр: \(camera.videoFilter.title)")
+                        .allowsHitTesting(false)
                 }
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.layout)
@@ -394,16 +461,71 @@ struct ContentView: View {
             }
     }
 
-    /// Фокус и экспозиция по касанию основной камеры.
-    private func focusTap(in size: CGSize, target: VideoFilterTarget) -> some Gesture {
-        SpatialTapGesture()
-            .onEnded { value in
-                guard size.width > 0, size.height > 0 else { return }
-                camera.selectFilterTarget(target)
-                let point = CGPoint(x: value.location.x / size.width,
-                                    y: value.location.y / size.height)
-                camera.focusAndExpose(at: point)
+    private func focusTap(in size: CGSize,
+                          origin: CGPoint,
+                          target: VideoFilterTarget) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { _ in
+                if focusGestureStartDate == nil { focusGestureStartDate = Date() }
             }
+            .onEnded { value in
+                let startDate = focusGestureStartDate ?? Date()
+                focusGestureStartDate = nil
+                let movement = hypot(value.translation.width, value.translation.height)
+                guard size.width > 0, size.height > 0,
+                      movement <= HUDTheme.focusTapMovementThreshold else { return }
+
+                let localPoint = value.startLocation
+                let layerPoint = previewLayer(for: target)
+                    .captureDevicePointConverted(fromLayerPoint: localPoint)
+                let viewPoint = CGPoint(x: origin.x + localPoint.x,
+                                        y: origin.y + localPoint.y)
+                let normalizedPoint = CGPoint(x: viewPoint.x / max(previewSize.width, 1),
+                                              y: viewPoint.y / max(previewSize.height, 1))
+                let shouldLock = Date().timeIntervalSince(startDate)
+                    >= HUDTheme.focusLockLongPressDuration
+                camera.selectFilterTarget(target)
+                camera.focusAndExpose(at: layerPoint, target: target, lock: shouldLock) { didLock in
+                    let marker = FocusIndicatorState(position: normalizedPoint,
+                                                     target: target,
+                                                     isLocked: didLock)
+                    withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
+                        focusIndicator = marker
+                    }
+                    guard !didLock else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + HUDTheme.focusIndicatorDuration) {
+                        guard focusIndicator?.id == marker.id else { return }
+                        withAnimation(.easeOut(duration: HUDTheme.stateTransitionDuration)) {
+                            focusIndicator = nil
+                        }
+                    }
+                }
+            }
+    }
+
+    private func previewLayer(for target: VideoFilterTarget) -> AVCaptureVideoPreviewLayer {
+        let backIsTarget = target == .primary ? !camera.isCamerasSwapped : camera.isCamerasSwapped
+        return backIsTarget ? camera.backPreviewLayer : camera.frontPreviewLayer
+    }
+
+    private func exposureBiasDrag(target: VideoFilterTarget) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                let startBias = exposureDragStartBias ?? camera.exposureTargetBias
+                exposureDragStartBias = startBias
+                let range = camera.maxExposureTargetBias - camera.minExposureTargetBias
+                guard range > 0 else { return }
+                let delta = Float(value.translation.height / HUDTheme.exposureSwipeTravel) * range
+                let bias = min(max(startBias - delta,
+                                   camera.minExposureTargetBias),
+                               camera.maxExposureTargetBias)
+                camera.setExposureTargetBias(bias, target: target)
+            }
+            .onEnded { _ in exposureDragStartBias = nil }
+    }
+
+    private func exposureBiasLabel(_ value: Float) -> String {
+        String(format: "%+.1f EV", Double(value))
     }
 
     /// Размер окна PiP в зависимости от выбранной формы.
@@ -417,6 +539,7 @@ struct ContentView: View {
                                      size: CGSize,
                                      pipSize: CGSize,
                                      pipOffset: CGSize,
+                                     pipTopInset: CGFloat,
                                      splitOrientation: SplitOrientation,
                                      splitRatio: CGFloat,
                                      isSecondaryCameraVisible: Bool) -> (main: CGRect, secondary: CGRect) {
@@ -443,7 +566,7 @@ struct ContentView: View {
             let maxX = max(0, size.width - pipSize.width)
             let maxY = max(0, size.height - pipSize.height)
             let x = min(max(0, size.width - pipSize.width - inset + pipOffset.width), maxX)
-            let y = min(max(0, size.height - pipSize.height - inset + pipOffset.height), maxY)
+            let y = min(max(0, pipTopInset + pipOffset.height), maxY)
             return (
                 CGRect(origin: .zero, size: size),
                 CGRect(x: x, y: y, width: pipSize.width, height: pipSize.height)
@@ -474,8 +597,11 @@ struct ContentView: View {
                     pointerPosition: $pointerPosition,
                     hasImportedMedia: camera.hasImportedMedia,
                     isLandscape: geometry.size.width > geometry.size.height,
+                    hapticsEnabled: settings.hapticsEnabled,
                     onClearImportedMedia: { camera.clearImportedMedia() }
                 ),
+                statusLabels: AnyView(statusLabels),
+                hapticsEnabled: settings.hapticsEnabled,
                 captureBar: CaptureBarView(
                     isLandscape: geometry.size.width > geometry.size.height,
                     hasTorch: camera.hasTorch,
@@ -493,15 +619,15 @@ struct ContentView: View {
                             isFrontLightEnabled.toggle()
                         }
                     },
-                    onStopRecording: { camera.stopRecording(elements: drawing.elements) },
+                    onStopRecording: { camera.stopRecording(elements: mediaDrawingElements()) },
                     onCapturePhoto: {
-                        camera.captureBothCameras(elements: drawing.elements,
+                        camera.captureBothCameras(elements: mediaDrawingElements(),
                                                   pipOffsetFraction: pipOffsetFraction,
                                                   photoOverlayOffsetFraction: photoOverlayOffsetFraction,
                                                   photoOverlayWidthFraction: importedImageWidthFraction)
                     },
                     onStartRecording: {
-                        camera.startRecording(elements: drawing.elements,
+                        camera.startRecording(elements: mediaDrawingElements(),
                                               pipOffsetFraction: pipOffsetFraction,
                                               photoOverlayOffsetFraction: photoOverlayOffsetFraction,
                                               photoOverlayWidthFraction: importedImageWidthFraction)
@@ -512,7 +638,7 @@ struct ContentView: View {
                 drawingPalette: AnyView(
                     VStack(spacing: 8) {
                         if drawing.isDrawingEnabled {
-                            DrawingPaletteView(engine: drawing)
+                            DrawingPaletteView(engine: drawing, hapticsEnabled: settings.hapticsEnabled)
                                 .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
                         }
                         if camera.importedPhoto != nil { importedPhotoSizeControl }
@@ -525,6 +651,66 @@ struct ContentView: View {
     private func durationString(_ interval: TimeInterval) -> String {
         let total = Int(interval)
         return String(format: "%02d:%02d", total / 60, total % 60)
+    }
+
+    private var statusLabels: some View {
+        HStack(spacing: HUDTheme.statusLabelsSpacing) {
+            Text("ВИДЕО")
+            Text(settings.resolution.rawValue)
+            Text("\(settings.frameRate.rawValue) FPS")
+            Text(settings.audioQuality == .aac ? "AAC" : "Lossless")
+            if camera.isFocusExposureLocked {
+                Text("AE/AF LOCK")
+                    .foregroundStyle(HUDTheme.yellow)
+            }
+        }
+        .font(.system(size: HUDTheme.zoomPresetFontSize, weight: .medium))
+        .foregroundStyle(.white)
+        .lineLimit(1)
+        .minimumScaleFactor(0.75)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func dateTimeString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy/MM/dd HH:mm:ss"
+        return formatter.string(from: date)
+    }
+
+    private func mediaDrawingElements(includeDraft: Bool = false) -> [DrawingElement] {
+        var elements = includeDraft ? drawing.elementsIncludingDraft : drawing.elements
+        if let pointerPosition {
+            elements.append(contentsOf: pointerDrawingElements(at: pointerPosition))
+        }
+        return elements
+    }
+
+    private func pointerDrawingElements(at center: CGPoint) -> [DrawingElement] {
+        guard previewSize.width > 0, previewSize.height > 0 else { return [] }
+        let width = HUDTheme.pointerMarkerSize / previewSize.width
+        let height = HUDTheme.pointerMarkerSize / previewSize.height
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: center.x + (x - 0.5) * width,
+                    y: center.y + (y - 0.5) * height)
+        }
+        let paths: [[(CGFloat, CGFloat)]] = [
+            [(0.48, 0.04), (0.34, 0.07), (0.33, 0.46), (0.20, 0.43),
+             (0.06, 0.50), (0.12, 0.68), (0.28, 0.90), (0.36, 0.97),
+             (0.75, 0.97), (0.87, 0.90), (0.93, 0.68), (0.95, 0.35),
+             (0.84, 0.30), (0.74, 0.34), (0.59, 0.29), (0.49, 0.34),
+             (0.48, 0.04)],
+            [(0.49, 0.34), (0.49, 0.45)],
+            [(0.66, 0.32), (0.66, 0.45)],
+            [(0.83, 0.34), (0.83, 0.45)],
+            [(0.30, 0.72), (0.80, 0.72)]
+        ]
+        let lineWidth = HUDTheme.lineWidth / previewSize.width
+        return paths.map { path in
+            DrawingElement(kind: .stroke(points: path.map { point($0.0, $0.1) }),
+                           color: .red,
+                           lineWidth: lineWidth)
+        }
     }
 
     // MARK: - Импорт медиа
@@ -550,6 +736,7 @@ struct ContentView: View {
                         minimumZoomFactor: camera.minZoomFactor,
                         maximumZoomFactor: camera.maxZoomFactor,
                         isExpanded: $isZoomSliderVisible,
+                        hapticsEnabled: settings.hapticsEnabled,
                         onZoomChanged: { camera.setZoom($0) })
     }
 
@@ -618,6 +805,13 @@ struct ContentView: View {
             set: { if !$0 { camera.clearMergedVideo() } }
         )
     }
+}
+
+private struct FocusIndicatorState: Identifiable {
+    let id = UUID()
+    let position: CGPoint
+    let target: VideoFilterTarget
+    let isLocked: Bool
 }
 
 private struct SecondaryPreviewClip: ViewModifier {
