@@ -102,18 +102,12 @@ extension CGPath {
                 let control2 = element.points[1]
                 let end = element.points[2]
                 for step in 1...steps {
-                    let t = CGFloat(step) / CGFloat(steps)
-                    let inverse = 1 - t
-                    let i2 = inverse * inverse
-                    let i3 = i2 * inverse
-                    let t2 = t * t
-                    let t3 = t2 * t
-                    current.append(CGPoint(
-                        x: i3 * start.x + 3 * i2 * t * control1.x
-                            + 3 * inverse * t2 * control2.x + t3 * end.x,
-                        y: i3 * start.y + 3 * i2 * t * control1.y
-                            + 3 * inverse * t2 * control2.y + t3 * end.y
-                    ))
+                    let point = Self.cubicPoint(start: start,
+                                                control1: control1,
+                                                control2: control2,
+                                                end: end,
+                                                t: CGFloat(step) / CGFloat(steps))
+                    current.append(point)
                 }
 
             case .closeSubpath:
@@ -128,5 +122,24 @@ extension CGPath {
 
         if current.count > 1 { polylines.append(current) }
         return polylines
+    }
+
+    private static func cubicPoint(start: CGPoint,
+                                   control1: CGPoint,
+                                   control2: CGPoint,
+                                   end: CGPoint,
+                                   t: CGFloat) -> CGPoint {
+        let inverse = 1 - t
+        let i2 = inverse * inverse
+        let i3 = i2 * inverse
+        let t2 = t * t
+        let t3 = t2 * t
+        let w0 = i3
+        let w1 = 3 * i2 * t
+        let w2 = 3 * inverse * t2
+        let w3 = t3
+        let x = w0 * start.x + w1 * control1.x + w2 * control2.x + w3 * end.x
+        let y = w0 * start.y + w1 * control1.y + w2 * control2.y + w3 * end.y
+        return CGPoint(x: x, y: y)
     }
 }
