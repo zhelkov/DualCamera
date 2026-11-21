@@ -121,8 +121,8 @@ private struct CompactBrushSlider: UIViewRepresentable {
     @Binding var value: CGFloat
     let range: ClosedRange<CGFloat>
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(value: $value)
+    func makeCoordinator() -> BrushSliderCoordinator {
+        BrushSliderCoordinator(value: $value)
     }
 
     func makeUIView(context: Context) -> UISlider {
@@ -134,7 +134,7 @@ private struct CompactBrushSlider: UIViewRepresentable {
         slider.maximumTrackTintColor = UIColor.white.withAlphaComponent(0.25)
         slider.setThumbImage(Self.thumbImage, for: .normal)
         slider.setThumbImage(Self.thumbImage, for: .highlighted)
-        slider.addTarget(context.coordinator, action: #selector(Coordinator.valueChanged(_:)),
+        slider.addTarget(context.coordinator, action: #selector(BrushSliderCoordinator.valueChanged(_:)),
                          for: .valueChanged)
         return slider
     }
@@ -156,18 +156,18 @@ private struct CompactBrushSlider: UIViewRepresentable {
             context.cgContext.fillEllipse(in: CGRect(origin: .zero, size: size))
         }
     }
+}
 
-    private final class Coordinator: NSObject {
-        private var value: Binding<CGFloat>
+final class BrushSliderCoordinator: NSObject {
+    private var value: Binding<CGFloat>
 
-        init(value: Binding<CGFloat>) {
-            self.value = value
-        }
+    init(value: Binding<CGFloat>) {
+        self.value = value
+    }
 
-        @objc func valueChanged(_ slider: UISlider) {
-            let snappedValue = CGFloat(slider.value).rounded()
-            slider.value = Float(snappedValue)
-            value.wrappedValue = snappedValue
-        }
+    @objc func valueChanged(_ slider: UISlider) {
+        let snappedValue = CGFloat(slider.value).rounded()
+        slider.value = Float(snappedValue)
+        value.wrappedValue = snappedValue
     }
 }

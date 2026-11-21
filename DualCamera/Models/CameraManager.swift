@@ -92,6 +92,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
 
     private var backCamera: AVCaptureDevice?
     private var frontCamera: AVCaptureDevice?
+    /// Отключает виртуальную dual-wide камеру, если она не запустилась в MultiCam.
+    private var preferPhysicalBackCamera = false
     private var backRotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var frontRotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var backInput: AVCaptureDeviceInput?
@@ -246,7 +248,19 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             try? self.configureAudioSession()
 
             do {
-                try self.configureSession()
+                do {
+                    try self.configureSession()
+                } catch {
+                    // Виртуальная dual-wide камера может не ужиться с MultiCam:
+                    // один раз пробуем физическую широкоугольную камеру.
+                    guard !self.preferPhysicalBackCamera,
+                          self.backCamera?.deviceType == .builtInDualWideCamera else {
+                        throw error
+                    }
+                    self.preferPhysicalBackCamera = true
+                    self.resetSessionConfiguration()
+                    try self.configureSession()
+                }
                 self.applyInterfaceOrientation(initialOrientation, forceCaptureOutputs: true)
                 self.session.startRunning()
                 self.filterStateLock.lock()
@@ -1118,10 +1132,26 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         latestRealtimeFrontBuffer = nil
     }
 
+    /// Полностью очищает конфигурацию сессии, чтобы повторить настройку с другой камерой.
+    private func resetSessionConfiguration() {
+        session.beginConfiguration()
+        for input in session.inputs {
+            session.removeInput(input)
+        }
+        for output in session.outputs {
+            session.removeOutput(output)
+        }
+        session.commitConfiguration()
+        backInput = nil
+        frontInput = nil
+        audioInput = nil
+        backCamera = nil
+        frontCamera = nil
+    }
+
     private func configureSession() throws {
         session.beginConfiguration()
         defer { session.commitConfiguration() }
-
         // Не используем пресеты — формат каждой камеры задаём вручную.
         session.sessionPreset = .inputPriority
 
@@ -1329,26 +1359,21 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front),
             AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
         ].compactMap { $0 }
-        let backs = [
-            AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back),
-            preferredBackDevice()
-        ].compactMap { $0 }
-        let supportedSets = AVCaptureMultiCamSession.supportedMultiCamDeviceSets
-
-        for back in backs {
-            for front in fronts {
-                if supportedSets.contains(where: { $0.contains(back) && $0.contains(front) }) {
-                    return (back, front)
-                }
-            }
-        }
-        return (backs.last, fronts.first)
+        let back = preferredBackDevice()
+        return (back, fronts.first)
     }
 
-    /// The physical wide camera remains a fallback if a virtual dual-wide pair
-    /// isn't supported by the current MultiCam configuration.
+    /// The virtual dual-wide camera provides a real 0.5x zoom, but only when it
+    /// exposes a MultiCam-capable format. Otherwise we fall back to the physical
+    /// wide camera, which starts at 1x.
     private func preferredBackDevice() -> AVCaptureDevice? {
-        return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+        let wide = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+        guard !preferPhysicalBackCamera,
+              let dualWide = AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back),
+              dualWide.formats.contains(where: { $0.isMultiCamSupported }) else {
+            return wide
+        }
+        return dualWide
     }
 
     private func configureFormat(for device: AVCaptureDevice,
