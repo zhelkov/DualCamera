@@ -60,6 +60,9 @@ enum HUDTheme {
     static let recordingLabelOffset: CGFloat = 24
     static let statusLabelsYOffset: CGFloat = 12
     static let statusLabelsSpacing: CGFloat = 9
+    static let drawingPaletteTopSpacing: CGFloat = 34
+    static let filterLabelBottomOffset: CGFloat = 64
+    static let cameraDateTimeEdgeInset: CGFloat = 10
     static let captureBarTopPadding: CGFloat = 16
     static let splitVariantMinimumHeight: CGFloat = 44
     static let splitHandleWidth: CGFloat = 25

@@ -35,6 +35,8 @@ struct HUDIconGlyph: View {
     var body: some View {
         Image(systemName: systemName)
             .font(.system(size: size * HUDTheme.iconScale, weight: .regular))
+            .rotationEffect(.degrees(isLandscape ? 90 : 0))
+            .animation(.easeInOut(duration: HUDTheme.rotationDuration), value: isLandscape)
             .frame(width: size, height: size)
             .contentShape(Rectangle())
     }

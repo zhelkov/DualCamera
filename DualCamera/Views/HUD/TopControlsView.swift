@@ -114,6 +114,8 @@ struct TopControlsView: View {
                                                    lineCap: .round,
                                                    lineJoin: .round))
                         .frame(width: HUDTheme.pointerIconSize, height: HUDTheme.pointerIconSize)
+                        .rotationEffect(.degrees(isLandscape ? 90 : 0))
+                        .animation(.easeInOut(duration: HUDTheme.rotationDuration), value: isLandscape)
                         .frame(width: buttonSize, height: buttonSize)
                 }
                 .buttonStyle(HUDIconButtonStyle(isActive: pointerPosition != nil, size: buttonSize))

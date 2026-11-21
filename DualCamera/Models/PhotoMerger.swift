@@ -217,7 +217,7 @@ enum PhotoMerger {
             let pipWidth = size.width * pipWidthFraction
             let pipHeight = pipWidth * shape.aspectRatio
             let inset: CGFloat = 16
-            let x = min(max(0, size.width - pipWidth - inset + pipOffsetFraction.width * size.width),
+            let x = min(max(0, inset + pipOffsetFraction.width * size.width),
                         size.width - pipWidth)
             let y = min(max(0, inset + pipOffsetFraction.height * size.height),
                         size.height - pipHeight)

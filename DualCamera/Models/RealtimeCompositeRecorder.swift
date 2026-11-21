@@ -270,7 +270,7 @@ final class RealtimeCompositeRecorder {
             let width = min(renderSize.width, renderSize.height) * state.pipWidthFraction
             let height = width * state.pipShape.aspectRatio
             let rect = CGRect(
-                x: min(max(0, renderSize.width - width - 16 + state.pipOffsetFraction.width * renderSize.width), renderSize.width - width),
+                x: min(max(0, 16 + state.pipOffsetFraction.width * renderSize.width), renderSize.width - width),
                 y: min(max(0, renderSize.height - height - 16
                            - state.pipOffsetFraction.height * renderSize.height),
                        renderSize.height - height),

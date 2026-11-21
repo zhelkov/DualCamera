@@ -169,8 +169,7 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                 let width = min(instruction.canvasSize.width, instruction.canvasSize.height)
                     * layout.widthFraction
                 let height = width * captureLayout.shape.aspectRatio
-                let x = min(max(0, instruction.canvasSize.width - width - 16
-                                + layout.offset.width * instruction.canvasSize.width),
+                let x = min(max(0, 16 + layout.offset.width * instruction.canvasSize.width),
                             instruction.canvasSize.width - width)
                 let y = min(max(0, 16 + layout.offset.height * instruction.canvasSize.height),
                             instruction.canvasSize.height - height)

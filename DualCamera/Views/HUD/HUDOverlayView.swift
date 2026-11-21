@@ -8,6 +8,7 @@ struct HUDOverlayView: View {
     @Binding var isSettingsPresented: Bool
     let topControls: TopControlsView
     let statusLabels: AnyView
+    let filterLabel: AnyView
     let hapticsEnabled: Bool
     let captureBar: CaptureBarView
     let zoomControls: AnyView
@@ -47,10 +48,14 @@ struct HUDOverlayView: View {
                 .position(x: size.width / 2,
                           y: size.height - bottomStripHeight - HUDTheme.zoomControlBottomOffset)
 
-            drawingPalette
+            filterLabel
                 .frame(width: size.width)
                 .position(x: size.width / 2,
-                          y: max(HUDTheme.paletteTopMinimum, safeTop) + HUDTheme.paletteYOffset)
+                          y: size.height - bottomStripHeight - HUDTheme.filterLabelBottomOffset)
+
+            drawingPalette
+                .frame(width: size.width)
+                .offset(y: topStripHeight + HUDTheme.drawingPaletteTopSpacing)
 
             captureBar
                 .frame(width: size.width, height: bottomStripHeight, alignment: .center)
@@ -92,6 +97,8 @@ struct HUDOverlayView: View {
         } label: {
             Image(systemName: "gearshape")
                 .font(.system(size: HUDTheme.settingsIconSize, weight: .regular))
+                .rotationEffect(.degrees(isLandscape ? 90 : 0))
+                .animation(.easeInOut(duration: HUDTheme.rotationDuration), value: isLandscape)
                 .foregroundStyle(HUDTheme.primaryIcon)
                 .frame(width: HUDTheme.settingsButtonSize, height: HUDTheme.settingsButtonSize)
                 .background(HUDTheme.glass, in: Circle())

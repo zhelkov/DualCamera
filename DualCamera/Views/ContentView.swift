@@ -173,11 +173,12 @@ struct ContentView: View {
                             .font(.system(size: HUDTheme.cameraDateTimeFontSize,
                                           weight: .medium, design: .monospaced))
                             .foregroundStyle(.white)
-                            .padding(.horizontal, HUDTheme.cameraOverlayHorizontalPadding)
-                            .padding(.vertical, HUDTheme.cameraOverlayVerticalPadding)
-                            .background(Color.black.opacity(0.56), in: Capsule())
+                            .frame(width: guideWidth, height: guideHeight, alignment: .bottomTrailing)
+                            .offset(x: -HUDTheme.cameraDateTimeEdgeInset,
+                                    y: -HUDTheme.cameraDateTimeEdgeInset)
                             .position(x: guideRect.midX,
-                                      y: guideRect.maxY - HUDTheme.cameraDateTimeBottomInset)
+                                      y: guideRect.midY)
+                            .allowsHitTesting(false)
                     }
                 }
 
@@ -351,21 +352,6 @@ struct ContentView: View {
                         camera.splitRatio = ratio
                     }
                     .frame(width: size.width, height: size.height)
-                }
-
-                if camera.activeFilterTarget == .primary || camera.isSecondaryCameraVisible {
-                    let labelFrame = camera.activeFilterTarget == .primary
-                        ? frames.main
-                        : frames.secondary
-                    Text(camera.videoFilter.title)
-                        .font(.system(size: HUDTheme.filterLabelFontSize))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .frame(maxWidth: HUDTheme.filterLabelMaximumWidth)
-                        .position(x: labelFrame.midX,
-                                  y: labelFrame.maxY - HUDTheme.filterLabelYOffset)
-                        .accessibilityLabel("Фильтр: \(camera.videoFilter.title)")
-                        .allowsHitTesting(false)
                 }
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.layout)
@@ -565,7 +551,7 @@ struct ContentView: View {
             let inset: CGFloat = 16
             let maxX = max(0, size.width - pipSize.width)
             let maxY = max(0, size.height - pipSize.height)
-            let x = min(max(0, size.width - pipSize.width - inset + pipOffset.width), maxX)
+            let x = min(max(0, inset + pipOffset.width), maxX)
             let y = min(max(0, pipTopInset + pipOffset.height), maxY)
             return (
                 CGRect(origin: .zero, size: size),
@@ -601,6 +587,7 @@ struct ContentView: View {
                     onClearImportedMedia: { camera.clearImportedMedia() }
                 ),
                 statusLabels: AnyView(statusLabels),
+                filterLabel: AnyView(filterLabelView),
                 hapticsEnabled: settings.hapticsEnabled,
                 captureBar: CaptureBarView(
                     isLandscape: geometry.size.width > geometry.size.height,
@@ -655,7 +642,6 @@ struct ContentView: View {
 
     private var statusLabels: some View {
         HStack(spacing: HUDTheme.statusLabelsSpacing) {
-            Text("ВИДЕО")
             Text(settings.resolution.rawValue)
             Text("\(settings.frameRate.rawValue) FPS")
             Text(settings.audioQuality == .aac ? "AAC" : "Lossless")
@@ -669,6 +655,16 @@ struct ContentView: View {
         .lineLimit(1)
         .minimumScaleFactor(0.75)
         .accessibilityElement(children: .combine)
+    }
+
+    private var filterLabelView: some View {
+        Text(camera.videoFilter.title)
+            .font(.system(size: HUDTheme.filterLabelFontSize))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .frame(maxWidth: HUDTheme.filterLabelMaximumWidth)
+            .accessibilityLabel("Фильтр: \(camera.videoFilter.title)")
+            .allowsHitTesting(false)
     }
 
     private func dateTimeString(_ date: Date) -> String {
