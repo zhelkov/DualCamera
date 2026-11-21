@@ -28,6 +28,7 @@ struct ContentView: View {
     @State private var isDeviceLandscape = false
     @State private var isFilterLabelVisible = false
     @State private var filterLabelHideWorkItem: DispatchWorkItem?
+    @State private var focusHideWorkItem: DispatchWorkItem?
     @State private var drawing = DrawingEngine()
     @State private var selectedMediaItems: [PhotosPickerItem] = []
 
@@ -490,14 +491,22 @@ struct ContentView: View {
                         focusIndicator = marker
                     }
                     guard !didLock else { return }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + HUDTheme.focusIndicatorDuration) {
-                        guard focusIndicator?.id == marker.id else { return }
-                        withAnimation(.easeOut(duration: HUDTheme.stateTransitionDuration)) {
-                            focusIndicator = nil
-                        }
-                    }
+                    scheduleFocusIndicatorHide(for: marker.id)
                 }
             }
+    }
+
+    private func scheduleFocusIndicatorHide(for id: UUID) {
+        focusHideWorkItem?.cancel()
+        let workItem = DispatchWorkItem {
+            guard focusIndicator?.id == id else { return }
+            withAnimation(.easeOut(duration: HUDTheme.stateTransitionDuration)) {
+                focusIndicator = nil
+            }
+        }
+        focusHideWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + HUDTheme.focusIndicatorDuration,
+                                      execute: workItem)
     }
 
     private func previewLayer(for target: VideoFilterTarget) -> AVCaptureVideoPreviewLayer {
@@ -508,6 +517,8 @@ struct ContentView: View {
     private func exposureBiasDrag(target: VideoFilterTarget) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
+                // Пока палец на экране, индикатор фокуса не скрываем.
+                focusHideWorkItem?.cancel()
                 let startBias = exposureDragStartBias ?? camera.exposureTargetBias
                 exposureDragStartBias = startBias
                 let range = camera.maxExposureTargetBias - camera.minExposureTargetBias
@@ -518,7 +529,12 @@ struct ContentView: View {
                                camera.maxExposureTargetBias)
                 camera.setExposureTargetBias(bias, target: target)
             }
-            .onEnded { _ in exposureDragStartBias = nil }
+            .onEnded { _ in
+                exposureDragStartBias = nil
+                if let id = focusIndicator?.id {
+                    scheduleFocusIndicatorHide(for: id)
+                }
+            }
     }
 
     private func exposureBiasLabel(_ value: Float) -> String {
@@ -725,28 +741,24 @@ struct ContentView: View {
 
     private func pointerDrawingElements(at center: CGPoint) -> [DrawingElement] {
         guard previewSize.width > 0, previewSize.height > 0 else { return [] }
-        let width = HUDTheme.pointerMarkerSize / previewSize.width
-        let height = HUDTheme.pointerMarkerSize / previewSize.height
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(x: center.x + (x - 0.5) * width,
-                    y: center.y + (y - 0.5) * height)
-        }
-        let paths: [[(CGFloat, CGFloat)]] = [
-            [(0.48, 0.04), (0.34, 0.07), (0.33, 0.46), (0.20, 0.43),
-             (0.06, 0.50), (0.12, 0.68), (0.28, 0.90), (0.36, 0.97),
-             (0.75, 0.97), (0.87, 0.90), (0.93, 0.68), (0.95, 0.35),
-             (0.84, 0.30), (0.74, 0.34), (0.59, 0.29), (0.49, 0.34),
-             (0.48, 0.04)],
-            [(0.49, 0.34), (0.49, 0.45)],
-            [(0.66, 0.32), (0.66, 0.45)],
-            [(0.83, 0.34), (0.83, 0.45)],
-            [(0.30, 0.72), (0.80, 0.72)]
-        ]
+        // Рука должна остаться квадратной в готовом файле, поэтому по
+        // вертикали пересчитываем масштаб через пропорции выходного кадра.
+        let outputSize = settings.snapshot.outputSize(isPortrait: camera.isPortrait)
+        let unitWidth = HUDTheme.pointerMarkerSize / previewSize.width
+        let unitHeight = outputSize.height > 0
+            ? unitWidth * (outputSize.width / outputSize.height)
+            : unitWidth
         let lineWidth = HUDTheme.lineWidth / previewSize.width
-        return paths.map { path in
-            DrawingElement(kind: .stroke(points: path.map { point($0.0, $0.1) }),
-                           color: .red,
-                           lineWidth: lineWidth)
+        let shapePath = PointingHandShape()
+            .path(in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            .cgPath
+        return shapePath.flattenedPolylines().compactMap { polyline in
+            guard polyline.count > 1 else { return nil }
+            let points = polyline.map { point in
+                CGPoint(x: center.x + (point.x - 0.5) * unitWidth,
+                        y: center.y + (point.y - 0.5) * unitHeight)
+            }
+            return DrawingElement(kind: .stroke(points: points), color: .red, lineWidth: lineWidth)
         }
     }
 
@@ -773,6 +785,7 @@ struct ContentView: View {
                         minimumZoomFactor: camera.minZoomFactor,
                         maximumZoomFactor: camera.maxZoomFactor,
                         isExpanded: $isZoomSliderVisible,
+                        showsHalfPreset: camera.hasUltraWideBackCamera,
                         hapticsEnabled: settings.hapticsEnabled,
                         onZoomChanged: { camera.setZoom($0) })
     }

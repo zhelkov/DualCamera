@@ -89,7 +89,7 @@ struct HUDOverlayView: View {
     private var settingsButton: some View {
         Button {
             if hapticsEnabled {
-                UISelectionFeedbackGenerator().selectionChanged()
+                Haptics.selection()
             }
             isSettingsPresented = true
         } label: {

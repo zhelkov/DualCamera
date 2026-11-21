@@ -65,3 +65,68 @@ struct PointerMarkerView: View {
             .accessibilityLabel("Маркер-указатель")
     }
 }
+
+extension CGPath {
+    /// Приближает путь ломаными: кривые Безье разбиваются на отрезки.
+    func flattenedPolylines(curveSegments: Int = 12) -> [[CGPoint]] {
+        var polylines: [[CGPoint]] = []
+        var current: [CGPoint] = []
+        let steps = max(curveSegments, 2)
+
+        applyWithBlock { elementPointer in
+            let element = elementPointer.pointee
+            switch element.type {
+            case .moveToPoint:
+                if current.count > 1 { polylines.append(current) }
+                current = [element.points[0]]
+
+            case .addLineToPoint:
+                current.append(element.points[0])
+
+            case .addQuadCurveToPoint:
+                let start = current.last ?? element.points[1]
+                let control = element.points[0]
+                let end = element.points[1]
+                for step in 1...steps {
+                    let t = CGFloat(step) / CGFloat(steps)
+                    let inverse = 1 - t
+                    current.append(CGPoint(
+                        x: inverse * inverse * start.x + 2 * inverse * t * control.x + t * t * end.x,
+                        y: inverse * inverse * start.y + 2 * inverse * t * control.y + t * t * end.y
+                    ))
+                }
+
+            case .addCurveToPoint:
+                let start = current.last ?? element.points[2]
+                let control1 = element.points[0]
+                let control2 = element.points[1]
+                let end = element.points[2]
+                for step in 1...steps {
+                    let t = CGFloat(step) / CGFloat(steps)
+                    let inverse = 1 - t
+                    let i2 = inverse * inverse
+                    let i3 = i2 * inverse
+                    let t2 = t * t
+                    let t3 = t2 * t
+                    current.append(CGPoint(
+                        x: i3 * start.x + 3 * i2 * t * control1.x
+                            + 3 * inverse * t2 * control2.x + t3 * end.x,
+                        y: i3 * start.y + 3 * i2 * t * control1.y
+                            + 3 * inverse * t2 * control2.y + t3 * end.y
+                    ))
+                }
+
+            case .closeSubpath:
+                if let first = current.first { current.append(first) }
+                if current.count > 1 { polylines.append(current) }
+                current = []
+
+            @unknown default:
+                break
+            }
+        }
+
+        if current.count > 1 { polylines.append(current) }
+        return polylines
+    }
+}

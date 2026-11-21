@@ -117,6 +117,7 @@ struct TopControlsView: View {
                         .rotationEffect(.degrees(isLandscape ? 90 : 0))
                         .animation(.easeInOut(duration: HUDTheme.rotationDuration), value: isLandscape)
                         .frame(width: buttonSize, height: buttonSize)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(HUDIconButtonStyle(isActive: pointerPosition != nil, size: buttonSize))
                 .accessibilityLabel(pointerPosition == nil ? "Добавить указатель" : "Убрать указатель")
@@ -194,6 +195,6 @@ struct TopControlsView: View {
 
     private func playHaptic() {
         guard hapticsEnabled else { return }
-        UISelectionFeedbackGenerator().selectionChanged()
+        Haptics.selection()
     }
 }

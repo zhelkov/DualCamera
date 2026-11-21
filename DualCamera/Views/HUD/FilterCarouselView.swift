@@ -13,7 +13,7 @@ struct FilterCarouselView: View {
                     ForEach(VideoFilter.allCases) { filter in
                         Button {
                             if hapticsEnabled {
-                                UISelectionFeedbackGenerator().selectionChanged()
+                                Haptics.selection()
                             }
                             withAnimation(.easeOut(duration: HUDTheme.filterSelectionDuration)) {
                                 selectedFilter = filter

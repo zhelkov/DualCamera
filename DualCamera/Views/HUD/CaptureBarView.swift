@@ -126,6 +126,6 @@ struct CaptureBarView: View {
 
     private func playHaptic() {
         guard hapticsEnabled else { return }
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        Haptics.impact()
     }
 }

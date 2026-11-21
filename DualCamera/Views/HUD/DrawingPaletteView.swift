@@ -113,7 +113,7 @@ struct DrawingPaletteView: View {
 
     private func playHaptic() {
         guard hapticsEnabled else { return }
-        UISelectionFeedbackGenerator().selectionChanged()
+        Haptics.selection()
     }
 }
 

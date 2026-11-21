@@ -92,8 +92,6 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
 
     private var backCamera: AVCaptureDevice?
     private var frontCamera: AVCaptureDevice?
-    /// Отключает виртуальную dual-wide камеру, если она не запустилась в MultiCam.
-    private var preferPhysicalBackCamera = false
     private var backRotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var frontRotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var backInput: AVCaptureDeviceInput?
@@ -250,19 +248,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             try? self.configureAudioSession()
 
             do {
-                do {
-                    try self.configureSession()
-                } catch {
-                    // Виртуальная dual-wide камера может не ужиться с MultiCam:
-                    // один раз пробуем физическую широкоугольную камеру.
-                    guard !self.preferPhysicalBackCamera,
-                          self.backCamera?.deviceType == .builtInDualWideCamera else {
-                        throw error
-                    }
-                    self.preferPhysicalBackCamera = true
-                    self.resetSessionConfiguration()
-                    try self.configureSession()
-                }
+                try self.configureSession()
                 self.applyInterfaceOrientation(initialOrientation, forceCaptureOutputs: true)
                 self.session.startRunning()
                 self.filterStateLock.lock()
@@ -273,14 +259,19 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                 }
                 self.checkPreviewLayersAfterStart()
                 // Характеристики читаем на очереди сессии, применяем на главной.
-                let minZoom = self.backCamera?.minAvailableVideoZoomFactor ?? 1
-                let maxZoom = self.backCamera?.maxAvailableVideoZoomFactor ?? 1
+                let unit = self.backCameraZoomUnit
+                let minZoom = (self.backCamera?.minAvailableVideoZoomFactor ?? 1) * unit
+                let maxZoom = (self.backCamera?.maxAvailableVideoZoomFactor ?? 1) * unit
                 let hasTorch = self.backCamera?.hasTorch ?? false
-                let currentZoom = self.backCamera?.videoZoomFactor ?? 1
+                let currentZoom = (self.backCamera?.videoZoomFactor ?? 1) * unit
+                let hasUltraWide = AVCaptureDevice.default(.builtInUltraWideCamera,
+                                                           for: .video,
+                                                           position: .back) != nil
                 self.updateOnMain {
                     self.isConfigured = true
                     self.isRunning = self.session.isRunning
                     self.errorMessage = nil
+                    self.hasUltraWideBackCamera = hasUltraWide
                     self.minZoomFactor = minZoom
                     self.maxZoomFactor = maxZoom
                     self.hasTorch = hasTorch
@@ -581,18 +572,80 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
 
     // MARK: - Зум, фонарик, фокус
 
-    /// Устанавливает зум основной камеры (значение ограничивается диапазоном устройства).
+    /// Устанавливает зум основной камеры. Ниже 1x при наличии сверхширокой
+    /// камеры переключаемся на неё, чтобы 0,5 был настоящим.
     func setZoom(_ factor: CGFloat) {
-        let clamped = min(max(factor, minZoomFactor), maxZoomFactor)
-        updateOnMain { self.zoomFactor = clamped }
+        if factor < 0.9, backLens == .wide, hasUltraWideBackCamera {
+            switchBackLens(to: .ultraWide, targetZoom: factor)
+            return
+        }
+        if factor > 1.1, backLens == .ultraWide {
+            switchBackLens(to: .wide, targetZoom: factor)
+            return
+        }
+        applyZoom(factor)
+    }
+
+    private func applyZoom(_ factor: CGFloat) {
+        let unit = backCameraZoomUnit
+        let deviceFactor = factor / max(unit, 0.0001)
 
         sessionQueue.async { [weak self] in
             guard let self, let device = self.backCamera else { return }
-            let deviceClamped = min(max(clamped, device.minAvailableVideoZoomFactor),
-                                    device.maxAvailableVideoZoomFactor)
+            let clamped = min(max(deviceFactor, device.minAvailableVideoZoomFactor),
+                              device.maxAvailableVideoZoomFactor)
             guard (try? device.lockForConfiguration()) != nil else { return }
-            device.videoZoomFactor = deviceClamped
+            device.videoZoomFactor = clamped
             device.unlockForConfiguration()
+            let displayZoom = clamped * self.backCameraZoomUnit
+            self.updateOnMain { self.zoomFactor = displayZoom }
+        }
+    }
+
+    /// Пересобирает сессию с другим задним объективом и применяет нужный зум.
+    private func switchBackLens(to lens: BackLens, targetZoom: CGFloat) {
+        guard !isRecording, !isCapturing, !isApplyingSettings else { return }
+        guard lens != backLens else {
+            applyZoom(targetZoom)
+            return
+        }
+        let previousLens = backLens
+        backLens = lens
+        updateOnMain { self.isApplyingSettings = true }
+
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            self.session.stopRunning()
+            self.resetSessionConfiguration()
+            do {
+                try self.configureSession()
+                self.applyInterfaceOrientation(self.lastVideoOrientation, forceCaptureOutputs: true)
+                self.session.startRunning()
+                let unit = self.backCameraZoomUnit
+                let minZoom = (self.backCamera?.minAvailableVideoZoomFactor ?? 1) * unit
+                let maxZoom = (self.backCamera?.maxAvailableVideoZoomFactor ?? 1) * unit
+                let hasTorch = self.backCamera?.hasTorch ?? false
+                self.updateOnMain {
+                    self.isRunning = self.session.isRunning
+                    self.minZoomFactor = minZoom
+                    self.maxZoomFactor = maxZoom
+                    self.hasTorch = hasTorch
+                    self.isApplyingSettings = false
+                }
+                self.applyZoom(targetZoom)
+            } catch {
+                self.backLens = previousLens
+                self.sessionQueue.async {
+                    self.resetSessionConfiguration()
+                    try? self.configureSession()
+                    self.session.startRunning()
+                }
+                self.updateOnMain {
+                    self.isApplyingSettings = false
+                    self.errorMessage = (error as? LocalizedError)?.errorDescription
+                        ?? "Не удалось переключить объектив."
+                }
+            }
         }
     }
 
@@ -1164,6 +1217,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         }
         backCamera = back
         frontCamera = front
+        backCameraZoomUnit = back.deviceType == .builtInUltraWideCamera ? 0.5 : 1
         backRotationCoordinator = AVCaptureDevice.RotationCoordinator(device: back,
                                                                         previewLayer: backPreviewLayer)
         frontRotationCoordinator = AVCaptureDevice.RotationCoordinator(device: front,
@@ -1354,6 +1408,18 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         }
     }
 
+    /// Задняя камера: широкая (1x) или сверхширокоугольная (0,5x).
+    enum BackLens: Equatable {
+        case wide
+        case ultraWide
+    }
+
+    /// Экранный зум на единицу зума устройства (у сверхширокой камеры 1.0 = 0,5x).
+    private var backCameraZoomUnit: CGFloat = 1
+    private var backLens: BackLens = .wide
+    /// Есть ли сверхширокоугольная камера, то есть доступен зум 0,5.
+    private(set) var hasUltraWideBackCamera = false
+
     /// Находит пару «передняя + задняя», которую система разрешает
     /// использовать одновременно.
     private func selectMultiCamPair() -> (back: AVCaptureDevice?, front: AVCaptureDevice?) {
@@ -1365,17 +1431,16 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         return (back, fronts.first)
     }
 
-    /// The virtual dual-wide camera provides a real 0.5x zoom, but only when it
-    /// exposes a MultiCam-capable format. Otherwise we fall back to the physical
-    /// wide camera, which starts at 1x.
+    /// Виртуальные камеры в MultiCam недоступны, поэтому 0,5x даёт отдельная
+    /// физическая сверхширокоугольная камера.
     private func preferredBackDevice() -> AVCaptureDevice? {
         let wide = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
-        guard !preferPhysicalBackCamera,
-              let dualWide = AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back),
-              dualWide.formats.contains(where: { $0.isMultiCamSupported }) else {
+        switch backLens {
+        case .ultraWide:
+            return AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back) ?? wide
+        case .wide:
             return wide
         }
-        return dualWide
     }
 
     private func configureFormat(for device: AVCaptureDevice,

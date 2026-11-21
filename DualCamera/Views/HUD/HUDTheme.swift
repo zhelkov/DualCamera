@@ -186,7 +186,7 @@ enum HUDTheme {
     static let exposureSunHitSize: CGFloat = 32
     static let exposureIndicatorXOffset: CGFloat = 62
     static let exposureValueFontSize: CGFloat = 10
-    static let exposureSwipeTravel: CGFloat = 130
+    static let exposureSwipeTravel: CGFloat = 170
     static let zoomLongPressDuration: Double = 0.3
     static let minimumZoomPreset: Double = 0.5
     static let maximumZoomPreset: Double = 5
@@ -201,6 +201,10 @@ enum HUDTheme {
     static let zoomAdjusterHorizontalPadding: CGFloat = 10
     static let zoomAdjusterVerticalPadding: CGFloat = 8
     static let zoomAdjusterMaximumWidth: CGFloat = 270
+    static let zoomTrackThickness: CGFloat = 3
+    static let zoomThumbSize: CGFloat = 16
+    static let zoomDragPointsPerUnit: CGFloat = 55
+    static let zoomDragMovementThreshold: CGFloat = 2
     static let zoomAdjusterCornerRadius: CGFloat = 16
     static let zoomControlBottomPadding: CGFloat = 8
     static let gridLineColor = Color.white.opacity(0.5)
