@@ -213,8 +213,9 @@ enum PhotoMerger {
         return renderer.image { ctx in
             back.draw(in: CGRect(origin: .zero, size: size))
 
-            // Передняя камера занимает ~25% ширины кадра.
-            let pipWidth = size.width * pipWidthFraction
+            // Размер PiP считается от малой стороны кадра: так окно
+            // сохраняет пропорции при любой ориентации (см. п.7).
+            let pipWidth = min(size.width, size.height) * pipWidthFraction
             let pipHeight = pipWidth * shape.aspectRatio
             let inset: CGFloat = 16
             let x = min(max(0, inset + pipOffsetFraction.width * size.width),

@@ -572,18 +572,26 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
 
     // MARK: - Зум, фонарик, фокус
 
-    /// Устанавливает зум основной камеры. Ниже 1x при наличии сверхширокой
-    /// камеры переключаемся на неё, чтобы 0,5 был настоящим.
+    /// Живое изменение зума во время перетаскивания: объектив не меняем,
+    /// чтобы не было рывка посреди жеста.
     func setZoom(_ factor: CGFloat) {
-        if factor < 0.9, backLens == .wide, hasUltraWideBackCamera {
-            switchBackLens(to: .ultraWide, targetZoom: factor)
-            return
-        }
-        if factor > 1.1, backLens == .ultraWide {
-            switchBackLens(to: .wide, targetZoom: factor)
-            return
-        }
+        pendingZoomFactor = factor
         applyZoom(factor)
+    }
+
+    /// Завершение жеста: здесь и только здесь переключаем объектив,
+    /// если выбранный зум выходит за пределы текущего.
+    func commitZoom() {
+        let target = pendingZoomFactor ?? zoomFactor
+        if target < 0.9, backLens == .wide, hasUltraWideBackCamera {
+            switchBackLens(to: .ultraWide, targetZoom: target)
+            return
+        }
+        if target > 1.1, backLens == .ultraWide {
+            switchBackLens(to: .wide, targetZoom: target)
+            return
+        }
+        applyZoom(target)
     }
 
     private func applyZoom(_ factor: CGFloat) {
@@ -1355,11 +1363,15 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             self.isPortrait = orientation == .portrait || orientation == .portraitUpsideDown
         }
 
-        let previewConnections = [backPreviewLayer.connection, frontPreviewLayer.connection]
-        for connection in previewConnections {
-            if let connection, connection.isVideoOrientationSupported {
-                connection.videoOrientation = orientation
-            }
+        // Главное превью не поворачиваем: интерфейс закреплён в портрете.
+        // PiP-окно поворачивается вслед за устройством.
+        let mainLayer = isCamerasSwapped ? frontPreviewLayer : backPreviewLayer
+        let secondaryLayer = isCamerasSwapped ? backPreviewLayer : frontPreviewLayer
+        if let connection = mainLayer.connection, connection.isVideoOrientationSupported {
+            connection.videoOrientation = .portrait
+        }
+        if let connection = secondaryLayer.connection, connection.isVideoOrientationSupported {
+            connection.videoOrientation = orientation
         }
 
         guard forceCaptureOutputs || !isRecording else { return }
@@ -1419,6 +1431,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private var backLens: BackLens = .wide
     /// Есть ли сверхширокоугольная камера, то есть доступен зум 0,5.
     private(set) var hasUltraWideBackCamera = false
+    /// Значение зума, выбранное пользователем в жесте.
+    private var pendingZoomFactor: CGFloat?
 
     /// Находит пару «передняя + задняя», которую система разрешает
     /// использовать одновременно.

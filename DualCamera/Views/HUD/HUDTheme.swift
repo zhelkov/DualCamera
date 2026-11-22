@@ -205,6 +205,8 @@ enum HUDTheme {
     static let zoomThumbSize: CGFloat = 16
     static let zoomDragPointsPerUnit: CGFloat = 55
     static let zoomDragMovementThreshold: CGFloat = 2
+    static let zoomControlFixedHeight: CGFloat = 46
+    static let zoomAutoHideDelay: TimeInterval = 2.5
     static let zoomAdjusterCornerRadius: CGFloat = 16
     static let zoomControlBottomPadding: CGFloat = 8
     static let gridLineColor = Color.white.opacity(0.5)

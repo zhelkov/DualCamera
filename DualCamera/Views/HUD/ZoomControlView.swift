@@ -7,13 +7,16 @@ struct ZoomControlView: View {
     let maximumZoomFactor: CGFloat
     @Binding var isExpanded: Bool
     let showsHalfPreset: Bool
+    let isLandscape: Bool
     let hapticsEnabled: Bool
     let onZoomChanged: (CGFloat) -> Void
+    let onZoomCommitted: () -> Void
 
     @State private var gestureBaseZoom: CGFloat?
     @State private var didAdjustDuringGesture = false
     @State private var wasExpandedAtGestureStart = false
     @State private var containerWidth: CGFloat = 0
+    @State private var autoHideWorkItem: DispatchWorkItem?
 
     private var zoomRange: ClosedRange<Double>? {
         let lower = showsHalfPreset
@@ -36,6 +39,9 @@ struct ZoomControlView: View {
                 collapsedContent
             }
         }
+        // Фиксированная высота: иначе при появлении ползунка меняется
+        // система координат жеста и значение резко перескакивает.
+        .frame(height: HUDTheme.zoomControlFixedHeight)
         .padding(.horizontal, HUDTheme.zoomAdjusterHorizontalPadding)
         .padding(.vertical, HUDTheme.zoomAdjusterVerticalPadding)
         .background {
@@ -51,6 +57,11 @@ struct ZoomControlView: View {
         .accessibilityElement(children: .contain)
     }
 
+    /// Второе дискретное значение: ниже 1x показываем 1, а не повтор 0,5.
+    private var secondPresetValue: CGFloat {
+        max(zoomFactor, 1)
+    }
+
     // MARK: - Свёрнутый вид
 
     private var collapsedContent: some View {
@@ -58,7 +69,7 @@ struct ZoomControlView: View {
             if supportsHalfZoom {
                 presetLabel("0,5×", isActive: isNear(zoomFactor, 0.5))
             }
-            presetLabel(zoomLabel(zoomFactor), isActive: true)
+            presetLabel(zoomLabel(secondPresetValue), isActive: true)
         }
         .padding(.horizontal, HUDTheme.zoomPresetSpacing)
     }
@@ -68,6 +79,8 @@ struct ZoomControlView: View {
             .font(.system(size: HUDTheme.zoomPresetFontSize,
                           weight: isActive ? .semibold : .regular))
             .foregroundStyle(isActive ? HUDTheme.yellow : .white)
+            .rotationEffect(.degrees(isLandscape ? 90 : 0))
+            .animation(.easeInOut(duration: HUDTheme.rotationDuration), value: isLandscape)
             .frame(minWidth: HUDTheme.zoomPresetHitSize,
                    minHeight: HUDTheme.zoomPresetHitSize)
             .contentShape(Rectangle())
@@ -80,6 +93,8 @@ struct ZoomControlView: View {
             Text(zoomLabel(zoomFactor))
                 .font(.system(size: HUDTheme.zoomReadoutFontSize, weight: .medium))
                 .foregroundStyle(.white)
+                .rotationEffect(.degrees(isLandscape ? 90 : 0))
+                .animation(.easeInOut(duration: HUDTheme.rotationDuration), value: isLandscape)
                 .monospacedDigit()
 
             HStack(spacing: HUDTheme.zoomAdjusterItemSpacing) {
@@ -127,6 +142,7 @@ struct ZoomControlView: View {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 guard let zoomRange else { return }
+                autoHideWorkItem?.cancel()
                 if gestureBaseZoom == nil {
                     gestureBaseZoom = zoomFactor
                     wasExpandedAtGestureStart = isExpanded
@@ -139,11 +155,13 @@ struct ZoomControlView: View {
                     return
                 }
                 guard isExpanded else { return }
-                let delta = Double(value.translation.width) / HUDTheme.zoomDragPointsPerUnit
+                // Сдвиг пальца в точках: полоса только индикатор,
+                // значение меняется исключительно перемещением.
                 if abs(value.translation.width) > HUDTheme.zoomDragMovementThreshold {
                     didAdjustDuringGesture = true
                 }
                 guard didAdjustDuringGesture else { return }
+                let delta = Double(value.translation.width) / HUDTheme.zoomDragPointsPerUnit
                 let base = Double(gestureBaseZoom ?? zoomFactor)
                 let next = min(max(base + delta, zoomRange.lowerBound), zoomRange.upperBound)
                 guard abs(next - Double(zoomFactor)) > 0.001 else { return }
@@ -156,15 +174,12 @@ struct ZoomControlView: View {
                 didAdjustDuringGesture = false
                 if didAdjust {
                     Haptics.selection()
-                    withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
-                        isExpanded = false
-                    }
+                    onZoomCommitted()
+                    scheduleAutoHide()
                     return
                 }
                 if wasExpanded {
-                    withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
-                        isExpanded = false
-                    }
+                    scheduleAutoHide()
                     return
                 }
                 // Короткое касание по левой части — быстрый выбор 0,5x.
@@ -172,11 +187,24 @@ struct ZoomControlView: View {
                    value.startLocation.x < containerWidth / 2 {
                     Haptics.selection()
                     onZoomChanged(CGFloat(HUDTheme.minimumZoomPreset))
-                    withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
-                        isExpanded = false
-                    }
+                    onZoomCommitted()
                 }
+                scheduleAutoHide()
             }
+    }
+
+    /// Полоса исчезает не сразу: за один свайп не всегда удаётся пройти
+    /// весь диапазон, поэтому даём время вернуться пальцем.
+    private func scheduleAutoHide() {
+        autoHideWorkItem?.cancel()
+        let workItem = DispatchWorkItem {
+            withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
+                isExpanded = false
+            }
+        }
+        autoHideWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + HUDTheme.zoomAutoHideDelay,
+                                      execute: workItem)
     }
 
     private func zoomLabel(_ value: CGFloat) -> String {

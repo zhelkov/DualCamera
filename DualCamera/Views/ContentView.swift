@@ -786,8 +786,10 @@ struct ContentView: View {
                         maximumZoomFactor: camera.maxZoomFactor,
                         isExpanded: $isZoomSliderVisible,
                         showsHalfPreset: camera.hasUltraWideBackCamera,
+                        isLandscape: isDeviceLandscape,
                         hapticsEnabled: settings.hapticsEnabled,
-                        onZoomChanged: { camera.setZoom($0) })
+                        onZoomChanged: { camera.setZoom($0) },
+                        onZoomCommitted: { camera.commitZoom() })
     }
 
     private var importedPhotoSizeControl: some View {
