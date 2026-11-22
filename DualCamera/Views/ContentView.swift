@@ -322,6 +322,9 @@ struct ContentView: View {
             let pipSlotSize = isDeviceLandscape
                 ? CGSize(width: pipContentSize.height, height: pipContentSize.width)
                 : pipContentSize
+            // В сплит-режиме вторичное окно — это ячейка сплита, а не PiP.
+            let isPipLayout = camera.layout == .pip
+            let secondaryContentSize = isPipLayout ? pipContentSize : .zero
             let frames = Self.layoutFrames(layout: camera.layout, size: size, pipSize: pipSlotSize,
                                            pipOffset: pipOffset,
                                            pipTopInset: max(HUDTheme.topStripMinimumHeight,
@@ -406,18 +409,20 @@ struct ContentView: View {
         }
     }
 
-    /// Второй камеры превью: картинка строится в своих пропорциях, а затем
-    /// вписывается в окно на экране. В ландшафте окно повёрнуто на 90°.
+    /// Второе превью. В режиме PiP картинка строится в своих пропорциях и
+    /// поворачивается в ландшафте; в сплит-режиме она просто заполняет ячейку.
     private func secondaryPreview<Content: View>(_ content: Content,
                                                 contentSize: CGSize,
                                                 slot: CGRect,
                                                 radius: CGFloat) -> some View {
-        content
-            .frame(width: contentSize.width, height: contentSize.height)
-            .rotationEffect(.degrees(isDeviceLandscape ? 90 : 0))
+        let isPip = camera.layout == .pip
+        let innerSize = isPip ? contentSize : slot.size
+        return content
+            .frame(width: innerSize.width, height: innerSize.height)
+            .rotationEffect(.degrees(isPip && isDeviceLandscape ? 90 : 0))
             .animation(.easeInOut(duration: HUDTheme.rotationDuration), value: isDeviceLandscape)
             .frame(width: slot.width, height: slot.height)
-            .modifier(SecondaryPreviewClip(layout: camera.layout, radius: radius))
+            .modifier(SecondaryPreviewClip(layout: camera.layout, radius: isPip ? radius : 0))
             .offset(x: slot.minX, y: slot.minY)
     }
 
