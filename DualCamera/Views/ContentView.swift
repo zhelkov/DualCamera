@@ -90,19 +90,19 @@ struct ContentView: View {
             .onChange(of: camera.videoFilter) { _, _ in
                 showFilterLabelTemporarily()
             }
-            .sensoryFeedback(.selection, trigger: camera.layout) { _, _ in settings.hapticsEnabled }
-            .sensoryFeedback(.selection, trigger: camera.splitOrientation) { _, _ in settings.hapticsEnabled }
-            .sensoryFeedback(.selection, trigger: camera.pipShape) { _, _ in settings.hapticsEnabled }
-            .sensoryFeedback(.selection, trigger: camera.videoFilter) { _, _ in settings.hapticsEnabled }
-            .sensoryFeedback(.selection, trigger: camera.isSecondaryCameraVisible) { _, _ in settings.hapticsEnabled }
-            .sensoryFeedback(.selection, trigger: camera.isCamerasSwapped) { _, _ in settings.hapticsEnabled }
-            .sensoryFeedback(.selection, trigger: camera.isTorchOn) { _, _ in settings.hapticsEnabled }
-            .sensoryFeedback(.selection, trigger: isFrontLightEnabled) { _, _ in settings.hapticsEnabled }
-            .sensoryFeedback(.selection, trigger: pointerPosition != nil) { _, _ in settings.hapticsEnabled }
-            .sensoryFeedback(.selection, trigger: drawing.toolMode) { _, _ in settings.hapticsEnabled }
-            .sensoryFeedback(.selection, trigger: drawing.selectedColor) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.impact(weight: .light), trigger: camera.layout) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.impact(weight: .light), trigger: camera.splitOrientation) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.impact(weight: .light), trigger: camera.pipShape) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.impact(weight: .light), trigger: camera.videoFilter) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.impact(weight: .light), trigger: camera.isSecondaryCameraVisible) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.impact(weight: .light), trigger: camera.isCamerasSwapped) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.impact(weight: .light), trigger: camera.isTorchOn) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.impact(weight: .light), trigger: isFrontLightEnabled) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.impact(weight: .light), trigger: pointerPosition != nil) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.impact(weight: .light), trigger: drawing.toolMode) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.impact(weight: .light), trigger: drawing.selectedColor) { _, _ in settings.hapticsEnabled }
             .sensoryFeedback(.impact(weight: .medium), trigger: camera.isRecording) { _, _ in settings.hapticsEnabled }
-            .sensoryFeedback(.selection, trigger: Int((camera.zoomFactor * 10).rounded())) { _, _ in
+            .sensoryFeedback(.impact(weight: .light), trigger: Int((camera.zoomFactor * 10).rounded())) { _, _ in
                 settings.hapticsEnabled
             }
     }

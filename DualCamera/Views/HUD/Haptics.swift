@@ -4,21 +4,30 @@ import UIKit
 /// без подготовки iOS не успевает проиграть отклик.
 enum Haptics {
     private static let selectionGenerator = UISelectionFeedbackGenerator()
-    private static let impactGenerator = UIImpactFeedbackGenerator(style: .light)
+    private static let lightGenerator = UIImpactFeedbackGenerator(style: .light)
+    private static let mediumGenerator = UIImpactFeedbackGenerator(style: .medium)
 
     /// Вызывать при появлении экрана: прогревает моторы заранее.
     static func prepare() {
         selectionGenerator.prepare()
-        impactGenerator.prepare()
+        lightGenerator.prepare()
+        mediumGenerator.prepare()
     }
 
+    /// Заметный отклик: «selection» на iPhone почти не ощущается,
+    /// поэтому для кнопок используем лёгкий удар.
     static func selection() {
-        selectionGenerator.selectionChanged()
-        selectionGenerator.prepare()
+        lightGenerator.impactOccurred(intensity: 0.85)
+        lightGenerator.prepare()
     }
 
     static func impact() {
-        impactGenerator.impactOccurred()
-        impactGenerator.prepare()
+        mediumGenerator.impactOccurred(intensity: 0.9)
+        mediumGenerator.prepare()
+    }
+
+    /// Тестовый отклик, не зависящий от настроек приложения.
+    static func test() {
+        mediumGenerator.impactOccurred(intensity: 1)
     }
 }

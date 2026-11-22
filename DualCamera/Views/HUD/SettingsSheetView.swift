@@ -66,17 +66,29 @@ struct SettingsSheetView: View {
             Toggle("Дата и время на экране", isOn: $settings.dateTimeEnabled)
             Toggle("Показать сетку", isOn: $settings.gridEnabled)
             Toggle("Тактильная отдача", isOn: $settings.hapticsEnabled)
+            Button {
+                Haptics.test()
+            } label: {
+                Text("Проверить отклик")
+                    .font(.system(size: HUDTheme.settingsOptionFontSize, weight: .medium))
+                    .foregroundStyle(HUDTheme.yellow)
+                    .frame(maxWidth: .infinity, minHeight: HUDTheme.settingsOptionHeight)
+                    .background(HUDTheme.settingsOptionsFill,
+                                in: RoundedRectangle(cornerRadius: HUDTheme.settingsOptionCornerRadius))
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Срабатывает даже при выключенном переключателе")
         }
         .padding(.bottom, HUDTheme.settingsBottomPadding)
-        .sensoryFeedback(.selection, trigger: settings.aspectRatio) { _, _ in settings.hapticsEnabled }
-        .sensoryFeedback(.selection, trigger: settings.resolution) { _, _ in settings.hapticsEnabled }
-        .sensoryFeedback(.selection, trigger: settings.frameRate) { _, _ in settings.hapticsEnabled }
-        .sensoryFeedback(.selection, trigger: settings.audioQuality) { _, _ in settings.hapticsEnabled }
-        .sensoryFeedback(.selection, trigger: settings.stabilizationEnabled) { _, _ in settings.hapticsEnabled }
-        .sensoryFeedback(.selection, trigger: settings.teleprompterEnabled) { _, _ in settings.hapticsEnabled }
-        .sensoryFeedback(.selection, trigger: settings.dateTimeEnabled) { _, _ in settings.hapticsEnabled }
-        .sensoryFeedback(.selection, trigger: settings.gridEnabled) { _, _ in settings.hapticsEnabled }
-        .sensoryFeedback(.selection, trigger: settings.hapticsEnabled) { _, _ in settings.hapticsEnabled }
+        .sensoryFeedback(.impact(weight: .light), trigger: settings.aspectRatio) { _, _ in settings.hapticsEnabled }
+        .sensoryFeedback(.impact(weight: .light), trigger: settings.resolution) { _, _ in settings.hapticsEnabled }
+        .sensoryFeedback(.impact(weight: .light), trigger: settings.frameRate) { _, _ in settings.hapticsEnabled }
+        .sensoryFeedback(.impact(weight: .light), trigger: settings.audioQuality) { _, _ in settings.hapticsEnabled }
+        .sensoryFeedback(.impact(weight: .light), trigger: settings.stabilizationEnabled) { _, _ in settings.hapticsEnabled }
+        .sensoryFeedback(.impact(weight: .light), trigger: settings.teleprompterEnabled) { _, _ in settings.hapticsEnabled }
+        .sensoryFeedback(.impact(weight: .light), trigger: settings.dateTimeEnabled) { _, _ in settings.hapticsEnabled }
+        .sensoryFeedback(.impact(weight: .light), trigger: settings.gridEnabled) { _, _ in settings.hapticsEnabled }
+        .sensoryFeedback(.impact(weight: .light), trigger: settings.hapticsEnabled) { _, _ in settings.hapticsEnabled }
     }
 
     private var aspectRatioGroup: some View {
