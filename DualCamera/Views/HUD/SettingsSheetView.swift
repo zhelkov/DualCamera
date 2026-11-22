@@ -68,9 +68,12 @@ struct SettingsSheetView: View {
             Toggle("Дата и время на экране", isOn: $settings.dateTimeEnabled)
             Toggle("Показать сетку", isOn: $settings.gridEnabled)
             Toggle("Тактильная отдача", isOn: $settings.hapticsEnabled)
+            Toggle("Сильная вибрация", isOn: $settings.systemVibrationEnabled)
             Button {
                 Haptics.test()
-                hapticDiagnostics = Haptics.diagnosticText
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                    hapticDiagnostics = Haptics.diagnosticText
+                }
             } label: {
                 Text("Проверить отклик")
                     .font(.system(size: HUDTheme.settingsOptionFontSize, weight: .medium))

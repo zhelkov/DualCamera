@@ -112,6 +112,7 @@ final class CameraSettings {
         static let dateTime = "cameraSettings.dateTime"
         static let grid = "cameraSettings.grid"
         static let haptics = "cameraSettings.haptics"
+        static let systemVibration = "cameraSettings.systemVibration"
     }
 
     private let defaults: UserDefaults
@@ -126,6 +127,7 @@ final class CameraSettings {
     var dateTimeEnabled: Bool { didSet { defaults.set(dateTimeEnabled, forKey: Key.dateTime) } }
     var gridEnabled: Bool { didSet { defaults.set(gridEnabled, forKey: Key.grid) } }
     var hapticsEnabled: Bool { didSet { defaults.set(hapticsEnabled, forKey: Key.haptics) } }
+    var systemVibrationEnabled: Bool { didSet { defaults.set(systemVibrationEnabled, forKey: Key.systemVibration) } }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -139,6 +141,7 @@ final class CameraSettings {
         dateTimeEnabled = defaults.bool(forKey: Key.dateTime)
         gridEnabled = defaults.bool(forKey: Key.grid)
         hapticsEnabled = defaults.object(forKey: Key.haptics) as? Bool ?? true
+        systemVibrationEnabled = defaults.object(forKey: Key.systemVibration) as? Bool ?? false
     }
 
     var snapshot: CameraSettingsSnapshot {

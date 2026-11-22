@@ -115,6 +115,7 @@ struct ContentView: View {
                 await camera.requestAccessAndSetup()
             }
             .onAppear {
+                Haptics.preferSystemVibration = settings.systemVibrationEnabled
                 Haptics.prepare()
                 UIDevice.current.beginGeneratingDeviceOrientationNotifications()
                 updateDeviceOrientation()
@@ -138,6 +139,9 @@ struct ContentView: View {
             }
             .onChange(of: settings.snapshot) { _, snapshot in
                 camera.applyCaptureSettings(snapshot)
+            }
+            .onChange(of: settings.systemVibrationEnabled) { _, enabled in
+                Haptics.preferSystemVibration = enabled
             }
     }
 
