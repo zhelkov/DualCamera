@@ -629,6 +629,13 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                 try self.configureSession()
                 self.applyInterfaceOrientation(self.lastVideoOrientation, forceCaptureOutputs: true)
                 self.session.startRunning()
+                // После пересборки сессии фильтру снова нужен поток кадров.
+                self.filterStateLock.lock()
+                let needsRealtimeOutputs = self.captureVideoFilter != .original
+                self.filterStateLock.unlock()
+                if needsRealtimeOutputs {
+                    try? self.configureRealtimeOutputs()
+                }
                 let unit = self.backCameraZoomUnit
                 let minZoom = (self.backCamera?.minAvailableVideoZoomFactor ?? 1) * unit
                 let maxZoom = (self.backCamera?.maxAvailableVideoZoomFactor ?? 1) * unit
@@ -694,21 +701,28 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                     device.focusPointOfInterest = point
                 }
 
-                let didLock = lock
-                    && device.isFocusModeSupported(.locked)
-                    && device.isExposureModeSupported(.locked)
-                if didLock {
-                    if device.isFocusPointOfInterestSupported { device.focusMode = .locked }
-                    if device.isExposurePointOfInterestSupported {
-                        device.exposurePointOfInterest = point
-                        device.exposureMode = .locked
-                    }
-                } else {
+                // Сверхширокоугольная камера имеет фиксированный фокус:
+                // фиксируем то, что поддерживается, и не показываем ошибку.
+                let focusCanLock = device.isFocusModeSupported(.locked)
+                    && device.isFocusPointOfInterestSupported
+                let exposureCanLock = device.isExposureModeSupported(.locked)
+                let didLock = lock && exposureCanLock
+                if lock, focusCanLock, device.isFocusPointOfInterestSupported {
+                    device.focusPointOfInterest = point
+                    device.focusMode = .locked
+                } else if !lock || !focusCanLock {
                     if device.isFocusModeSupported(.continuousAutoFocus) {
                         device.focusMode = .continuousAutoFocus
                     } else if device.isFocusModeSupported(.autoFocus) {
                         device.focusMode = .autoFocus
                     }
+                }
+                if lock, exposureCanLock {
+                    if device.isExposurePointOfInterestSupported {
+                        device.exposurePointOfInterest = point
+                    }
+                    device.exposureMode = .locked
+                } else {
                     if device.isExposurePointOfInterestSupported {
                         device.exposurePointOfInterest = point
                     }
@@ -729,9 +743,6 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                     self.maxExposureTargetBias = maximumBias
                     self.exposureTargetBias = currentBias
                     self.isFocusExposureLocked = didLock
-                    if lock && !didLock {
-                        self.errorMessage = "Фиксация AE/AF недоступна на выбранной камере."
-                    }
                     completion(didLock)
                 }
             } catch {
@@ -784,6 +795,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         let orientationAtStart = currentInterfaceVideoOrientation()
         let swappedAtStart = isCamerasSwapped
         let importedVideoAtStart = importedVideoURL
+        // Склейка идёт на лету, как раньше; импортированное видео
+        // по-прежнему склеивается после остановки.
         let useRealtimeComposite = importedVideoAtStart == nil
         let layoutAtStart = layout
         let shapeAtStart = pipShape
@@ -1087,6 +1100,13 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     // MARK: - Настройка сессии (выполняется в sessionQueue)
 
     private func configureRealtimeOutputs() throws {
+        // Состояние могло остаться от прошлой конфигурации сессии.
+        if realtimeVideoOutputsReady,
+           !session.outputs.contains(backVideoDataOutput) || !session.outputs.contains(frontVideoDataOutput) {
+            realtimeVideoOutputsReady = false
+            videoDataSynchronizer?.setDelegate(nil, queue: nil)
+            videoDataSynchronizer = nil
+        }
         guard !realtimeVideoOutputsReady else { return }
         guard let backInput, let frontInput else {
             throw CameraError.connectionFailed
@@ -1197,6 +1217,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
 
     /// Полностью очищает конфигурацию сессии, чтобы повторить настройку с другой камерой.
     private func resetSessionConfiguration() {
+        videoDataSynchronizer?.setDelegate(nil, queue: nil)
+        videoDataSynchronizer = nil
+        audioDataOutput.setSampleBufferDelegate(nil, queue: nil)
         session.beginConfiguration()
         for input in session.inputs {
             session.removeInput(input)
@@ -1205,6 +1228,18 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             session.removeOutput(output)
         }
         session.commitConfiguration()
+        // Без этого синхронизатор остаётся «готовым», но держит выходы,
+        // которых больше нет в сессии, и кадры никогда не приходят.
+        realtimeVideoOutputsReady = false
+        latestRealtimeBackBuffer = nil
+        latestRealtimeFrontBuffer = nil
+        lastRealtimeSubmittedBackPTS = .invalid
+        backVideoDataConnection = nil
+        frontVideoDataConnection = nil
+        backMovieConnection = nil
+        frontMovieConnection = nil
+        backPhotoConnection = nil
+        frontPhotoConnection = nil
         backInput = nil
         frontInput = nil
         audioInput = nil

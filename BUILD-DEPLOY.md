@@ -37,15 +37,15 @@
 5. Скачать готовый IPA (артефакт):
 
    ```bash
-   "/c/Program Files/GitHub CLI/gh.exe" run download <RUN_ID> --repo zhelkov/DualCamera --name DualCamera-ipa --dir ./ipa_xxx
+   "/c/Program Files/GitHub CLI/gh.exe" run download <RUN_ID> --repo zhelkov/DualCamera --name DualCamera-ipa --dir ./ipa_archive/ipa_<ВЕРСИЯ>
    ```
 
-   После этого в `ipa_xxx/` лежит файл `DualCamera.ipa`.
+   После этого в `ipa_archive/ipa_<ВЕРСИЯ>/` лежит файл `DualCamera.ipa`. Все локальные IPA хранятся под `ipa_archive/`, вне папки приложения.
 
 6. Создать GitHub Release с прямым IPA:
 
    ```bash
-   "/c/Program Files/GitHub CLI/gh.exe" release create v<ВЕРСИЯ> ipa_xxx/DualCamera.ipa \
+   "/c/Program Files/GitHub CLI/gh.exe" release create v<ВЕРСИЯ> ipa_archive/ipa_<ВЕРСИЯ>/DualCamera.ipa \
      --repo zhelkov/DualCamera \
      --title "DualCamera <ВЕРСИЯ>" \
      --notes "описание изменений"
@@ -61,7 +61,7 @@
 
 - Артефакт GitHub Actions — это **zip**, внутри него `DualCamera.ipa`. Пользователю давать ссылку на **release** (чистый `.ipa`), а НЕ на артефакт сборки.
 - Имя артефакта в workflow: `DualCamera-ipa`.
-- Папки с локальными IPA (`ipa_*`) не коммитить — они в `.gitignore`.
+- Локальные IPA складывать в `ipa_archive/<имя-сборки>/`; эта папка вне `DualCamera/` и исключена через `.gitignore`.
 
 ## Как пользователь устанавливает (Windows + AltStore)
 
@@ -70,7 +70,7 @@
 3. Нажать **«Поделиться»** (квадрат со стрелкой) → выбрать **AltStore**.
 4. AltStore подписывает и устанавливает (бесплатный Apple ID, подпись действует 7 дней, затем продлевать).
 
-Если AltStore пишет «AltServer could not be found»: на компьютере должен быть запущен **AltServer** (трей Windows), iPhone и ПК в одной Wi-Fi сети или по USB, установлен iTunes. Подпись идёт по Wi-Fi, не по кабелю.
+Если AltStore пишет «AltServer could not be found»: на компьютере должен быть запущен **AltServer** (трей Windows), iPhone и ПК в одной Wi-Fi сети или по USB, установлен iTunes. Подпись идёт по Wi-Fi, и по кабелю.
 
 ## Стиль общения с пользователем
 

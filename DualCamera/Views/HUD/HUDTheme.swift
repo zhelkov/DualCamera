@@ -187,7 +187,7 @@ enum HUDTheme {
     static let exposureIndicatorXOffset: CGFloat = 62
     static let exposureValueFontSize: CGFloat = 10
     static let exposureSwipeTravel: CGFloat = 170
-    static let zoomLongPressDuration: Double = 0.3
+    static let zoomLongPressDuration: Double = 0.45
     static let minimumZoomPreset: Double = 0.5
     static let maximumZoomPreset: Double = 5
     static let zoomAdjustmentStep: Double = 0.1

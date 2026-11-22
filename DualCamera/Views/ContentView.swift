@@ -90,6 +90,21 @@ struct ContentView: View {
             .onChange(of: camera.videoFilter) { _, _ in
                 showFilterLabelTemporarily()
             }
+            .sensoryFeedback(.selection, trigger: camera.layout) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.selection, trigger: camera.splitOrientation) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.selection, trigger: camera.pipShape) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.selection, trigger: camera.videoFilter) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.selection, trigger: camera.isSecondaryCameraVisible) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.selection, trigger: camera.isCamerasSwapped) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.selection, trigger: camera.isTorchOn) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.selection, trigger: isFrontLightEnabled) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.selection, trigger: pointerPosition != nil) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.selection, trigger: drawing.toolMode) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.selection, trigger: drawing.selectedColor) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.impact(weight: .medium), trigger: camera.isRecording) { _, _ in settings.hapticsEnabled }
+            .sensoryFeedback(.selection, trigger: Int((camera.zoomFactor * 10).rounded())) { _, _ in
+                settings.hapticsEnabled
+            }
     }
 
     private var lifecycleView: some View {
@@ -100,6 +115,7 @@ struct ContentView: View {
                 await camera.requestAccessAndSetup()
             }
             .onAppear {
+                Haptics.prepare()
                 UIDevice.current.beginGeneratingDeviceOrientationNotifications()
                 updateDeviceOrientation()
             }
@@ -313,6 +329,8 @@ struct ContentView: View {
 
                     if camera.isSecondaryCameraVisible {
                         frontCameraContent
+                            .rotationEffect(.degrees(isDeviceLandscape ? 90 : 0))
+                            .animation(.easeInOut(duration: HUDTheme.rotationDuration), value: isDeviceLandscape)
                             .frame(width: frames.secondary.width, height: frames.secondary.height)
                             .modifier(SecondaryPreviewClip(layout: camera.layout, radius: pipRadius))
                             .offset(x: frames.secondary.minX, y: frames.secondary.minY)
@@ -333,6 +351,8 @@ struct ContentView: View {
 
                     if camera.isSecondaryCameraVisible {
                         backCameraContent
+                            .rotationEffect(.degrees(isDeviceLandscape ? 90 : 0))
+                            .animation(.easeInOut(duration: HUDTheme.rotationDuration), value: isDeviceLandscape)
                             .frame(width: frames.secondary.width, height: frames.secondary.height)
                             .modifier(SecondaryPreviewClip(layout: camera.layout, radius: pipRadius))
                             .offset(x: frames.secondary.minX, y: frames.secondary.minY)
