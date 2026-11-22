@@ -17,13 +17,7 @@ struct ZoomControlView: View {
     let onZoomChanged: (CGFloat) -> Void
     let onZoomCommitted: () -> Void
 
-    @State private var touchStartDate: Date?
-    @State private var lastTranslation: CGFloat = 0
-    @State private var holdAnchorTranslation: CGFloat = 0
-    @State private var holdTimer: Timer?
-    @State private var gestureBaseZoom: CGFloat?
-    @State private var didAdjustDuringGesture = false
-    @State private var lastHapticStep = 0
+    @State private var gestureState = ZoomGestureState()
     @State private var containerWidth: CGFloat = 0
     @State private var autoHideWorkItem: DispatchWorkItem?
 
@@ -158,12 +152,13 @@ struct ZoomControlView: View {
     private var panelGesture: some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
-                lastTranslation = value.translation.width
-                if touchStartDate == nil {
-                    touchStartDate = Date()
+                gestureState.lastTranslation = value.translation.width
+                if gestureState.startDate == nil {
+                    gestureState.startDate = Date()
+                    gestureState.base = zoomFactor
                     autoHideWorkItem?.cancel()
                     if isExpanded {
-                        beginDrag(from: 0)
+                        beginDrag()
                     } else {
                         startHoldTimer()
                     }
@@ -173,14 +168,14 @@ struct ZoomControlView: View {
                 applyDrag(value)
             }
             .onEnded { value in
-                let startDate = touchStartDate
-                touchStartDate = nil
-                holdTimer?.invalidate()
-                holdTimer = nil
+                let startDate = gestureState.startDate
+                gestureState.startDate = nil
+                gestureState.holdTimer?.invalidate()
+                gestureState.holdTimer = nil
                 let duration = Date().timeIntervalSince(startDate ?? Date())
                 let moved = abs(value.translation.width) > HUDTheme.zoomDragMovementThreshold
 
-                if didAdjustDuringGesture {
+                if gestureState.didAdjust {
                     Haptics.selection()
                     onZoomCommitted()
                     resetDragState()
@@ -209,50 +204,52 @@ struct ZoomControlView: View {
     /// Удержание открывает полосу; палец при этом не отрывается,
     /// поэтому сразу после открытия можно продолжать вести.
     private func startHoldTimer() {
-        holdTimer?.invalidate()
+        gestureState.holdTimer?.invalidate()
+        let state = gestureState
         let timer = Timer(timeInterval: HUDTheme.zoomLongPressDuration, repeats: false) { _ in
             guard !isExpanded, zoomRange != nil else { return }
             Haptics.selection()
             withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
                 isExpanded = true
             }
-            beginDrag(from: lastTranslation)
+            beginDrag()
         }
+        state.holdTimer = timer
         RunLoop.main.add(timer, forMode: .common)
-        holdTimer = timer
     }
 
-    private func beginDrag(from anchor: CGFloat) {
-        guard gestureBaseZoom == nil else { return }
-        gestureBaseZoom = zoomFactor
-        holdAnchorTranslation = anchor
-        didAdjustDuringGesture = false
-        lastHapticStep = Int((zoomFactor * 10).rounded())
+    /// Точка отсчёта берётся из состояния жеста на момент открытия полосы,
+    /// поэтому значение не прыгает к пальцу.
+    private func beginDrag() {
+        guard gestureState.base != nil else { return }
+        gestureState.anchor = gestureState.lastTranslation
+        gestureState.didAdjust = false
+        gestureState.lastHapticStep = Int(((gestureState.base ?? zoomFactor) * 10).rounded())
     }
 
     private func applyDrag(_ value: DragGesture.Value) {
-        guard let zoomRange, gestureBaseZoom != nil else { return }
-        let deltaPoints = value.translation.width - holdAnchorTranslation
+        guard let zoomRange else { return }
+        let deltaPoints = value.translation.width - gestureState.anchor
         if abs(deltaPoints) > HUDTheme.zoomDragMovementThreshold {
-            didAdjustDuringGesture = true
+            gestureState.didAdjust = true
         }
-        guard didAdjustDuringGesture else { return }
+        guard gestureState.didAdjust else { return }
         let delta = Double(deltaPoints) / HUDTheme.zoomDragPointsPerUnit
-        let base = Double(gestureBaseZoom ?? zoomFactor)
+        let base = Double(gestureState.base ?? zoomFactor)
         let next = min(max(base + delta, zoomRange.lowerBound), zoomRange.upperBound)
         guard abs(next - Double(zoomFactor)) > 0.001 else { return }
         onZoomChanged(CGFloat(next))
         let step = Int((CGFloat(next) * 10).rounded())
-        if step != lastHapticStep {
-            lastHapticStep = step
+        if step != gestureState.lastHapticStep {
+            gestureState.lastHapticStep = step
             Haptics.selection()
         }
     }
 
     private func resetDragState() {
-        gestureBaseZoom = nil
-        didAdjustDuringGesture = false
-        holdAnchorTranslation = 0
+        gestureState.base = nil
+        gestureState.didAdjust = false
+        gestureState.anchor = 0
     }
 
     /// Полоса исчезает не сразу: за один свайп не всегда удаётся пройти
@@ -277,4 +274,16 @@ struct ZoomControlView: View {
     private func isNear(_ value: CGFloat, _ preset: Double) -> Bool {
         abs(value - CGFloat(preset)) < HUDTheme.zoomPresetTolerance
     }
+}
+
+/// Состояние жеста в ссылочном типе: таймер удержания читает актуальные
+/// значения, а не устаревшую копию структуры View.
+private final class ZoomGestureState {
+    var startDate: Date?
+    var lastTranslation: CGFloat = 0
+    var anchor: CGFloat = 0
+    var base: CGFloat?
+    var didAdjust = false
+    var lastHapticStep = 0
+    var holdTimer: Timer?
 }
