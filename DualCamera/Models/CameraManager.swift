@@ -250,12 +250,13 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                 self.applyInterfaceOrientation(initialOrientation, forceCaptureOutputs: true)
                 self.session.startRunning()
                 if !self.session.isRunning {
-                    // Резерв: без активной аудиосессии сессия может не
-                    // стартовать. Лучше тактильная отдача пострадает,
-                    // чем камера не запустится.
-                    try? self.configureAudioSession()
+                    // Повторяем запуск, но НЕ включаем аудиосессию: её
+                    // активный режим записи глушит тактильную отдачу.
                     self.session.startRunning()
                 }
+                // Страховка: если аудиосессия осталась активной с прошлого
+                // раза, освобождаем её — иначе мотор молчит.
+                self.deactivateAudioSessionIfIdle()
                 self.filterStateLock.lock()
                 let shouldCaptureFilteredPreview = self.captureVideoFilter != .original
                 self.filterStateLock.unlock()
@@ -298,9 +299,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             self.applyInterfaceOrientation(orientation, forceCaptureOutputs: true)
             self.session.startRunning()
             if !self.session.isRunning {
-                try? self.configureAudioSession()
                 self.session.startRunning()
             }
+            self.deactivateAudioSessionIfIdle()
             self.updateOnMain { self.isRunning = self.session.isRunning }
         }
     }
@@ -326,6 +327,21 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
 
     private func deactivateAudioSession() {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    /// В превью аудиосессия не нужна. Если она осталась активной
+    /// (например, после записи), мотор тактильной отдачи молчит.
+    private func deactivateAudioSessionIfIdle() {
+        guard !isRecording else { return }
+        let session = AVAudioSession.sharedInstance()
+        guard session.isActive else { return }
+        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    /// Текущее состояние аудиосессии — для диагностики тактильной отдачи.
+    var audioSessionDiagnostics: String {
+        let session = AVAudioSession.sharedInstance()
+        return "аудиосессия \(session.category.rawValue), активна: \(session.isActive ? "да" : "нет")"
     }
 
     /// Снимает фото одновременно с обеих камер, склеивает и накладывает рисунок.

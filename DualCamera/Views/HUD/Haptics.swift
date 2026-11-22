@@ -1,4 +1,5 @@
 import AudioToolbox
+import AVFoundation
 import CoreHaptics
 import UIKit
 
@@ -28,9 +29,11 @@ enum Haptics {
     private static let vibrateSoundID: SystemSoundID = 4095
 
     static var diagnosticText: String {
+        let audio = AVAudioSession.sharedInstance()
         var lines = [
             "Поддержка устройства: \(supportsHaptics ? "да" : "нет")",
             "Движок Core Haptics: \(engine != nil ? "запущен" : "не запущен")",
+            "Аудиосессия: \(audio.category.rawValue), активна: \(audio.isActive ? "да" : "нет")",
             "Последний отклик: \(lastMechanism)",
             "Режим: \(preferSystemVibration ? "системная вибрация" : "тактильный отклик")"
         ]
@@ -126,6 +129,9 @@ enum Haptics {
             return true
         } catch {
             lastError = error.localizedDescription
+            // Пересоздадим движок при следующем вызове: если он попал
+            // в нерабочее состояние, это единственный способ оживить.
+            engine = nil
             return false
         }
     }
