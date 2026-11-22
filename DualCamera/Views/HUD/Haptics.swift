@@ -36,7 +36,7 @@ enum Haptics {
         var lines = [
             "Поддержка устройства: \(supportsHaptics ? "да" : "нет")",
             "Движок Core Haptics: \(engine != nil ? "запущен" : "не запущен")",
-            "Аудиосессия: \(audio.category.rawValue), активна: \(audio.isActive ? "да" : "нет")",
+            "Аудиосессия: \(audio.category.rawValue)",
             "Освобождать аудио можно: \(audioCanBeReleased ? "да" : "нет")",
             "Откликов сыграно: \(playCount)",
             "Последний отклик: \(lastMechanism)",
@@ -56,17 +56,16 @@ enum Haptics {
         _ = ensureEngineReady()
     }
 
-    /// Освобождает аудиосессию, если она активна и запись не идёт.
-    /// Возвращает true, если состояние аудио менялось.
+    /// Освобождает аудиосессию, если запись не идёт. Возвращает true,
+    /// если освобождение удалось.
     @discardableResult
     private static func releaseAudioIfPossible() -> Bool {
         guard audioCanBeReleased else { return false }
-        let audio = AVAudioSession.sharedInstance()
-        guard audio.isActive else { return false }
         do {
-            try audio.setActive(false, options: .notifyOthersOnDeactivation)
+            // Повторное освобождение безопасно и для уже свободной сессии.
+            try AVAudioSession.sharedInstance().setActive(false,
+                                                          options: .notifyOthersOnDeactivation)
         } catch {
-            lastError = error.localizedDescription
             return false
         }
         // После смены аудиоокружения старый движок может остаться глухим,
@@ -149,7 +148,7 @@ enum Haptics {
             return true
         } catch {
             lastError = error.localizedDescription
-            engine = nil
+            Haptics.engine = nil
             return false
         }
     }

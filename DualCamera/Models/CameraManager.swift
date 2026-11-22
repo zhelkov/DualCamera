@@ -329,19 +329,18 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
-    /// В превью аудиосессия не нужна. Если она осталась активной
-    /// (например, после записи), мотор тактильной отдачи молчит.
+    /// В превью аудиосессия не нужна. Освобождаем её: активный режим
+    /// записи глушит мотор тактильной отдачи.
     private func deactivateAudioSessionIfIdle() {
         guard !isRecording else { return }
-        let session = AVAudioSession.sharedInstance()
-        guard session.isActive else { return }
-        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        try? AVAudioSession.sharedInstance().setActive(false,
+                                                       options: .notifyOthersOnDeactivation)
     }
 
     /// Текущее состояние аудиосессии — для диагностики тактильной отдачи.
     var audioSessionDiagnostics: String {
         let session = AVAudioSession.sharedInstance()
-        return "аудиосессия \(session.category.rawValue), активна: \(session.isActive ? "да" : "нет")"
+        return "аудиосессия \(session.category.rawValue)"
     }
 
     /// Снимает фото одновременно с обеих камер, склеивает и накладывает рисунок.
