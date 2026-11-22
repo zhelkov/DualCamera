@@ -243,14 +243,19 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         sessionQueue.async { [weak self] in
             guard let self else { return }
 
-            // Настраиваем аудио-сессию для записи звука.
-            // Если не получилось — камера всё равно заработает (видео без звука).
-            try? self.configureAudioSession()
-
+            // Аудиосессию включаем только на время записи: активный
+            // режим .playAndRecord глушит мотор тактильной отдачи.
             do {
                 try self.configureSession()
                 self.applyInterfaceOrientation(initialOrientation, forceCaptureOutputs: true)
                 self.session.startRunning()
+                if !self.session.isRunning {
+                    // Резерв: без активной аудиосессии сессия может не
+                    // стартовать. Лучше тактильная отдача пострадает,
+                    // чем камера не запустится.
+                    try? self.configureAudioSession()
+                    self.session.startRunning()
+                }
                 self.filterStateLock.lock()
                 let shouldCaptureFilteredPreview = self.captureVideoFilter != .original
                 self.filterStateLock.unlock()
@@ -290,10 +295,12 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         let orientation = currentInterfaceVideoOrientation()
         sessionQueue.async { [weak self] in
             guard let self, !self.session.isRunning else { return }
-            // Возобновляем аудио-сессию (например, после возврата из фона).
-            try? self.configureAudioSession()
             self.applyInterfaceOrientation(orientation, forceCaptureOutputs: true)
             self.session.startRunning()
+            if !self.session.isRunning {
+                try? self.configureAudioSession()
+                self.session.startRunning()
+            }
             self.updateOnMain { self.isRunning = self.session.isRunning }
         }
     }
@@ -313,7 +320,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private func configureAudioSession() throws {
         let audioSession = AVAudioSession.sharedInstance()
         try audioSession.setCategory(.playAndRecord, mode: .videoRecording,
-                                     options: [.defaultToSpeaker])
+                                     options: [.defaultToSpeaker, .mixWithOthers])
         try audioSession.setActive(true)
     }
 
@@ -859,6 +866,10 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
 
             self.applyInterfaceOrientation(orientationAtStart, forceCaptureOutputs: true)
 
+            // Аудиосессия нужна только на время записи: в превью она глушит
+            // тактильную отдачу.
+            try? self.configureAudioSession()
+
             self.recordingElements = elements
             self.recordingPipOffsetFraction = pipOffsetFraction
             self.recordingLock.lock()
@@ -1250,6 +1261,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private func configureSession() throws {
         session.beginConfiguration()
         defer { session.commitConfiguration() }
+        // Аудиосессией управляем сами, только на время записи.
+        session.automaticallyConfiguresApplicationAudioSession = false
         // Не используем пресеты — формат каждой камеры задаём вручную.
         session.sessionPreset = .inputPriority
 
@@ -1868,6 +1881,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     }
 
     private func resetRecordingState() {
+        // Запись закончилась: освобождаем аудиосессию, иначе она глушит
+        // тактильную отдачу в превью.
+        deactivateAudioSession()
         recordingLock.lock()
         recordedURLs.removeAll()
         recordingError = nil

@@ -46,6 +46,9 @@ struct ZoomControlView: View {
         // Фиксированная высота: иначе при появлении ползунка меняется
         // система координат жеста.
         .frame(height: HUDTheme.zoomControlFixedHeight)
+        // Ширина фиксирована в обоих состояниях: иначе при появлении полосы
+        // меняется система координат жеста и значение скачет к пальцу.
+        .frame(width: HUDTheme.zoomAdjusterMaximumWidth)
         .padding(.horizontal, HUDTheme.zoomAdjusterHorizontalPadding)
         .padding(.vertical, HUDTheme.zoomAdjusterVerticalPadding)
         .background {
@@ -224,10 +227,18 @@ struct ZoomControlView: View {
         guard gestureState.base != nil else { return }
         gestureState.anchor = gestureState.lastTranslation
         gestureState.didAdjust = false
+        gestureState.skipNextUpdate = true
         gestureState.lastHapticStep = Int(((gestureState.base ?? zoomFactor) * 10).rounded())
     }
 
     private func applyDrag(_ value: DragGesture.Value) {
+        // Первое событие после открытия полосы только перезакрепляет точку
+        // отсчёта: раскладка уже новая, старое смещение к ней не относится.
+        if gestureState.skipNextUpdate {
+            gestureState.skipNextUpdate = false
+            gestureState.anchor = value.translation.width
+            return
+        }
         guard let zoomRange else { return }
         let deltaPoints = value.translation.width - gestureState.anchor
         if abs(deltaPoints) > HUDTheme.zoomDragMovementThreshold {
@@ -284,6 +295,7 @@ private final class ZoomGestureState {
     var anchor: CGFloat = 0
     var base: CGFloat?
     var didAdjust = false
+    var skipNextUpdate = false
     var lastHapticStep = 0
     var holdTimer: Timer?
 }

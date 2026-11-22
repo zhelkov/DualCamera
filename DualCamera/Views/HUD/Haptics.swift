@@ -68,34 +68,33 @@ enum Haptics {
 
     // MARK: - Публичные отклики
 
-    /// Отклик на обычное действие: переходы, выбор режима, зум.
+    /// Отклик на обычное действие: короткий одиночный «тик», как в системных
+    /// приложениях.
     static func selection() {
-        emit(intensity: 0.85, sharpness: 0.35, duration: 0.02)
+        tick(intensity: 0.9, sharpness: 0.5)
     }
 
-    /// Отклик на значимое действие: старт и стоп записи.
+    /// Отклик на значимое действие: чуть более плотный тик.
     static func impact() {
-        emit(intensity: 1.0, sharpness: 0.55, duration: 0.05)
+        tick(intensity: 1.0, sharpness: 0.7)
     }
 
-    /// Проверка из настроек. Даёт два импульса: сначала тактильный отклик,
-    /// затем системную вибрацию, чтобы понять, какой путь работает.
+    /// Проверка из настроек: сначала одиночный тик, затем системная вибрация.
     static func test() {
-        emit(intensity: 1.0, sharpness: 0.6, duration: 0.15)
+        tick(intensity: 1.0, sharpness: 0.7)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
             vibrateSystem()
-            lastMechanism = "оба пути: тактильный отклик и системная вибрация"
+            lastMechanism = "тик + системная вибрация"
         }
     }
 
-    private static func emit(intensity: Float,
-                             sharpness: Float,
-                             duration: TimeInterval) {
+    /// Одиночный короткий импульс (transient) — самый отчётливый отклик.
+    private static func tick(intensity: Float, sharpness: Float) {
         if preferSystemVibration {
             vibrateSystem()
             return
         }
-        if playCoreHaptics(intensity: intensity, sharpness: sharpness, duration: duration) {
+        if playTransientCoreHaptics(intensity: intensity, sharpness: sharpness) {
             return
         }
         if intensity >= 0.95 {
@@ -108,24 +107,22 @@ enum Haptics {
         lastMechanism = "UIKit-генератор"
     }
 
-    private static func playCoreHaptics(intensity: Float,
-                                        sharpness: Float,
-                                        duration: TimeInterval) -> Bool {
+    private static func playTransientCoreHaptics(intensity: Float, sharpness: Float) -> Bool {
         startEngineIfNeeded()
         guard let engine else { return false }
-        let parameters = [
-            CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity),
-            CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness)
-        ]
-        let event = CHHapticEvent(eventType: .hapticContinuous,
-                                  parameters: parameters,
-                                  relativeTime: 0,
-                                  duration: max(duration, 0.02))
+        let event = CHHapticEvent(eventType: .hapticTransient,
+                                  parameters: [
+                                    CHHapticEventParameter(parameterID: .hapticIntensity,
+                                                           value: intensity),
+                                    CHHapticEventParameter(parameterID: .hapticSharpness,
+                                                           value: sharpness)
+                                  ],
+                                  relativeTime: 0)
         do {
             let pattern = try CHHapticPattern(events: [event], parameters: [])
             let player = try engine.makePlayer(with: pattern)
             try player.start(atTime: CHHapticTimeImmediate)
-            lastMechanism = "Core Haptics"
+            lastMechanism = "Core Haptics (тик)"
             return true
         } catch {
             lastError = error.localizedDescription
