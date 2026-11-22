@@ -307,8 +307,14 @@ struct ContentView: View {
         GeometryReader { geo in
             let size = geo.size
             let backIsMain = !camera.isCamerasSwapped
-            let pip = Self.pipSize(for: camera.pipShape, in: size, widthFraction: 0.3)
-            let frames = Self.layoutFrames(layout: camera.layout, size: size, pipSize: pip,
+            // Размер самой картинки PiP (портретный) и размер её окна на экране.
+            // В ландшафте окно повёрнуто на 90°, поэтому стороны меняются местами,
+            // иначе повёрнутый прямоугольник обрезается.
+            let pipContentSize = Self.pipSize(for: camera.pipShape, in: size, widthFraction: 0.3)
+            let pipSlotSize = isDeviceLandscape
+                ? CGSize(width: pipContentSize.height, height: pipContentSize.width)
+                : pipContentSize
+            let frames = Self.layoutFrames(layout: camera.layout, size: size, pipSize: pipSlotSize,
                                            pipOffset: pipOffset,
                                            pipTopInset: max(HUDTheme.topStripMinimumHeight,
                                                             geo.safeAreaInsets.top + HUDTheme.topSafeAreaAddition)
@@ -316,7 +322,7 @@ struct ContentView: View {
                                            splitOrientation: camera.splitOrientation,
                                            splitRatio: camera.splitRatio,
                                            isSecondaryCameraVisible: camera.isSecondaryCameraVisible)
-            let pipRadius = camera.pipShape.cornerRadius(for: pip)
+            let pipRadius = camera.pipShape.cornerRadius(for: pipSlotSize)
 
             ZStack(alignment: .topLeading) {
                 if backIsMain {
@@ -328,12 +334,10 @@ struct ContentView: View {
                                          target: .primary))
 
                     if camera.isSecondaryCameraVisible {
-                        frontCameraContent
-                            .rotationEffect(.degrees(isDeviceLandscape ? 90 : 0))
-                            .animation(.easeInOut(duration: HUDTheme.rotationDuration), value: isDeviceLandscape)
-                            .frame(width: frames.secondary.width, height: frames.secondary.height)
-                            .modifier(SecondaryPreviewClip(layout: camera.layout, radius: pipRadius))
-                            .offset(x: frames.secondary.minX, y: frames.secondary.minY)
+                        secondaryPreview(frontCameraContent,
+                                         contentSize: pipContentSize,
+                                         slot: frames.secondary,
+                                         radius: pipRadius)
                             .gesture(pipDrag)
                             .simultaneousGesture(focusTap(
                                 in: frames.secondary.size,
@@ -350,12 +354,10 @@ struct ContentView: View {
                                          target: .primary))
 
                     if camera.isSecondaryCameraVisible {
-                        backCameraContent
-                            .rotationEffect(.degrees(isDeviceLandscape ? 90 : 0))
-                            .animation(.easeInOut(duration: HUDTheme.rotationDuration), value: isDeviceLandscape)
-                            .frame(width: frames.secondary.width, height: frames.secondary.height)
-                            .modifier(SecondaryPreviewClip(layout: camera.layout, radius: pipRadius))
-                            .offset(x: frames.secondary.minX, y: frames.secondary.minY)
+                        secondaryPreview(backCameraContent,
+                                         contentSize: pipContentSize,
+                                         slot: frames.secondary,
+                                         radius: pipRadius)
                             .gesture(pipDrag)
                             .simultaneousGesture(focusTap(
                                 in: frames.secondary.size,
@@ -394,6 +396,21 @@ struct ContentView: View {
             .onAppear { previewSize = size }
             .onChange(of: size) { _, newSize in previewSize = newSize }
         }
+    }
+
+    /// Второй камеры превью: картинка строится в своих пропорциях, а затем
+    /// вписывается в окно на экране. В ландшафте окно повёрнуто на 90°.
+    private func secondaryPreview<Content: View>(_ content: Content,
+                                                contentSize: CGSize,
+                                                slot: CGRect,
+                                                radius: CGFloat) -> some View {
+        content
+            .frame(width: contentSize.width, height: contentSize.height)
+            .rotationEffect(.degrees(isDeviceLandscape ? 90 : 0))
+            .animation(.easeInOut(duration: HUDTheme.rotationDuration), value: isDeviceLandscape)
+            .frame(width: slot.width, height: slot.height)
+            .modifier(SecondaryPreviewClip(layout: camera.layout, radius: radius))
+            .offset(x: slot.minX, y: slot.minY)
     }
 
     @ViewBuilder

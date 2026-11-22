@@ -1,6 +1,11 @@
 import SwiftUI
 import UIKit
 
+/// Дискретные значения зума и полоса прокрутки.
+///
+/// Жест один на всю панель и живёт на контейнере, поэтому он не теряется,
+/// когда панель меняет вид: удержание сразу открывает полосу, и в том же
+/// касании можно продолжать вести палец.
 struct ZoomControlView: View {
     let zoomFactor: CGFloat
     let minimumZoomFactor: CGFloat
@@ -12,6 +17,10 @@ struct ZoomControlView: View {
     let onZoomChanged: (CGFloat) -> Void
     let onZoomCommitted: () -> Void
 
+    @State private var touchStartDate: Date?
+    @State private var lastTranslation: CGFloat = 0
+    @State private var holdAnchorTranslation: CGFloat = 0
+    @State private var holdTimer: Timer?
     @State private var gestureBaseZoom: CGFloat?
     @State private var didAdjustDuringGesture = false
     @State private var lastHapticStep = 0
@@ -27,8 +36,9 @@ struct ZoomControlView: View {
         return lower...upper
     }
 
-    private var supportsHalfZoom: Bool {
-        showsHalfPreset
+    /// Второе дискретное значение: ниже 1x показываем 1, а не повтор 0,5.
+    private var secondPresetValue: CGFloat {
+        max(zoomFactor, 1)
     }
 
     var body: some View {
@@ -40,7 +50,7 @@ struct ZoomControlView: View {
             }
         }
         // Фиксированная высота: иначе при появлении ползунка меняется
-        // система координат жеста и значение резко перескакивает.
+        // система координат жеста.
         .frame(height: HUDTheme.zoomControlFixedHeight)
         .padding(.horizontal, HUDTheme.zoomAdjusterHorizontalPadding)
         .padding(.vertical, HUDTheme.zoomAdjusterVerticalPadding)
@@ -52,59 +62,33 @@ struct ZoomControlView: View {
             }
         }
         .contentShape(Rectangle())
+        .gesture(panelGesture)
         .padding(.bottom, HUDTheme.zoomControlBottomPadding)
-        .accessibilityElement(children: .contain)
-    }
-
-    /// Второе дискретное значение: ниже 1x показываем 1, а не повтор 0,5.
-    private var secondPresetValue: CGFloat {
-        max(zoomFactor, 1)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Увеличение")
+        .accessibilityValue(zoomLabel(zoomFactor))
+        .accessibilityAdjustableAction { direction in
+            guard let zoomRange else { return }
+            let step = direction == .increment ? 0.5 : -0.5
+            let next = min(max(Double(zoomFactor) + step, zoomRange.lowerBound),
+                           zoomRange.upperBound)
+            onZoomChanged(CGFloat(next))
+            onZoomCommitted()
+        }
     }
 
     // MARK: - Свёрнутый вид
 
     private var collapsedContent: some View {
         HStack(spacing: HUDTheme.zoomPresetHitSize) {
-            if supportsHalfZoom {
-                Button {
-                    selectPreset(0.5)
-                } label: {
-                    presetLabel("0,5×", isActive: isNear(zoomFactor, 0.5))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Зум 0,5")
-                .simultaneousGesture(longPressToExpand)
+            if showsHalfPreset {
+                presetLabel("0,5×", isActive: isNear(zoomFactor, 0.5))
             }
-            Button {
-                selectPreset(1)
-            } label: {
-                presetLabel(zoomLabel(secondPresetValue),
-                            isActive: !isNear(zoomFactor, 0.5))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Зум 1")
-            .simultaneousGesture(longPressToExpand)
+            presetLabel(zoomLabel(secondPresetValue),
+                        isActive: !isNear(zoomFactor, 0.5))
         }
         .padding(.horizontal, HUDTheme.zoomPresetSpacing)
-    }
-
-    /// Удержание на дискретном значении открывает полосу прокрутки.
-    private var longPressToExpand: some Gesture {
-        LongPressGesture(minimumDuration: HUDTheme.zoomLongPressDuration)
-            .onEnded { _ in
-                guard zoomRange != nil else { return }
-                Haptics.selection()
-                withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
-                    isExpanded = true
-                }
-                scheduleAutoHide()
-            }
-    }
-
-    private func selectPreset(_ value: Double) {
-        Haptics.selection()
-        onZoomChanged(CGFloat(value))
-        onZoomCommitted()
+        .allowsHitTesting(false)
     }
 
     private func presetLabel(_ text: String, isActive: Bool) -> some View {
@@ -116,7 +100,6 @@ struct ZoomControlView: View {
             .animation(.easeInOut(duration: HUDTheme.rotationDuration), value: isLandscape)
             .frame(minWidth: HUDTheme.zoomPresetHitSize,
                    minHeight: HUDTheme.zoomPresetHitSize)
-            .contentShape(Rectangle())
     }
 
     // MARK: - Развёрнутый вид
@@ -145,10 +128,10 @@ struct ZoomControlView: View {
             }
         }
         .frame(maxWidth: HUDTheme.zoomAdjusterMaximumWidth)
-        .contentShape(Rectangle())
-        .gesture(zoomGesture)
+        .allowsHitTesting(false)
     }
 
+    /// Полоса — только индикатор: касание по ней значение не меняет.
     private var track: some View {
         GeometryReader { geo in
             let range = zoomRange ?? 1...1
@@ -168,50 +151,108 @@ struct ZoomControlView: View {
         }
         .frame(height: HUDTheme.zoomThumbSize)
         .frame(maxWidth: .infinity)
-        .accessibilityLabel("Увеличение")
     }
 
-    // MARK: - Жест
+    // MARK: - Единый жест панели
 
-    private var zoomGesture: some Gesture {
+    private var panelGesture: some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
-                guard let zoomRange else { return }
-                autoHideWorkItem?.cancel()
-                if gestureBaseZoom == nil {
-                    gestureBaseZoom = zoomFactor
-                    didAdjustDuringGesture = false
-                    lastHapticStep = Int((CGFloat(zoomFactor) * 10).rounded())
+                lastTranslation = value.translation.width
+                if touchStartDate == nil {
+                    touchStartDate = Date()
+                    autoHideWorkItem?.cancel()
+                    if isExpanded {
+                        beginDrag(from: 0)
+                    } else {
+                        startHoldTimer()
+                    }
                     return
                 }
-                // Сдвиг пальца в точках: полоса только индикатор,
-                // значение меняется исключительно перемещением.
-                if abs(value.translation.width) > HUDTheme.zoomDragMovementThreshold {
-                    didAdjustDuringGesture = true
-                }
-                guard didAdjustDuringGesture else { return }
-                let delta = Double(value.translation.width) / HUDTheme.zoomDragPointsPerUnit
-                let base = Double(gestureBaseZoom ?? zoomFactor)
-                let next = min(max(base + delta, zoomRange.lowerBound), zoomRange.upperBound)
-                guard abs(next - Double(zoomFactor)) > 0.001 else { return }
-                onZoomChanged(CGFloat(next))
-                // Отклик на каждый шаг 0,1 — как у дискретных значений.
-                let step = Int((CGFloat(next) * 10).rounded())
-                if step != lastHapticStep {
-                    lastHapticStep = step
-                    Haptics.selection()
-                }
+                guard isExpanded else { return }
+                applyDrag(value)
             }
-            .onEnded { _ in
-                let didAdjust = didAdjustDuringGesture
-                gestureBaseZoom = nil
-                didAdjustDuringGesture = false
-                if didAdjust {
+            .onEnded { value in
+                let startDate = touchStartDate
+                touchStartDate = nil
+                holdTimer?.invalidate()
+                holdTimer = nil
+                let duration = Date().timeIntervalSince(startDate ?? Date())
+                let moved = abs(value.translation.width) > HUDTheme.zoomDragMovementThreshold
+
+                if didAdjustDuringGesture {
                     Haptics.selection()
                     onZoomCommitted()
+                    resetDragState()
+                    scheduleAutoHide()
+                    return
                 }
-                scheduleAutoHide()
+                resetDragState()
+
+                if isExpanded {
+                    scheduleAutoHide()
+                    return
+                }
+                // Короткий тап: левая половина — 0,5x, правая — 1x.
+                if !moved, duration < HUDTheme.zoomLongPressDuration, containerWidth > 0 {
+                    let isLeft = value.startLocation.x < containerWidth / 2
+                    let target: Double = (showsHalfPreset && isLeft)
+                        ? HUDTheme.minimumZoomPreset
+                        : 1
+                    Haptics.selection()
+                    onZoomChanged(CGFloat(target))
+                    onZoomCommitted()
+                }
             }
+    }
+
+    /// Удержание открывает полосу; палец при этом не отрывается,
+    /// поэтому сразу после открытия можно продолжать вести.
+    private func startHoldTimer() {
+        holdTimer?.invalidate()
+        let timer = Timer(timeInterval: HUDTheme.zoomLongPressDuration, repeats: false) { _ in
+            guard !isExpanded, zoomRange != nil else { return }
+            Haptics.selection()
+            withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
+                isExpanded = true
+            }
+            beginDrag(from: lastTranslation)
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        holdTimer = timer
+    }
+
+    private func beginDrag(from anchor: CGFloat) {
+        guard gestureBaseZoom == nil else { return }
+        gestureBaseZoom = zoomFactor
+        holdAnchorTranslation = anchor
+        didAdjustDuringGesture = false
+        lastHapticStep = Int((zoomFactor * 10).rounded())
+    }
+
+    private func applyDrag(_ value: DragGesture.Value) {
+        guard let zoomRange, gestureBaseZoom != nil else { return }
+        let deltaPoints = value.translation.width - holdAnchorTranslation
+        if abs(deltaPoints) > HUDTheme.zoomDragMovementThreshold {
+            didAdjustDuringGesture = true
+        }
+        guard didAdjustDuringGesture else { return }
+        let delta = Double(deltaPoints) / HUDTheme.zoomDragPointsPerUnit
+        let base = Double(gestureBaseZoom ?? zoomFactor)
+        let next = min(max(base + delta, zoomRange.lowerBound), zoomRange.upperBound)
+        guard abs(next - Double(zoomFactor)) > 0.001 else { return }
+        onZoomChanged(CGFloat(next))
+        let step = Int((CGFloat(next) * 10).rounded())
+        if step != lastHapticStep {
+            lastHapticStep = step
+            Haptics.selection()
+        }
+    }
+
+    private func resetDragState() {
+        gestureBaseZoom = nil
+        didAdjustDuringGesture = false
+        holdAnchorTranslation = 0
     }
 
     /// Полоса исчезает не сразу: за один свайп не всегда удаётся пройти

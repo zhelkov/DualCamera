@@ -7,6 +7,8 @@ struct SettingsSheetView: View {
 
     @Environment(\.dismiss) private var dismiss
 
+    @State private var hapticDiagnostics: String?
+
     var body: some View {
         VStack(spacing: 0) {
             grabber
@@ -68,6 +70,7 @@ struct SettingsSheetView: View {
             Toggle("Тактильная отдача", isOn: $settings.hapticsEnabled)
             Button {
                 Haptics.test()
+                hapticDiagnostics = Haptics.diagnosticText
             } label: {
                 Text("Проверить отклик")
                     .font(.system(size: HUDTheme.settingsOptionFontSize, weight: .medium))
@@ -78,6 +81,11 @@ struct SettingsSheetView: View {
             }
             .buttonStyle(.plain)
             .accessibilityHint("Срабатывает даже при выключенном переключателе")
+            if let hapticDiagnostics {
+                Text(hapticDiagnostics)
+                    .font(.system(size: HUDTheme.settingsHintFontSize))
+                    .foregroundStyle(HUDTheme.settingsSecondaryText)
+            }
         }
         .padding(.bottom, HUDTheme.settingsBottomPadding)
         .sensoryFeedback(.impact(weight: .light), trigger: settings.aspectRatio) { _, _ in settings.hapticsEnabled }
