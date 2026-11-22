@@ -70,12 +70,11 @@ struct SettingsSheetView: View {
             Toggle("Тактильная отдача", isOn: $settings.hapticsEnabled)
             Toggle("Сильная вибрация", isOn: $settings.systemVibrationEnabled)
             Button {
-                Haptics.test()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-                    hapticDiagnostics = Haptics.diagnosticText
+                Haptics.runStepTest { text in
+                    hapticDiagnostics = text
                 }
             } label: {
-                Text("Проверить отклик")
+                Text("Проверить отклик (3 шага)")
                     .font(.system(size: HUDTheme.settingsOptionFontSize, weight: .medium))
                     .foregroundStyle(HUDTheme.yellow)
                     .frame(maxWidth: .infinity, minHeight: HUDTheme.settingsOptionHeight)

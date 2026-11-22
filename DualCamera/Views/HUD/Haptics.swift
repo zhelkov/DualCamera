@@ -3,30 +3,33 @@ import AVFoundation
 import CoreHaptics
 import UIKit
 
-/// Тактильная отдача тремя путями:
-/// 1. Core Haptics в режиме «только тактильность» — не конфликтует с записью;
-/// 2. UIKit-генераторы;
-/// 3. Системная вибрация через `AudioServices` — работает даже там, где
-///    Core Haptics молчит из-за настроек энергосбережения или аудиосессии.
+/// Тактильная отдача.
+///
+/// Почему так сложно: на iPhone мотор тактильной отдачи висит на том же
+/// аудиотракте, что и запись, поэтому активный режим `.playAndRecord`
+/// глушит сразу все способы — Core Haptics, генераторы UIKit и системную
+/// вибрацию. Поэтому перед запуском движка мы освобождаем аудиосессию,
+/// если сейчас никто не пишет видео.
 enum Haptics {
     /// Пользовательский выбор: всегда использовать системную вибрацию.
     static var preferSystemVibration = false
+    /// Можно ли освободить аудиосессию: false, пока идёт запись.
+    static var audioCanBeReleased = true
 
     private static let lightGenerator = UIImpactFeedbackGenerator(style: .light)
     private static let mediumGenerator = UIImpactFeedbackGenerator(style: .medium)
     private static var engine: CHHapticEngine?
 
     private(set) static var lastError: String?
+    private(set) static var lastMechanism = "ещё не запускали"
+    private(set) static var playCount = 0
+
+    /// Номер системного звука вибрации (kSystemSoundID_Vibrate).
+    private static let vibrateSoundID: SystemSoundID = 4095
 
     static var supportsHaptics: Bool {
         CHHapticEngine.capabilitiesForHardware().supportsHaptics
     }
-
-    /// Что произошло при последней попытке — показываем в настройках.
-    private(set) static var lastMechanism = "ещё не запускали"
-
-    /// Номер системного звука вибрации (kSystemSoundID_Vibrate).
-    private static let vibrateSoundID: SystemSoundID = 4095
 
     static var diagnosticText: String {
         let audio = AVAudioSession.sharedInstance()
@@ -34,6 +37,8 @@ enum Haptics {
             "Поддержка устройства: \(supportsHaptics ? "да" : "нет")",
             "Движок Core Haptics: \(engine != nil ? "запущен" : "не запущен")",
             "Аудиосессия: \(audio.category.rawValue), активна: \(audio.isActive ? "да" : "нет")",
+            "Освобождать аудио можно: \(audioCanBeReleased ? "да" : "нет")",
+            "Откликов сыграно: \(playCount)",
             "Последний отклик: \(lastMechanism)",
             "Режим: \(preferSystemVibration ? "системная вибрация" : "тактильный отклик")"
         ]
@@ -43,14 +48,37 @@ enum Haptics {
         return lines.joined(separator: "\n")
     }
 
+    // MARK: - Подготовка
+
     static func prepare() {
         lightGenerator.prepare()
         mediumGenerator.prepare()
-        startEngineIfNeeded()
+        _ = ensureEngineReady()
     }
 
-    private static func startEngineIfNeeded() {
-        guard supportsHaptics, engine == nil else { return }
+    /// Освобождает аудиосессию, если она активна и запись не идёт.
+    /// Возвращает true, если состояние аудио менялось.
+    @discardableResult
+    private static func releaseAudioIfPossible() -> Bool {
+        guard audioCanBeReleased else { return false }
+        let audio = AVAudioSession.sharedInstance()
+        guard audio.isActive else { return false }
+        do {
+            try audio.setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+        // После смены аудиоокружения старый движок может остаться глухим,
+        // поэтому пересоздаём его.
+        engine = nil
+        return true
+    }
+
+    private static func ensureEngineReady() -> Bool {
+        releaseAudioIfPossible()
+        guard engine == nil else { return true }
+        guard supportsHaptics else { return false }
         do {
             let newEngine = try CHHapticEngine()
             newEngine.playsHapticsOnly = true
@@ -64,35 +92,28 @@ enum Haptics {
             try newEngine.start()
             engine = newEngine
             lastError = nil
+            return true
         } catch {
             lastError = error.localizedDescription
+            engine = nil
+            return false
         }
     }
 
     // MARK: - Публичные отклики
 
-    /// Отклик на обычное действие: короткий одиночный «тик», как в системных
-    /// приложениях.
+    /// Отклик на обычное действие: короткий одиночный «тик».
     static func selection() {
         tick(intensity: 0.9, sharpness: 0.5)
     }
 
-    /// Отклик на значимое действие: чуть более плотный тик.
+    /// Отклик на значимое действие: чуть плотнее.
     static func impact() {
         tick(intensity: 1.0, sharpness: 0.7)
     }
 
-    /// Проверка из настроек: сначала одиночный тик, затем системная вибрация.
-    static func test() {
-        tick(intensity: 1.0, sharpness: 0.7)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-            vibrateSystem()
-            lastMechanism = "тик + системная вибрация"
-        }
-    }
-
-    /// Одиночный короткий импульс (transient) — самый отчётливый отклик.
     private static func tick(intensity: Float, sharpness: Float) {
+        playCount += 1
         if preferSystemVibration {
             vibrateSystem()
             return
@@ -107,12 +128,11 @@ enum Haptics {
             lightGenerator.impactOccurred(intensity: CGFloat(intensity))
             lightGenerator.prepare()
         }
-        lastMechanism = "UIKit-генератор"
+        lastMechanism = "генератор UIKit"
     }
 
     private static func playTransientCoreHaptics(intensity: Float, sharpness: Float) -> Bool {
-        startEngineIfNeeded()
-        guard let engine else { return false }
+        guard ensureEngineReady(), let engine else { return false }
         let event = CHHapticEvent(eventType: .hapticTransient,
                                   parameters: [
                                     CHHapticEventParameter(parameterID: .hapticIntensity,
@@ -129,16 +149,50 @@ enum Haptics {
             return true
         } catch {
             lastError = error.localizedDescription
-            // Пересоздадим движок при следующем вызове: если он попал
-            // в нерабочее состояние, это единственный способ оживить.
             engine = nil
             return false
         }
     }
 
-    /// Системная вибрация: не зависит от Core Haptics и аудиосессии камеры.
     private static func vibrateSystem() {
         AudioServicesPlaySystemSound(vibrateSoundID)
         lastMechanism = "системная вибрация"
+    }
+
+    // MARK: - Диагностика
+
+    /// Пошаговая проверка: каждый способ отдельно, с отчётом в текстовом виде.
+    static func runStepTest(log: @escaping (String) -> Void) {
+        var lines: [String] = []
+        func append(_ line: String) {
+            lines.append(line)
+            log(lines.joined(separator: "\n"))
+        }
+
+        append(diagnosticText)
+        append("")
+        append("Шаг 1 из 3: генератор UIKit")
+        lightGenerator.prepare()
+        mediumGenerator.impactOccurred(intensity: 1)
+        append("  вызван")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            append("Шаг 2 из 3: Core Haptics")
+            let audioFreed = releaseAudioIfPossible()
+            if audioFreed {
+                append("  аудиосессия освобождена перед запуском")
+            }
+            let played = playTransientCoreHaptics(intensity: 1.0, sharpness: 0.7)
+            append(played ? "  сыграл" : "  НЕ сыграл")
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                append("Шаг 3 из 3: системная вибрация")
+                vibrateSystem()
+                append("  вызвана")
+                append("")
+                append("Если не ощутили ни одного шага — вибрация выключена")
+                append("в настройках системы или включён режим энергосбережения.")
+            }
+        }
     }
 }

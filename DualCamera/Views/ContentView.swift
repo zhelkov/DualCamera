@@ -116,6 +116,7 @@ struct ContentView: View {
             }
             .onAppear {
                 Haptics.preferSystemVibration = settings.systemVibrationEnabled
+                Haptics.audioCanBeReleased = !camera.isRecording
                 Haptics.prepare()
                 UIDevice.current.beginGeneratingDeviceOrientationNotifications()
                 updateDeviceOrientation()
@@ -142,6 +143,9 @@ struct ContentView: View {
             }
             .onChange(of: settings.systemVibrationEnabled) { _, enabled in
                 Haptics.preferSystemVibration = enabled
+            }
+            .onChange(of: camera.isRecording) { _, recording in
+                Haptics.audioCanBeReleased = !recording
             }
     }
 
