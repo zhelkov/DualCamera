@@ -853,6 +853,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         sessionQueue.async { [weak self] in
             guard let self else { return }
 
+            // Микрофон и аудиосессия нужны только на время записи.
+            try? self.attachAudioInput()
+
             if !useRealtimeComposite && videoFilterAtStart == .original && self.realtimeVideoOutputsReady {
                 self.removeRealtimeOutputs()
             }
@@ -880,10 +883,6 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             }
 
             self.applyInterfaceOrientation(orientationAtStart, forceCaptureOutputs: true)
-
-            // Аудиосессия нужна только на время записи: в превью она глушит
-            // тактильную отдачу.
-            try? self.configureAudioSession()
 
             self.recordingElements = elements
             self.recordingPipOffsetFraction = pipOffsetFraction
@@ -1337,8 +1336,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         // mirrored independently on its own connection.
         try connect(frontDeviceInput, to: frontMovieOutput, camera: .front, mirrored: false)
 
-        // 7. Микрофон: добавляем вход и подключаем звук к обоим видео-выходам.
-        try addAudioInput()
+        // 7. Микрофон подключаем только на время записи: в превью
+        // активная аудиосессия глушит тактильную отдачу.
 
         // Подключаем preview-layer к конкретным портам внутри той же транзакции,
         // где добавлены inputs/outputs, как в примере Apple AVMultiCamPiP.
@@ -1348,20 +1347,51 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
 
     /// Добавляет микрофон и подключает его к обоим видео-выходам.
     /// Если доступа к микрофону нет — записываем видео без звука.
-    private func addAudioInput() throws {
+    /// Подключает микрофон на время записи. Соединения создаём вручную,
+    /// как и для камер.
+    private func attachAudioInput() throws {
+        guard audioInput == nil else { return }
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized,
               let audioDevice = AVCaptureDevice.default(for: .audio),
-              let micInput = try? AVCaptureDeviceInput(device: audioDevice),
-              session.canAddInput(micInput) else {
+              let micInput = try? AVCaptureDeviceInput(device: audioDevice) else {
             return
         }
+        session.beginConfiguration()
+        defer { session.commitConfiguration() }
+        guard session.canAddInput(micInput) else { return }
         session.addInputWithNoConnections(micInput)
         audioInput = micInput
-
         guard let audioPort = micInput.ports.first else { return }
         try connect(audioPort, to: backMovieOutput)
         try connect(audioPort, to: frontMovieOutput)
+        if realtimeVideoOutputsReady, session.outputs.contains(audioDataOutput) {
+            let connection = AVCaptureConnection(inputPorts: [audioPort], output: audioDataOutput)
+            if session.canAddConnection(connection) {
+                session.addConnection(connection)
+                audioDataOutput.setSampleBufferDelegate(self, queue: realtimeWriterQueue)
+            }
+        }
+        try? configureAudioSession()
+    }
 
+    /// Убирает микрофон из сессии после записи и освобождает аудио.
+    private func detachAudioInput() {
+        guard let micInput = audioInput else {
+            deactivateAudioSession()
+            return
+        }
+        audioDataOutput.setSampleBufferDelegate(nil, queue: realtimeWriterQueue)
+        session.beginConfiguration()
+        let microphoneConnections = session.connections.filter { connection in
+            connection.inputPorts.contains { $0.sourceDeviceType == .microphone }
+        }
+        for connection in microphoneConnections {
+            session.removeConnection(connection)
+        }
+        session.removeInput(micInput)
+        session.commitConfiguration()
+        audioInput = nil
+        deactivateAudioSession()
     }
 
     // MARK: - Ротация
@@ -1896,9 +1926,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     }
 
     private func resetRecordingState() {
-        // Запись закончилась: освобождаем аудиосессию, иначе она глушит
-        // тактильную отдачу в превью.
-        deactivateAudioSession()
+        // Запись закончилась: убираем микрофон и освобождаем аудиосессию,
+        // иначе она глушит тактильную отдачу в превью.
+        detachAudioInput()
         recordingLock.lock()
         recordedURLs.removeAll()
         recordingError = nil
