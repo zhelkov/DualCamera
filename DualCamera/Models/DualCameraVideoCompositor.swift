@@ -7,6 +7,8 @@ struct PipPositionKeyframe {
     let time: TimeInterval
     let offsetFraction: CGSize
     let widthFraction: CGFloat
+    /// Точный прямоугольник окна в долях кадра, если известен.
+    var rectFraction: CGRect? = nil
 }
 
 struct CaptureLayoutKeyframe {
@@ -52,6 +54,7 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
     let mirrorFrontCamera: Bool
     let pipOffsetFraction: CGSize
     let pipWidthFraction: CGFloat
+    var pipRectFraction: CGRect? = nil
     let pipPositionKeyframes: [PipPositionKeyframe]
     let drawingKeyframes: [DrawingElementsKeyframe]
     let backTransform: CGAffineTransform
@@ -84,6 +87,7 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
          mirrorFrontCamera: Bool,
          pipOffsetFraction: CGSize,
          pipWidthFraction: CGFloat,
+         pipRectFraction: CGRect? = nil,
          pipPositionKeyframes: [PipPositionKeyframe],
          drawingKeyframes: [DrawingElementsKeyframe],
          backTransform: CGAffineTransform,
@@ -110,6 +114,7 @@ final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionI
         self.mirrorFrontCamera = mirrorFrontCamera
         self.pipOffsetFraction = pipOffsetFraction
         self.pipWidthFraction = pipWidthFraction
+        self.pipRectFraction = pipRectFraction
         self.pipPositionKeyframes = pipPositionKeyframes
         self.drawingKeyframes = drawingKeyframes
         self.backTransform = backTransform
@@ -166,15 +171,30 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
             switch captureLayout.layout {
             case .pip:
                 let layout = layoutAt(instruction, time: request.compositionTime.seconds)
-                let width = min(instruction.canvasSize.width, instruction.canvasSize.height)
-                    * layout.widthFraction
-                let height = width * captureLayout.shape.aspectRatio
-                // Доля кадра задаёт левый верхний угол окна — так же, как в превью.
-                let x = min(max(0, layout.offset.width * instruction.canvasSize.width),
-                            max(0, instruction.canvasSize.width - width))
-                let y = min(max(0, layout.offset.height * instruction.canvasSize.height),
-                            max(0, instruction.canvasSize.height - height))
-                // Окно задаём в координатах «сверху-слева», как в превью.
+                let rectFraction = pipRectAt(instruction, time: request.compositionTime.seconds)
+                let width: CGFloat
+                let height: CGFloat
+                let rawX: CGFloat
+                let rawY: CGFloat
+                if let rectFraction {
+                    width = rectFraction.width * instruction.canvasSize.width
+                    height = rectFraction.height * instruction.canvasSize.height
+                    rawX = rectFraction.minX * instruction.canvasSize.width
+                    rawY = rectFraction.minY * instruction.canvasSize.height
+                } else {
+                    width = min(instruction.canvasSize.width, instruction.canvasSize.height)
+                        * layout.widthFraction
+                    height = width * captureLayout.shape.aspectRatio
+                    rawX = layout.offset.width * instruction.canvasSize.width
+                    rawY = layout.offset.height * instruction.canvasSize.height
+                }
+                // Окно задаём в координатах «сверху-слева» и держим небольшой
+                // отступ от края кадра.
+                let margin: CGFloat = 2
+                let x = min(max(margin, rawX),
+                            max(margin, instruction.canvasSize.width - width - margin))
+                let y = min(max(margin, rawY),
+                            max(margin, instruction.canvasSize.height - height - margin))
                 // Двойное зеркало здесь не нужно: итоговый кадр всё равно
                 // переворачивается на 180°, и прямоугольник вернулся бы
                 // в противоположный угол.
@@ -421,6 +441,20 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
             result = keyframe
         }
         return result
+    }
+
+    /// Прямоугольник окна PiP в долях кадра: сначала точный, иначе из смещения.
+    private func pipRectAt(_ instruction: DualCameraVideoCompositionInstruction,
+                           time: TimeInterval) -> CGRect? {
+        let keyframes = instruction.pipPositionKeyframes
+        if let keyframe = keyframes.last(where: { $0.time <= time }),
+           let rect = keyframe.rectFraction {
+            return rect
+        }
+        if let rect = keyframes.first?.rectFraction {
+            return rect
+        }
+        return instruction.pipRectFraction
     }
 
     private func layoutAt(_ instruction: DualCameraVideoCompositionInstruction,

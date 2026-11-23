@@ -21,6 +21,8 @@ final class RealtimeCompositeRecorder {
         let drawing: [DrawingElement]
         let dateTimeEnabled: Bool
         let recordingStartDate: Date?
+        /// Точный прямоугольник окна PiP в долях кадра.
+        var pipRectFraction: CGRect? = nil
     }
 
     private let writer: AVAssetWriter
@@ -267,16 +269,27 @@ final class RealtimeCompositeRecorder {
             }
         case .pip:
             composed = fill(mainSource, in: canvas)
-            let width = min(renderSize.width, renderSize.height) * state.pipWidthFraction
-            let height = width * state.pipShape.aspectRatio
-            // Доля кадра задаёт левый верхний угол окна; ось Y здесь снизу,
-            // поэтому переворачиваем.
+            let width: CGFloat
+            let height: CGFloat
+            let rawX: CGFloat
+            let rawY: CGFloat
+            if let fraction = state.pipRectFraction {
+                width = fraction.width * renderSize.width
+                height = fraction.height * renderSize.height
+                rawX = fraction.minX * renderSize.width
+                rawY = fraction.minY * renderSize.height
+            } else {
+                width = min(renderSize.width, renderSize.height) * state.pipWidthFraction
+                height = width * state.pipShape.aspectRatio
+                rawX = state.pipOffsetFraction.width * renderSize.width
+                rawY = state.pipOffsetFraction.height * renderSize.height
+            }
+            let margin: CGFloat = 2
+            // Ось Y в Core Image идёт снизу, поэтому переворачиваем.
             let rect = CGRect(
-                x: min(max(0, state.pipOffsetFraction.width * renderSize.width),
-                       max(0, renderSize.width - width)),
-                y: min(max(0, renderSize.height - height
-                           - state.pipOffsetFraction.height * renderSize.height),
-                       max(0, renderSize.height - height)),
+                x: min(max(margin, rawX), max(margin, renderSize.width - width - margin)),
+                y: min(max(margin, renderSize.height - height - rawY),
+                       max(margin, renderSize.height - height - margin)),
                 width: width,
                 height: height
             )
