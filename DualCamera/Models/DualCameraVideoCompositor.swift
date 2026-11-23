@@ -311,28 +311,9 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                     : frontWithMirror
 
                 if captureLayout.layout == .pip {
-                    // В ландшафте содержимое окна поворачивается на 90°:
-                    // сначала вписываем кадр в повёрнутое окно, затем вращаем.
-                    let canvasIsLandscape = instruction.canvasSize.width
-                        > instruction.canvasSize.height
-                    var pipContent = front
-                    if canvasIsLandscape {
-                        let portraitTarget = CGRect(x: frontRect.midX - frontRect.height / 2,
-                                                    y: frontRect.midY - frontRect.width / 2,
-                                                    width: frontRect.height,
-                                                    height: frontRect.width)
-                        let portraitPlaced = place(filteredSecondarySource,
-                                                   sourceSize: instruction.frontImage == nil ? secondarySize : filteredSecondarySource.extent.size,
-                                                   transform: instruction.frontImage == nil ? secondaryTransform : .identity,
-                                                   in: portraitTarget,
-                                                   canvasHeight: instruction.canvasSize.height)
-                        let rotation = CGAffineTransform(translationX: frontCell.midX,
-                                                         y: frontCell.midY)
-                            .rotated(by: -.pi / 2)
-                            .translatedBy(x: -frontCell.midX, y: -frontCell.midY)
-                        pipContent = portraitPlaced.transformed(by: rotation)
-                            .cropped(to: frontCell)
-                    }
+                    // Окно в ландшафте повёрнуто, но кадр второй камеры уже
+                    // сориентирован верно: содержимое просто заполняет окно.
+                    let pipContent = front
                     let frontBottomRect = CGRect(x: frontRect.minX,
                                                  y: instruction.canvasSize.height - frontRect.maxY,
                                                  width: frontRect.width,

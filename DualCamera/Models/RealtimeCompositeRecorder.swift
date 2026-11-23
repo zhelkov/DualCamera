@@ -298,11 +298,9 @@ final class RealtimeCompositeRecorder {
                 height: height
             )
             if state.isSecondaryCameraVisible {
-                // Содержимое окна поворачиваем вместе с окном.
-                let content = isLandscape
-                    ? rotateQuarterTurn(smallSource, inside: rect)
-                    : fill(smallSource, in: rect)
-                let pip = content
+                // Окно в ландшафте повёрнуто, но кадр второй камеры уже
+                // сориентирован верно: содержимое просто заполняет окно.
+                let pip = fill(smallSource, in: rect)
                 guard let mask = shapeMask(rect, canvas: canvas, shape: state.pipShape) else { return nil }
                 let blend = CIFilter.blendWithMask()
                 blend.inputImage = pip

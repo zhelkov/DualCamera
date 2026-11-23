@@ -222,8 +222,8 @@ enum PhotoMerger {
         return renderer.image { ctx in
             back.draw(in: CGRect(origin: .zero, size: size))
 
-            // В ландшафте окно на экране повёрнуто: стороны меняются местами,
-            // и содержимое внутри окна тоже поворачивается.
+            // В ландшафте окно повёрнуто: стороны меняются местами, поэтому
+            // картинка второй камеры уже стоит прямо и поворачивать её не нужно.
             let isLandscape = size.width > size.height
             let shortSide = min(size.width, size.height)
             let pipWidth: CGFloat
@@ -241,12 +241,11 @@ enum PhotoMerger {
             let y = min(max(margin, pipOffsetFraction.height * size.height),
                         max(margin, size.height - pipHeight - margin))
             let pipRect = CGRect(x: x, y: y, width: pipWidth, height: pipHeight)
-            let content = isLandscape ? rotatedQuarterTurn(front) : front
 
             // Обрезаем по форме окна и вписываем картинку с заполнением (aspect-fill).
             ctx.cgContext.saveGState()
             clipPath(for: shape, in: pipRect).addClip()
-            content.draw(in: aspectFillRect(image: content, in: pipRect))
+            front.draw(in: aspectFillRect(image: front, in: pipRect))
             ctx.cgContext.restoreGState()
         }
     }
