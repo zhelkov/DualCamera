@@ -55,7 +55,8 @@ struct ContentView: View {
             .sheet(isPresented: $isSettingsPresented) {
                 SettingsSheetView(settings: settings,
                                   isRecording: camera.isRecording || camera.isApplyingSettings,
-                                  hasImportedMedia: camera.importedVideoURL != nil)
+                                  hasImportedMedia: camera.importedVideoURL != nil,
+                                  geometryDiagnostics: camera.geometryDiagnostics)
                     .presentationDetents([.fraction(HUDTheme.settingsSheetHeight), .large])
                     .presentationDragIndicator(.hidden)
                     .presentationCornerRadius(HUDTheme.settingsSheetCornerRadius)

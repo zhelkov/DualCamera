@@ -4,6 +4,7 @@ struct SettingsSheetView: View {
     @Bindable var settings: CameraSettings
     let isRecording: Bool
     let hasImportedMedia: Bool
+    let geometryDiagnostics: String
 
     @Environment(\.dismiss) private var dismiss
 
@@ -88,6 +89,9 @@ struct SettingsSheetView: View {
                     .font(.system(size: HUDTheme.settingsHintFontSize))
                     .foregroundStyle(HUDTheme.settingsSecondaryText)
             }
+            Text(geometryDiagnostics)
+                .font(.system(size: HUDTheme.settingsHintFontSize))
+                .foregroundStyle(HUDTheme.settingsSecondaryText)
         }
         .padding(.bottom, HUDTheme.settingsBottomPadding)
         .sensoryFeedback(.impact(weight: .light), trigger: settings.aspectRatio) { _, _ in settings.hapticsEnabled }

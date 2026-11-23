@@ -126,6 +126,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private var latestRealtimeBackBuffer: CVPixelBuffer?
     private var latestRealtimeFrontBuffer: CVPixelBuffer?
     private var lastRealtimeSubmittedBackPTS = CMTime.invalid
+    /// Размер последнего кадра задней камеры — для диагностики ориентации.
+    private(set) var lastBackBufferSize = CGSize.zero
+    private var publishedBackBufferSize = CGSize.zero
 
     // MARK: - Ротация
 
@@ -343,6 +346,28 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         return "аудиосессия \(session.category.rawValue)"
     }
 
+    /// Фактическая ориентация съёмки — для диагностики геометрии кадра.
+    var geometryDiagnostics: String {
+        let device: String
+        switch UIDevice.current.orientation {
+        case .portrait: device = "портрет"
+        case .portraitUpsideDown: device = "портрет ↓"
+        case .landscapeLeft: device = "ландшафт ←"
+        case .landscapeRight: device = "ландшафт →"
+        case .faceUp: device = "экран вверх"
+        case .faceDown: device = "экран вниз"
+        default: device = "не определён"
+        }
+        let frameIsPortrait = lastVideoOrientation == .portrait
+            || lastVideoOrientation == .portraitUpsideDown
+        let canvas = captureSettings.outputSize(isPortrait: isPortrait)
+        let buffer = lastBackBufferSize == .zero
+            ? "нет"
+            : "\(Int(lastBackBufferSize.width))×\(Int(lastBackBufferSize.height))"
+        return "датчик: \(device) · кадр: \(frameIsPortrait ? "портрет" : "ландшафт") · "
+            + "холст: \(Int(canvas.width))×\(Int(canvas.height)) · буфер: \(buffer)"
+    }
+
     /// Снимает фото одновременно с обеих камер, склеивает и накладывает рисунок.
     func captureBothCameras(elements: [DrawingElement] = [],
                             pipOffsetFraction: CGSize = .zero,
@@ -351,6 +376,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         guard isConfigured, !isCapturing, !isApplyingSettings else { return }
         let filterAtCapture = videoFilter
         let filterTargetAtCapture = activeFilterTarget
+        refreshCaptureOrientation()
         let aspectRatioAtCapture = captureSettings.aspectRatio.ratio(isPortrait: isPortrait)
         let timestampAtCapture = captureSettings.dateTimeEnabled ? Date() : nil
         updateOnMain { self.isCapturing = true }
@@ -814,6 +840,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             return
         }
         let importedPhotoAtStart = importedPhoto
+        refreshCaptureOrientation()
         let orientationAtStart = currentInterfaceVideoOrientation()
         let swappedAtStart = isCamerasSwapped
         let importedVideoAtStart = importedVideoURL
@@ -1443,6 +1470,20 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         case .landscapeLeft: lastVideoOrientation = .landscapeRight
         case .landscapeRight: lastVideoOrientation = .landscapeLeft
         default: break
+        }
+    }
+
+    /// Обновляет ориентацию съёмки по датчику прямо перед снимком или записью:
+    /// уведомление о повороте могло не дойти, и тогда кадр сохранится
+    /// в неверных пропорциях. Вызывать на главном потоке.
+    private func refreshCaptureOrientation() {
+        updateVideoOrientationFromDevice()
+        let orientation = lastVideoOrientation
+        let portrait = orientation == .portrait || orientation == .portraitUpsideDown
+        guard isPortrait != portrait else { return }
+        isPortrait = portrait
+        sessionQueue.async { [weak self] in
+            self?.applyInterfaceOrientation(orientation)
         }
     }
 
@@ -2101,6 +2142,12 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             latestRealtimeBackBuffer = buffer
             currentBackBuffer = buffer
             backPTS = CMSampleBufferGetPresentationTimeStamp(backData.sampleBuffer)
+            let size = CGSize(width: CVPixelBufferGetWidth(buffer),
+                              height: CVPixelBufferGetHeight(buffer))
+            if size != publishedBackBufferSize {
+                publishedBackBufferSize = size
+                updateOnMain { self.lastBackBufferSize = size }
+            }
         }
         if let frontData, !frontDropped,
            let buffer = CMSampleBufferGetImageBuffer(frontData.sampleBuffer) {
