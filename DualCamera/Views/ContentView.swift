@@ -480,11 +480,24 @@ struct ContentView: View {
     }
 
     /// Доля кадра, в которой находится левый верхний угол окна PiP.
-    /// Считаем от реального положения в превью, чтобы видео совпадало с экраном.
+    /// Считаем от реального положения в превью, чтобы кадр совпадал с экраном.
     private func pipOffsetFraction(for offset: CGSize) -> CGSize {
         guard previewSize.width > 0, previewSize.height > 0 else { return .zero }
         return CGSize(width: (pipBaseInset.x + offset.width) / previewSize.width,
                       height: (pipBaseInset.y + offset.height) / previewSize.height)
+    }
+
+    /// Доля для записи и фото. В ландшафте кадр переворачивается на 180°
+    /// относительно экрана, поэтому окно ставим в противоположный угол.
+    private func mediaPipOffsetFraction(for offset: CGSize) -> CGSize {
+        let fraction = pipOffsetFraction(for: offset)
+        guard isDeviceLandscape else { return fraction }
+        let output = settings.snapshot.outputSize(isPortrait: camera.isPortrait)
+        guard output.width > 0, output.height > 0 else { return fraction }
+        let pipWidth = 0.3 * min(output.width, output.height)
+        let pipHeight = pipWidth * camera.pipShape.aspectRatio
+        return CGSize(width: 1 - fraction.width - pipWidth / output.width,
+                      height: 1 - fraction.height - pipHeight / output.height)
     }
 
     /// Перетаскивание окна PiP (работает только в раскладке «картинка в картинке»).
@@ -499,11 +512,11 @@ struct ContentView: View {
                 let nextOffset = CGSize(width: base.width + value.translation.width,
                                         height: base.height + value.translation.height)
                 pipOffset = nextOffset
-                camera.updatePipOffsetFraction(pipOffsetFraction(for: nextOffset))
+                camera.updatePipOffsetFraction(mediaPipOffsetFraction(for: nextOffset))
             }
             .onEnded { _ in
                 pipDragBase = nil
-                camera.updatePipOffsetFraction(pipOffsetFraction)
+                camera.updatePipOffsetFraction(mediaPipOffsetFraction(for: pipOffset))
             }
     }
 
@@ -640,11 +653,12 @@ struct ContentView: View {
                 )
             }
         case .pip:
-            let inset: CGFloat = 16
-            let maxX = max(0, size.width - pipSize.width)
-            let maxY = max(0, size.height - pipSize.height)
-            let x = min(max(0, inset + pipOffset.width), maxX)
-            let y = min(max(0, pipTopInset + pipOffset.height), maxY)
+            // Небольшой отступ, чтобы окно не прилипало вплотную к краю.
+            let margin: CGFloat = 2
+            let maxX = max(margin, size.width - pipSize.width - margin)
+            let maxY = max(margin, size.height - pipSize.height - margin)
+            let x = min(max(margin, 16 + pipOffset.width), maxX)
+            let y = min(max(margin, pipTopInset + pipOffset.height), maxY)
             return (
                 CGRect(origin: .zero, size: size),
                 CGRect(x: x, y: y, width: pipSize.width, height: pipSize.height)
@@ -701,13 +715,13 @@ struct ContentView: View {
                     onStopRecording: { camera.stopRecording(elements: mediaDrawingElements()) },
                     onCapturePhoto: {
                         camera.captureBothCameras(elements: mediaDrawingElements(),
-                                                  pipOffsetFraction: pipOffsetFraction,
+                                                  pipOffsetFraction: mediaPipOffsetFraction(for: pipOffset),
                                                   photoOverlayOffsetFraction: photoOverlayOffsetFraction,
                                                   photoOverlayWidthFraction: importedImageWidthFraction)
                     },
                     onStartRecording: {
                         camera.startRecording(elements: mediaDrawingElements(),
-                                              pipOffsetFraction: pipOffsetFraction,
+                                              pipOffsetFraction: mediaPipOffsetFraction(for: pipOffset),
                                               photoOverlayOffsetFraction: photoOverlayOffsetFraction,
                                               photoOverlayWidthFraction: importedImageWidthFraction)
                     },
