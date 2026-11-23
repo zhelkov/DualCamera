@@ -203,6 +203,8 @@ enum PhotoMerger {
     }
 
     /// Картинка в картинке: задняя камера на весь кадр, передняя — в окне заданной формы.
+    /// `pipOffsetFraction` — доля кадра для левого верхнего угла окна,
+    /// поэтому положение совпадает с превью.
     private static func pictureInPicture(back: UIImage,
                                          front: UIImage,
                                          shape: PipShape,
@@ -213,15 +215,10 @@ enum PhotoMerger {
         return renderer.image { ctx in
             back.draw(in: CGRect(origin: .zero, size: size))
 
-            // Размер PiP считается от малой стороны кадра: так окно
-            // сохраняет пропорции при любой ориентации (см. п.7).
             let pipWidth = min(size.width, size.height) * pipWidthFraction
             let pipHeight = pipWidth * shape.aspectRatio
-            let inset: CGFloat = 16
-            let x = min(max(0, inset + pipOffsetFraction.width * size.width),
-                        size.width - pipWidth)
-            let y = min(max(0, inset + pipOffsetFraction.height * size.height),
-                        size.height - pipHeight)
+            let x = min(max(0, pipOffsetFraction.width * size.width), max(0, size.width - pipWidth))
+            let y = min(max(0, pipOffsetFraction.height * size.height), max(0, size.height - pipHeight))
             let pipRect = CGRect(x: x,
                                  y: y,
                                  width: pipWidth,

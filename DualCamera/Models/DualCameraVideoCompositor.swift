@@ -169,16 +169,17 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                 let width = min(instruction.canvasSize.width, instruction.canvasSize.height)
                     * layout.widthFraction
                 let height = width * captureLayout.shape.aspectRatio
-                let x = min(max(0, 16 + layout.offset.width * instruction.canvasSize.width),
-                            instruction.canvasSize.width - width)
-                let y = min(max(0, 16 + layout.offset.height * instruction.canvasSize.height),
-                            instruction.canvasSize.height - height)
+                // Доля кадра задаёт левый верхний угол окна — так же, как в превью.
+                let x = min(max(0, layout.offset.width * instruction.canvasSize.width),
+                            max(0, instruction.canvasSize.width - width))
+                let y = min(max(0, layout.offset.height * instruction.canvasSize.height),
+                            max(0, instruction.canvasSize.height - height))
+                // Окно задаём в координатах «сверху-слева», как в превью.
+                // Двойное зеркало здесь не нужно: итоговый кадр всё равно
+                // переворачивается на 180°, и прямоугольник вернулся бы
+                // в противоположный угол.
                 frontRect = captureLayout.isSecondaryCameraVisible
-                    ? CGRect(x: x,
-                             y: y,
-                             width: width, height: height)
-                        .verticallyMirrored(in: instruction.canvasSize.height)
-                        .horizontallyMirrored(in: instruction.canvasSize.width)
+                    ? CGRect(x: x, y: y, width: width, height: height)
                     : .zero
                 backRect = canvas
             case .splitScreen:

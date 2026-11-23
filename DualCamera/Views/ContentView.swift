@@ -12,6 +12,9 @@ struct ContentView: View {
     @State private var settings = CameraSettings()
     @Environment(\.scenePhase) private var scenePhase
     @State private var pipOffset: CGSize = .zero
+    /// Базовое смещение окна PiP в превью (точка отсчёта перетаскивания).
+    @State private var pipBaseInset: CGPoint = CGPoint(x: HUDTheme.pipPreviewInset,
+                                                       y: HUDTheme.topStripMinimumHeight + HUDTheme.pipPreviewInset)
     @State private var photoOverlayOffset: CGSize = .zero
     @State private var previewSize: CGSize = .zero
     @State private var importedImageWidthFraction: CGFloat = 0.3
@@ -325,11 +328,12 @@ struct ContentView: View {
             // В сплит-режиме вторичное окно — это ячейка сплита, а не PiP.
             let isPipLayout = camera.layout == .pip
             let secondaryContentSize = isPipLayout ? pipContentSize : .zero
+            let pipTopInset = max(HUDTheme.topStripMinimumHeight,
+                                  geo.safeAreaInsets.top + HUDTheme.topSafeAreaAddition)
+                + HUDTheme.pipPreviewInset
             let frames = Self.layoutFrames(layout: camera.layout, size: size, pipSize: pipSlotSize,
                                            pipOffset: pipOffset,
-                                           pipTopInset: max(HUDTheme.topStripMinimumHeight,
-                                                            geo.safeAreaInsets.top + HUDTheme.topSafeAreaAddition)
-                                               + HUDTheme.pipPreviewInset,
+                                           pipTopInset: pipTopInset,
                                            splitOrientation: camera.splitOrientation,
                                            splitRatio: camera.splitRatio,
                                            isSecondaryCameraVisible: camera.isSecondaryCameraVisible)
@@ -404,8 +408,17 @@ struct ContentView: View {
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.pipShape)
             .animation(.easeInOut(duration: HUDTheme.stateTransitionDuration),
                        value: camera.isSecondaryCameraVisible)
-            .onAppear { previewSize = size }
-            .onChange(of: size) { _, newSize in previewSize = newSize }
+            .onAppear {
+                previewSize = size
+                pipBaseInset = CGPoint(x: HUDTheme.pipPreviewInset, y: pipTopInset)
+            }
+            .onChange(of: size) { _, newSize in
+                previewSize = newSize
+                pipBaseInset = CGPoint(x: HUDTheme.pipPreviewInset, y: pipTopInset)
+            }
+            .onChange(of: pipTopInset) { _, newInset in
+                pipBaseInset = CGPoint(x: HUDTheme.pipPreviewInset, y: newInset)
+            }
         }
     }
 
@@ -466,10 +479,12 @@ struct ContentView: View {
                       height: offset.height / previewSize.height)
     }
 
+    /// Доля кадра, в которой находится левый верхний угол окна PiP.
+    /// Считаем от реального положения в превью, чтобы видео совпадало с экраном.
     private func pipOffsetFraction(for offset: CGSize) -> CGSize {
         guard previewSize.width > 0, previewSize.height > 0 else { return .zero }
-        return CGSize(width: offset.width / previewSize.width,
-                      height: offset.height / previewSize.height)
+        return CGSize(width: (pipBaseInset.x + offset.width) / previewSize.width,
+                      height: (pipBaseInset.y + offset.height) / previewSize.height)
     }
 
     /// Перетаскивание окна PiP (работает только в раскладке «картинка в картинке»).

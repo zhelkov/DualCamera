@@ -39,8 +39,8 @@ struct TopControlsView: View {
     private var leftControls: some View {
         VStack(spacing: HUDTheme.modeColumnGap) {
             VStack(spacing: HUDTheme.controlBlockGap) {
-                modeButton(.splitScreen, symbol: "rectangle.split.2x1", label: "Сплит")
-                modeButton(.pip, symbol: "pip", label: "Картинка в картинке")
+                splitModeButton
+                pipModeButton
             }
             .hudPanel()
 
@@ -131,13 +131,21 @@ struct TopControlsView: View {
             }
             .hudPanel()
 
-            iconButton("pip", label: isSecondaryCameraVisible
-                       ? "Убрать вторую камеру" : "Показать вторую камеру",
-                       size: buttonSize, active: isSecondaryCameraVisible) {
+            Button {
+                playHaptic()
                 withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
                     isSecondaryCameraVisible.toggle()
                 }
+            } label: {
+                HUDOutlineIcon(shape: DualCameraShape(),
+                               size: buttonSize,
+                               isLandscape: isLandscape,
+                               color: isSecondaryCameraVisible ? HUDTheme.yellow : HUDTheme.primaryIcon)
+                    .frame(width: buttonSize, height: buttonSize)
             }
+            .buttonStyle(HUDIconButtonStyle(isActive: isSecondaryCameraVisible, size: buttonSize))
+            .accessibilityLabel(isSecondaryCameraVisible
+                                ? "Убрать вторую камеру" : "Показать вторую камеру")
             .hudPanel()
 
             if isFilterCarouselVisible {
@@ -148,16 +156,40 @@ struct TopControlsView: View {
         }
     }
 
-    private func modeButton(_ value: CaptureLayout, symbol: String, label: String) -> some View {
+    private var splitModeButton: some View {
         Button {
             playHaptic()
-            withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) { layout = value }
+            withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
+                layout = .splitScreen
+            }
         } label: {
-            HUDIconGlyph(systemName: symbol, size: buttonSize, isLandscape: isLandscape)
+            HUDOutlineIcon(shape: SplitModeShape(),
+                           size: buttonSize,
+                           isLandscape: isLandscape,
+                           color: layout == .splitScreen ? HUDTheme.yellow : HUDTheme.primaryIcon)
+                .frame(width: buttonSize, height: buttonSize)
         }
-        .buttonStyle(HUDIconButtonStyle(isActive: layout == value, size: buttonSize))
-        .accessibilityLabel(label)
-        .accessibilityAddTraits(layout == value ? .isSelected : [])
+        .buttonStyle(HUDIconButtonStyle(isActive: layout == .splitScreen, size: buttonSize))
+        .accessibilityLabel("Сплит")
+        .accessibilityAddTraits(layout == .splitScreen ? .isSelected : [])
+    }
+
+    private var pipModeButton: some View {
+        Button {
+            playHaptic()
+            withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
+                layout = .pip
+            }
+        } label: {
+            HUDOutlineIcon(shape: PipModeShape(),
+                           size: buttonSize,
+                           isLandscape: isLandscape,
+                           color: layout == .pip ? HUDTheme.yellow : HUDTheme.primaryIcon)
+                .frame(width: buttonSize, height: buttonSize)
+        }
+        .buttonStyle(HUDIconButtonStyle(isActive: layout == .pip, size: buttonSize))
+        .accessibilityLabel("Картинка в картинке")
+        .accessibilityAddTraits(layout == .pip ? .isSelected : [])
     }
 
     private func variantButton(_ symbol: String,

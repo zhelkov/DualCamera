@@ -269,11 +269,14 @@ final class RealtimeCompositeRecorder {
             composed = fill(mainSource, in: canvas)
             let width = min(renderSize.width, renderSize.height) * state.pipWidthFraction
             let height = width * state.pipShape.aspectRatio
+            // Доля кадра задаёт левый верхний угол окна; ось Y здесь снизу,
+            // поэтому переворачиваем.
             let rect = CGRect(
-                x: min(max(0, 16 + state.pipOffsetFraction.width * renderSize.width), renderSize.width - width),
-                y: min(max(0, renderSize.height - height - 16
+                x: min(max(0, state.pipOffsetFraction.width * renderSize.width),
+                       max(0, renderSize.width - width)),
+                y: min(max(0, renderSize.height - height
                            - state.pipOffsetFraction.height * renderSize.height),
-                       renderSize.height - height),
+                       max(0, renderSize.height - height)),
                 width: width,
                 height: height
             )
