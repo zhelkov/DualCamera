@@ -166,14 +166,25 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
             switch captureLayout.layout {
             case .pip:
                 let layout = layoutAt(instruction, time: request.compositionTime.seconds)
-                let width = min(instruction.canvasSize.width, instruction.canvasSize.height)
-                    * layout.widthFraction
-                let height = width * captureLayout.shape.aspectRatio
-                // Доля кадра задаёт левый верхний угол окна — так же, как в превью.
-                let x = min(max(0, layout.offset.width * instruction.canvasSize.width),
-                            max(0, instruction.canvasSize.width - width))
-                let y = min(max(0, layout.offset.height * instruction.canvasSize.height),
-                            max(0, instruction.canvasSize.height - height))
+                // В ландшафте окно повёрнуто: стороны меняются местами.
+                let canvasIsLandscape = instruction.canvasSize.width
+                    > instruction.canvasSize.height
+                let shortSide = min(instruction.canvasSize.width,
+                                    instruction.canvasSize.height)
+                let width: CGFloat
+                let height: CGFloat
+                if canvasIsLandscape {
+                    height = shortSide * layout.widthFraction
+                    width = height * captureLayout.shape.aspectRatio
+                } else {
+                    width = shortSide * layout.widthFraction
+                    height = width * captureLayout.shape.aspectRatio
+                }
+                let margin: CGFloat = 2
+                let x = min(max(margin, layout.offset.width * instruction.canvasSize.width),
+                            max(margin, instruction.canvasSize.width - width - margin))
+                let y = min(max(margin, layout.offset.height * instruction.canvasSize.height),
+                            max(margin, instruction.canvasSize.height - height - margin))
                 // Окно задаём в координатах «сверху-слева», как в превью.
                 // Двойное зеркало здесь не нужно: итоговый кадр всё равно
                 // переворачивается на 180°, и прямоугольник вернулся бы
@@ -292,6 +303,28 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                     : frontWithMirror
 
                 if captureLayout.layout == .pip {
+                    // В ландшафте содержимое окна поворачивается на 90°:
+                    // сначала вписываем кадр в повёрнутое окно, затем вращаем.
+                    let canvasIsLandscape = instruction.canvasSize.width
+                        > instruction.canvasSize.height
+                    var pipContent = front
+                    if canvasIsLandscape {
+                        let portraitTarget = CGRect(x: frontRect.midX - frontRect.height / 2,
+                                                    y: frontRect.midY - frontRect.width / 2,
+                                                    width: frontRect.height,
+                                                    height: frontRect.width)
+                        let portraitPlaced = place(filteredSecondarySource,
+                                                   sourceSize: instruction.frontImage == nil ? secondarySize : filteredSecondarySource.extent.size,
+                                                   transform: instruction.frontImage == nil ? secondaryTransform : .identity,
+                                                   in: portraitTarget,
+                                                   canvasHeight: instruction.canvasSize.height)
+                        let rotation = CGAffineTransform(translationX: frontCell.midX,
+                                                         y: frontCell.midY)
+                            .rotated(by: -.pi / 2)
+                            .translatedBy(x: -frontCell.midX, y: -frontCell.midY)
+                        pipContent = portraitPlaced.transformed(by: rotation)
+                            .cropped(to: frontCell)
+                    }
                     let frontBottomRect = CGRect(x: frontRect.minX,
                                                  y: instruction.canvasSize.height - frontRect.maxY,
                                                  width: frontRect.width,
@@ -325,7 +358,7 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                         throw CameraError.videoMergeFailed
                     }
                     let blend = CIFilter.blendWithMask()
-                    blend.inputImage = front.cropped(to: canvas)
+                    blend.inputImage = pipContent.cropped(to: canvas)
                     blend.backgroundImage = composed
                     blend.maskImage = maskImage
                     guard let outputImage = blend.outputImage else {

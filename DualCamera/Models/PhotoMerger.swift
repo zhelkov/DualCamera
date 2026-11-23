@@ -215,20 +215,47 @@ enum PhotoMerger {
         return renderer.image { ctx in
             back.draw(in: CGRect(origin: .zero, size: size))
 
-            let pipWidth = min(size.width, size.height) * pipWidthFraction
-            let pipHeight = pipWidth * shape.aspectRatio
-            let x = min(max(0, pipOffsetFraction.width * size.width), max(0, size.width - pipWidth))
-            let y = min(max(0, pipOffsetFraction.height * size.height), max(0, size.height - pipHeight))
-            let pipRect = CGRect(x: x,
-                                 y: y,
-                                 width: pipWidth,
-                                 height: pipHeight)
+            // В ландшафте окно на экране повёрнуто: стороны меняются местами,
+            // и содержимое внутри окна тоже поворачивается.
+            let isLandscape = size.width > size.height
+            let shortSide = min(size.width, size.height)
+            let pipWidth: CGFloat
+            let pipHeight: CGFloat
+            if isLandscape {
+                pipHeight = shortSide * pipWidthFraction
+                pipWidth = pipHeight * shape.aspectRatio
+            } else {
+                pipWidth = shortSide * pipWidthFraction
+                pipHeight = pipWidth * shape.aspectRatio
+            }
+            let margin: CGFloat = 2
+            let x = min(max(margin, pipOffsetFraction.width * size.width),
+                        max(margin, size.width - pipWidth - margin))
+            let y = min(max(margin, pipOffsetFraction.height * size.height),
+                        max(margin, size.height - pipHeight - margin))
+            let pipRect = CGRect(x: x, y: y, width: pipWidth, height: pipHeight)
+            let content = isLandscape ? rotatedQuarterTurn(front) : front
 
             // Обрезаем по форме окна и вписываем картинку с заполнением (aspect-fill).
             ctx.cgContext.saveGState()
             clipPath(for: shape, in: pipRect).addClip()
-            front.draw(in: aspectFillRect(image: front, in: pipRect))
+            content.draw(in: aspectFillRect(image: content, in: pipRect))
             ctx.cgContext.restoreGState()
+        }
+    }
+
+    /// Поворот картинки на 90° по часовой стрелке.
+    private static func rotatedQuarterTurn(_ image: UIImage) -> UIImage {
+        let target = CGSize(width: image.size.height, height: image.size.width)
+        let renderer = UIGraphicsImageRenderer(size: target)
+        return renderer.image { context in
+            let cg = context.cgContext
+            cg.translateBy(x: target.width / 2, y: target.height / 2)
+            cg.rotate(by: .pi / 2)
+            image.draw(in: CGRect(x: -image.size.width / 2,
+                                  y: -image.size.height / 2,
+                                  width: image.size.width,
+                                  height: image.size.height))
         }
     }
 

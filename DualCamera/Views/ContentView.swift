@@ -487,17 +487,10 @@ struct ContentView: View {
                       height: (pipBaseInset.y + offset.height) / previewSize.height)
     }
 
-    /// Доля для записи и фото. В ландшафте кадр переворачивается на 180°
-    /// относительно экрана, поэтому окно ставим в противоположный угол.
+    /// Доля для записи и фото. Положение берём как есть: окно должно
+    /// оказаться в том же углу, что и в превью.
     private func mediaPipOffsetFraction(for offset: CGSize) -> CGSize {
-        let fraction = pipOffsetFraction(for: offset)
-        guard isDeviceLandscape else { return fraction }
-        let output = settings.snapshot.outputSize(isPortrait: camera.isPortrait)
-        guard output.width > 0, output.height > 0 else { return fraction }
-        let pipWidth = 0.3 * min(output.width, output.height)
-        let pipHeight = pipWidth * camera.pipShape.aspectRatio
-        return CGSize(width: 1 - fraction.width - pipWidth / output.width,
-                      height: 1 - fraction.height - pipHeight / output.height)
+        pipOffsetFraction(for: offset)
     }
 
     /// Перетаскивание окна PiP (работает только в раскладке «картинка в картинке»).

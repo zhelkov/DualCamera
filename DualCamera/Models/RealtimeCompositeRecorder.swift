@@ -267,21 +267,36 @@ final class RealtimeCompositeRecorder {
             }
         case .pip:
             composed = fill(mainSource, in: canvas)
-            let width = min(renderSize.width, renderSize.height) * state.pipWidthFraction
-            let height = width * state.pipShape.aspectRatio
-            // Доля кадра задаёт левый верхний угол окна; ось Y здесь снизу,
-            // поэтому переворачиваем.
+            // В ландшафте окно повёрнуто: стороны меняются местами,
+            // а содержимое разворачиваем на 90°.
+            let isLandscape = renderSize.width > renderSize.height
+            let shortSide = min(renderSize.width, renderSize.height)
+            let width: CGFloat
+            let height: CGFloat
+            if isLandscape {
+                height = shortSide * state.pipWidthFraction
+                width = height * state.pipShape.aspectRatio
+            } else {
+                width = shortSide * state.pipWidthFraction
+                height = width * state.pipShape.aspectRatio
+            }
+            let margin: CGFloat = 2
+            // Ось Y в Core Image идёт снизу, поэтому переворачиваем.
             let rect = CGRect(
-                x: min(max(0, state.pipOffsetFraction.width * renderSize.width),
-                       max(0, renderSize.width - width)),
-                y: min(max(0, renderSize.height - height
+                x: min(max(margin, state.pipOffsetFraction.width * renderSize.width),
+                       max(margin, renderSize.width - width - margin)),
+                y: min(max(margin, renderSize.height - height
                            - state.pipOffsetFraction.height * renderSize.height),
-                       max(0, renderSize.height - height)),
+                       max(margin, renderSize.height - height - margin)),
                 width: width,
                 height: height
             )
             if state.isSecondaryCameraVisible {
-                let pip = fill(smallSource, in: rect)
+                // Содержимое окна поворачиваем вместе с окном.
+                let content = isLandscape
+                    ? rotateQuarterTurn(smallSource, inside: rect)
+                    : fill(smallSource, in: rect)
+                let pip = content
                 guard let mask = shapeMask(rect, canvas: canvas, shape: state.pipShape) else { return nil }
                 let blend = CIFilter.blendWithMask()
                 blend.inputImage = pip
@@ -330,8 +345,22 @@ final class RealtimeCompositeRecorder {
         return overlay
     }
 
-    private func fill(_ image: CIImage, in rect: CGRect) -> CIImage {
-        let extent = image.extent
+    /// Вписывает картинку в окно и разворачивает на 90° вместе с окном.
+    private func rotateQuarterTurn(_ image: CIImage, inside rect: CGRect) -> CIImage {
+        // Сначала заполняем повёрнутое окно (портретный прямоугольник),
+        // затем разворачиваем его вокруг центра.
+        let portraitRect = CGRect(x: rect.midX - rect.height / 2,
+                                  y: rect.midY - rect.width / 2,
+                                  width: rect.height,
+                                  height: rect.width)
+        let filled = fill(image, in: portraitRect)
+        let transform = CGAffineTransform(translationX: rect.midX, y: rect.midY)
+            .rotated(by: -.pi / 2)
+            .translatedBy(x: -rect.midX, y: -rect.midY)
+        return filled.transformed(by: transform).cropped(to: rect)
+    }
+
+    private func fill(_ image: CIImage, in rect: CGRect) -> CIImage {        let extent = image.extent
         guard extent.width > 0, extent.height > 0, rect.width > 0, rect.height > 0 else {
             return CIImage(color: .black).cropped(to: rect)
         }
