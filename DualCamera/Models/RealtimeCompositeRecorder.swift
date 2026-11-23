@@ -241,12 +241,18 @@ final class RealtimeCompositeRecorder {
         }
         let mainSource = state.camerasSwapped ? mirrorHorizontally(filteredMain) : filteredMain
         let smallSource = state.camerasSwapped ? filteredSmall : mirrorHorizontally(filteredSmall)
+        // Если поток камеры вертикальный, а кадр горизонтальный, разворачиваем
+        // основной слой: иначе в готовом видео картинка окажется боком.
+        let canvasIsLandscape = renderSize.width > renderSize.height
+        let mainForCanvas = (canvasIsLandscape && mainSource.extent.height > mainSource.extent.width)
+            ? rotateQuarterTurn(mainSource, inside: canvas)
+            : mainSource
         var composed: CIImage
 
         switch state.layout {
         case .splitScreen:
             if !state.isSecondaryCameraVisible {
-                composed = fill(mainSource, in: canvas)
+                composed = fill(mainForCanvas, in: canvas)
             } else {
                 let first: CGRect
                 let second: CGRect
@@ -263,10 +269,10 @@ final class RealtimeCompositeRecorder {
                     second = CGRect(x: splitX, y: 0,
                                     width: renderSize.width - splitX, height: renderSize.height)
                 }
-                composed = fill(mainSource, in: first).composited(over: fill(smallSource, in: second))
+                composed = fill(mainForCanvas, in: first).composited(over: fill(smallSource, in: second))
             }
         case .pip:
-            composed = fill(mainSource, in: canvas)
+            composed = fill(mainForCanvas, in: canvas)
             // В ландшафте окно повёрнуто: стороны меняются местами,
             // а содержимое разворачиваем на 90°.
             let isLandscape = renderSize.width > renderSize.height

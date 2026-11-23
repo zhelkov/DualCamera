@@ -38,6 +38,13 @@ enum PhotoMerger {
         var back = normalized(back)
         var front = normalized(front)
 
+        // Если целевой кадр горизонтальный, а основной снимок вертикальный,
+        // разворачиваем его: иначе в готовом файле картинка окажется боком.
+        let targetRatio = outputAspectRatio ?? (back.size.width / max(back.size.height, 1))
+        if targetRatio > 1, back.size.height > back.size.width {
+            back = rotatedQuarterTurn(back)
+        }
+
         if videoFilter != .original {
             switch filterTarget {
             case .primary:

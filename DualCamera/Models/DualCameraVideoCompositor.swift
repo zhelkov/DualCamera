@@ -286,7 +286,15 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
             let main = isLandscape && mainIsCameraVideo
                 ? rotateHalfTurn(mainWithMirror, inside: mainCell)
                 : mainWithMirror
-            var composed = main.cropped(to: canvas)
+            // Если кадр камеры вертикальный, а холст горизонтальный —
+            // разворачиваем основной слой на 90°.
+            let mainContentSize = instruction.backImage == nil
+                ? mainSize
+                : filteredMainSource.extent.size
+            let mainFinal = (isLandscape && mainContentSize.height > mainContentSize.width)
+                ? rotateQuarterTurn(main, inside: mainCell)
+                : main
+            var composed = mainFinal.cropped(to: canvas)
             if captureLayout.isSecondaryCameraVisible {
                 let frontCell = frontRectForCoreImage(frontRect,
                                                        canvasHeight: instruction.canvasSize.height)
@@ -560,6 +568,14 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                y: canvasHeight - rect.maxY,
                width: rect.width,
                height: rect.height)
+    }
+
+    /// Разворачивает слой на 90° вокруг центра ячейки, не меняя её границ.
+    private func rotateQuarterTurn(_ image: CIImage, inside rect: CGRect) -> CIImage {
+        let transform = CGAffineTransform(translationX: rect.midX, y: rect.midY)
+            .rotated(by: -.pi / 2)
+            .translatedBy(x: -rect.midX, y: -rect.midY)
+        return image.transformed(by: transform).cropped(to: rect)
     }
 
     /// Corrects a landscape camera frame in place without moving its layout rectangle.
