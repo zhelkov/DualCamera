@@ -29,7 +29,6 @@ enum PhotoMerger {
                       outputAspectRatio: CGFloat? = nil,
                       pipOffsetFraction: CGSize = .zero,
                       pipWidthFraction: CGFloat = 0.3,
-                      pipRectFraction: CGRect? = nil,
                       photoOverlay: UIImage? = nil,
                       photoOverlayOffsetFraction: CGSize = .zero,
                       photoOverlayWidthFraction: CGFloat = 0.3,
@@ -60,8 +59,7 @@ enum PhotoMerger {
             case .pip:
                 merged = pictureInPicture(back: back, front: front, shape: shape,
                                           pipOffsetFraction: pipOffsetFraction,
-                                          pipWidthFraction: pipWidthFraction,
-                                          pipRectFraction: pipRectFraction)
+                                          pipWidthFraction: pipWidthFraction)
             }
         }
 
@@ -211,33 +209,16 @@ enum PhotoMerger {
                                          front: UIImage,
                                          shape: PipShape,
                                          pipOffsetFraction: CGSize,
-                                         pipWidthFraction: CGFloat,
-                                         pipRectFraction: CGRect? = nil) -> UIImage {
+                                         pipWidthFraction: CGFloat) -> UIImage {
         let size = back.size
         let renderer = UIGraphicsImageRenderer(size: size)
         return renderer.image { ctx in
             back.draw(in: CGRect(origin: .zero, size: size))
 
-            // Если передан точный прямоугольник окна в долях кадра,
-            // используем его: так положение совпадает с превью.
-            let pipWidth: CGFloat
-            let pipHeight: CGFloat
-            let rawX: CGFloat
-            let rawY: CGFloat
-            if let rect = pipRectFraction {
-                pipWidth = rect.width * size.width
-                pipHeight = rect.height * size.height
-                rawX = rect.minX * size.width
-                rawY = rect.minY * size.height
-            } else {
-                pipWidth = min(size.width, size.height) * pipWidthFraction
-                pipHeight = pipWidth * shape.aspectRatio
-                rawX = pipOffsetFraction.width * size.width
-                rawY = pipOffsetFraction.height * size.height
-            }
-            let margin: CGFloat = 2
-            let x = min(max(margin, rawX), max(margin, size.width - pipWidth - margin))
-            let y = min(max(margin, rawY), max(margin, size.height - pipHeight - margin))
+            let pipWidth = min(size.width, size.height) * pipWidthFraction
+            let pipHeight = pipWidth * shape.aspectRatio
+            let x = min(max(0, pipOffsetFraction.width * size.width), max(0, size.width - pipWidth))
+            let y = min(max(0, pipOffsetFraction.height * size.height), max(0, size.height - pipHeight))
             let pipRect = CGRect(x: x,
                                  y: y,
                                  width: pipWidth,

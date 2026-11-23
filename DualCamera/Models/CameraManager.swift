@@ -161,7 +161,6 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private var recordingElements: [DrawingElement] = []
     private var recordingPipOffsetFraction: CGSize = .zero
     private var recordingPipWidthFraction: CGFloat = 0.3
-    private var recordingPipRectFraction: CGRect?
     private var recordingPipPositionKeyframes: [PipPositionKeyframe] = []
     private var recordingLayoutKeyframes: [CaptureLayoutKeyframe] = []
     private var recordingFilterKeyframes: [VideoFilterKeyframe] = []
@@ -347,7 +346,6 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     /// Снимает фото одновременно с обеих камер, склеивает и накладывает рисунок.
     func captureBothCameras(elements: [DrawingElement] = [],
                             pipOffsetFraction: CGSize = .zero,
-                            pipRectFraction: CGRect? = nil,
                             photoOverlayOffsetFraction: CGSize = .zero,
                             photoOverlayWidthFraction: CGFloat = 0.3) {
         guard isConfigured, !isCapturing, !isApplyingSettings else { return }
@@ -363,7 +361,6 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                 do {
                     let merged = try await self.captureAndMerge(elements: elements,
                                                                 pipOffsetFraction: pipOffsetFraction,
-                                                                pipRectFraction: pipRectFraction,
                                                                 photoOverlayOffsetFraction: photoOverlayOffsetFraction,
                                                                 photoOverlayWidthFraction: photoOverlayWidthFraction,
                                                                 videoFilter: filterAtCapture,
@@ -809,7 +806,6 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     /// `elements` — рисунок, который вшивается в видео (снимок на момент старта).
     func startRecording(elements: [DrawingElement] = [],
                         pipOffsetFraction: CGSize = .zero,
-                        pipRectFraction: CGRect? = nil,
                         photoOverlayOffsetFraction: CGSize = .zero,
                         photoOverlayWidthFraction: CGFloat = 0.3) {
         guard isConfigured, !isRecording, !isApplyingSettings else { return }
@@ -838,7 +834,6 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             self.recordingDuration = 0
             self.startRecordingTimer(initialOffsetFraction: pipOffsetFraction,
                                      widthFraction: 0.3,
-                                     rectFraction: pipRectFraction,
                                      elements: elements,
                                      photoOffsetFraction: photoOverlayOffsetFraction,
                                      photoWidthFraction: photoOverlayWidthFraction,
@@ -1016,9 +1011,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         }
     }
 
-    func updatePipOffsetFraction(_ offsetFraction: CGSize,
-                             widthFraction: CGFloat? = nil,
-                             rectFraction: CGRect? = nil) {
+    func updatePipOffsetFraction(_ offsetFraction: CGSize, widthFraction: CGFloat? = nil) {
         guard isRecording else { return }
         recordingLock.lock()
         defer { recordingLock.unlock() }
@@ -1033,14 +1026,10 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             return
         }
         recordingPipPositionKeyframes.append(
-            PipPositionKeyframe(time: time,
-                                offsetFraction: offsetFraction,
-                                widthFraction: width,
-                                rectFraction: rectFraction)
+            PipPositionKeyframe(time: time, offsetFraction: offsetFraction, widthFraction: width)
         )
         recordingPipOffsetFraction = offsetFraction
         recordingPipWidthFraction = width
-        recordingPipRectFraction = rectFraction
     }
 
     func updateRecordingLayout(layout: CaptureLayout,
@@ -1715,7 +1704,6 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
 
     private func captureAndMerge(elements: [DrawingElement],
                                  pipOffsetFraction: CGSize,
-                                 pipRectFraction: CGRect?,
                                  photoOverlayOffsetFraction: CGSize,
                                  photoOverlayWidthFraction: CGFloat,
                                  videoFilter: VideoFilter,
@@ -1752,7 +1740,6 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                  filterTarget: filterTarget,
                                  outputAspectRatio: outputAspectRatio,
                                  pipOffsetFraction: pipOffsetFraction,
-                                 pipRectFraction: pipRectFraction,
                                  photoOverlay: importedPhoto,
                                  photoOverlayOffsetFraction: photoOverlayOffsetFraction,
                                  photoOverlayWidthFraction: photoOverlayWidthFraction,
@@ -1884,7 +1871,6 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         let outputShape = recordingShape
         let outputSplitOrientation = recordingSplitOrientation
         let outputOffset = recordingPipOffsetFraction
-        let outputPipRectFraction = recordingPipRectFraction
         let outputImportedVideoURL = recordingImportedVideoURL
         let outputCamerasSwapped = recordingCamerasSwapped
         let outputElements = recordingElements
@@ -1909,7 +1895,6 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                     mirrorFrontCamera: outputImportedVideoURL == nil,
                     pipOffsetFraction: outputOffset,
                     pipWidthFraction: 0.3,
-                    pipRectFraction: outputPipRectFraction,
                     pipPositionKeyframes: pipKeyframes,
                     layoutKeyframes: layoutKeyframes,
                     cameraSwapKeyframes: cameraSwapKeyframes,
@@ -1968,7 +1953,6 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         recordingElements = []
         recordingPipOffsetFraction = .zero
         recordingPipWidthFraction = 0.3
-        recordingPipRectFraction = nil
         recordingImportedVideoURL = nil
         recordingLayout = .pip
         recordingShape = .rectangle
@@ -1981,7 +1965,6 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
 
     private func startRecordingTimer(initialOffsetFraction: CGSize,
                                      widthFraction: CGFloat,
-                                     rectFraction: CGRect? = nil,
                                      elements: [DrawingElement],
                                      photoOffsetFraction: CGSize,
                                      photoWidthFraction: CGFloat,
@@ -1998,15 +1981,13 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                      isPortrait: Bool) {
         recordingStartDate = Date()
         recordingPipWidthFraction = widthFraction
-        recordingPipRectFraction = rectFraction
         recordingCaptureSettings = captureSettings
         recordingOutputSize = captureSettings.outputSize(isPortrait: isPortrait)
         recordingLock.lock()
         recordingPipPositionKeyframes = [
             PipPositionKeyframe(time: 0,
                                 offsetFraction: initialOffsetFraction,
-                                widthFraction: widthFraction,
-                                rectFraction: rectFraction)
+                                widthFraction: widthFraction)
         ]
         recordingLayoutKeyframes = [
             CaptureLayoutKeyframe(time: 0,
@@ -2219,8 +2200,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             photoWidthFraction: photo?.widthFraction ?? recordingPhotoOverlayWidthFraction,
             drawing: drawing,
             dateTimeEnabled: recordingCaptureSettings.dateTimeEnabled,
-            recordingStartDate: recordingStartDate,
-            pipRectFraction: pip?.rectFraction ?? recordingPipRectFraction
+            recordingStartDate: recordingStartDate
         )
     }
 }
