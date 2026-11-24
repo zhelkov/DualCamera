@@ -7,6 +7,13 @@ import CoreTransferable
 import UIKit
 import UniformTypeIdentifiers
 
+/// Угол рамки кадра, в который паркуется окно PiP при повороте.
+enum PipParkCorner {
+    case topLeading
+    case topTrailing
+    case bottomLeading
+}
+
 struct ContentView: View {
     @State private var camera = CameraManager()
     @State private var settings = CameraSettings()
@@ -28,6 +35,9 @@ struct ContentView: View {
     @State private var focusGestureStartDate: Date?
     @State private var exposureDragStartBias: Float?
     @State private var isDeviceLandscape = false
+    /// Ориентация устройства по датчику — нужна, чтобы понять,
+    /// какой угол кадра пользователь видит верхним левым.
+    @State private var deviceOrientation: UIDeviceOrientation = .portrait
     @State private var isFilterLabelVisible = false
     @State private var filterLabelHideWorkItem: DispatchWorkItem?
     @State private var focusHideWorkItem: DispatchWorkItem?
@@ -131,6 +141,13 @@ struct ContentView: View {
             .onChange(of: isDeviceLandscape) { _, _ in
                 // Поворот экрана: окно PiP всегда возвращается
                 // в парковочное место в левом верхнем углу кадра.
+                pipDragBase = nil
+                pipOffset = .zero
+                camera.updatePipOffsetFraction(mediaPipOffsetFraction(for: .zero))
+            }
+            .onChange(of: deviceOrientation) { _, _ in
+                // Поворот на 180° в ландшафте меняет угол, который виден
+                // пользователю верхним левым.
                 pipDragBase = nil
                 pipOffset = .zero
                 camera.updatePipOffsetFraction(mediaPipOffsetFraction(for: .zero))
@@ -343,6 +360,7 @@ struct ContentView: View {
             let frames = Self.layoutFrames(layout: camera.layout, size: size, pipSize: pipSlotSize,
                                            pipOffset: pipOffset,
                                            pipBounds: fieldRect,
+                                           parkCorner: pipParkCorner,
                                            splitOrientation: camera.splitOrientation,
                                            splitRatio: camera.splitRatio,
                                            isSecondaryCameraVisible: camera.isSecondaryCameraVisible)
@@ -650,6 +668,7 @@ struct ContentView: View {
                                      pipSize: CGSize,
                                      pipOffset: CGSize,
                                      pipBounds: CGRect,
+                                     parkCorner: PipParkCorner,
                                      splitOrientation: SplitOrientation,
                                      splitRatio: CGFloat,
                                      isSecondaryCameraVisible: Bool) -> (main: CGRect, secondary: CGRect) {
@@ -672,14 +691,27 @@ struct ContentView: View {
                 )
             }
         case .pip:
-            // Парковка — левый верхний угол поля кадра, отступ 3 pt.
+            // Парковка — в тот угол кадра, который пользователь видит верхним левым.
             let inset = HUDTheme.pipParkInset
-            let parkX = pipBounds.minX + inset
-            let parkY = pipBounds.minY + inset
-            let maxX = max(parkX, pipBounds.maxX - pipSize.width - inset)
-            let maxY = max(parkY, pipBounds.maxY - pipSize.height - inset)
-            let x = min(max(parkX, parkX + pipOffset.width), maxX)
-            let y = min(max(parkY, parkY + pipOffset.height), maxY)
+            let minX = pipBounds.minX + inset
+            let minY = pipBounds.minY + inset
+            let maxX = max(minX, pipBounds.maxX - pipSize.width - inset)
+            let maxY = max(minY, pipBounds.maxY - pipSize.height - inset)
+            let parkX: CGFloat
+            let parkY: CGFloat
+            switch parkCorner {
+            case .topLeading:
+                parkX = minX
+                parkY = minY
+            case .topTrailing:
+                parkX = maxX
+                parkY = minY
+            case .bottomLeading:
+                parkX = minX
+                parkY = maxY
+            }
+            let x = min(max(minX, parkX + pipOffset.width), maxX)
+            let y = min(max(minY, parkY + pipOffset.height), maxY)
             return (
                 CGRect(origin: .zero, size: size),
                 CGRect(x: x, y: y, width: pipSize.width, height: pipSize.height)
@@ -769,6 +801,7 @@ struct ContentView: View {
 
     /// Интерфейс закреплён в портрете: по датчику поворачиваем только значки.
     private func updateDeviceOrientation() {
+        deviceOrientation = UIDevice.current.orientation
         switch UIDevice.current.orientation {
         case .landscapeLeft, .landscapeRight:
             isDeviceLandscape = true
@@ -776,6 +809,17 @@ struct ContentView: View {
             isDeviceLandscape = false
         default:
             break
+        }
+    }
+
+    /// Угол окна, который пользователь видит верхним левым.
+    /// Экран закреплён в портрете, поэтому в ландшафте «верхний левый»
+    /// на экране оказывается другим углом рамки кадра.
+    private var pipParkCorner: PipParkCorner {
+        switch deviceOrientation {
+        case .landscapeRight: return .topTrailing
+        case .landscapeLeft: return .bottomLeading
+        default: return .topLeading
         }
     }
 
