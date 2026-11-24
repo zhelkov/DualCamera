@@ -126,6 +126,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private var latestRealtimeBackBuffer: CVPixelBuffer?
     private var latestRealtimeFrontBuffer: CVPixelBuffer?
     private var lastRealtimeSubmittedBackPTS = CMTime.invalid
+    /// До этого момента кадры не пишем: после старта записи камера ещё
+    /// не отдала стабильную экспозицию, иначе файл начинается с тёмного кадра.
+    private var realtimeWarmupDeadline: Date?
     /// Размер последнего кадра задней камеры — для диагностики ориентации.
     private(set) var lastBackBufferSize = CGSize.zero
     private var publishedBackBufferSize = CGSize.zero
@@ -260,11 +263,11 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                 // Страховка: если аудиосессия осталась активной с прошлого
                 // раза, освобождаем её — иначе мотор молчит.
                 self.deactivateAudioSessionIfIdle()
-                self.filterStateLock.lock()
-                let shouldCaptureFilteredPreview = self.captureVideoFilter != .original
-                self.filterStateLock.unlock()
-                if shouldCaptureFilteredPreview {
-                    try self.configureRealtimeOutputs()
+                // Выходы синхронного захвата готовим сразу, а не в момент
+                // старта записи: пересборка сессии на старте давала тёмный
+                // кадр в превью и в начале готового видео.
+                if !self.realtimeVideoOutputsReady {
+                    try? self.configureRealtimeOutputs()
                 }
                 self.checkPreviewLayersAfterStart()
                 // Характеристики читаем на очереди сессии, применяем на главной.
@@ -621,29 +624,40 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
 
     // MARK: - Зум, фонарик, фокус
 
-    /// Живое изменение зума во время перетаскивания: объектив не меняем,
-    /// чтобы не было рывка посреди жеста.
+    /// Живое изменение зума во время перетаскивания. Значение показываем
+    /// сразу, а объектив переключаем на пороге: иначе ползунок замирает на 1×
+    /// и перескакивает на 0,5× только при отпускании.
     func setZoom(_ factor: CGFloat) {
         pendingZoomFactor = factor
-        applyZoom(factor)
+        updateOnMain { self.zoomFactor = factor }
+        applyZoom(factor, publish: false)
+        switchLensIfNeeded(for: factor)
     }
 
-    /// Завершение жеста: здесь и только здесь переключаем объектив,
-    /// если выбранный зум выходит за пределы текущего.
+    /// Завершение жеста: фиксируем итоговое значение и, если нужно, объектив.
     func commitZoom() {
         let target = pendingZoomFactor ?? zoomFactor
-        if target < 0.9, backLens == .wide, hasUltraWideBackCamera {
-            switchBackLens(to: .ultraWide, targetZoom: target)
-            return
-        }
-        if target > 1.1, backLens == .ultraWide {
-            switchBackLens(to: .wide, targetZoom: target)
-            return
-        }
+        pendingZoomFactor = nil
+        if switchLensIfNeeded(for: target) { return }
         applyZoom(target)
     }
 
-    private func applyZoom(_ factor: CGFloat) {
+    /// Переключает задний объектив, когда зум выходит за границы текущего.
+    @discardableResult
+    private func switchLensIfNeeded(for factor: CGFloat) -> Bool {
+        guard !isRecording, !isCapturing else { return false }
+        if factor < 0.9, backLens == .wide, hasUltraWideBackCamera {
+            switchBackLens(to: .ultraWide, targetZoom: factor)
+            return true
+        }
+        if factor > 1.1, backLens == .ultraWide {
+            switchBackLens(to: .wide, targetZoom: factor)
+            return true
+        }
+        return false
+    }
+
+    private func applyZoom(_ factor: CGFloat, publish: Bool = true) {
         let unit = backCameraZoomUnit
         let deviceFactor = factor / max(unit, 0.0001)
 
@@ -654,6 +668,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             guard (try? device.lockForConfiguration()) != nil else { return }
             device.videoZoomFactor = clamped
             device.unlockForConfiguration()
+            guard publish else { return }
             let displayZoom = clamped * self.backCameraZoomUnit
             self.updateOnMain { self.zoomFactor = displayZoom }
         }
@@ -678,11 +693,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                 try self.configureSession()
                 self.applyInterfaceOrientation(self.lastVideoOrientation, forceCaptureOutputs: true)
                 self.session.startRunning()
-                // После пересборки сессии фильтру снова нужен поток кадров.
-                self.filterStateLock.lock()
-                let needsRealtimeOutputs = self.captureVideoFilter != .original
-                self.filterStateLock.unlock()
-                if needsRealtimeOutputs {
+                // После пересборки сессии синхронный захват нужен снова.
+                if !self.realtimeVideoOutputsReady {
                     try? self.configureRealtimeOutputs()
                 }
                 let unit = self.backCameraZoomUnit
@@ -937,6 +949,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                     self.realtimeRecorder = recorder
                     self.isUsingRealtimeRecorder = true
                     self.recordingLock.unlock()
+                    self.realtimeWarmupDeadline = Date().addingTimeInterval(0.35)
                 } catch {
                     self.recordingLock.lock()
                     self.isUsingRealtimeRecorder = false
@@ -1972,6 +1985,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         // иначе она глушит тактильную отдачу в превью.
         detachAudioInput()
         recordingLock.lock()
+        realtimeWarmupDeadline = nil
         recordedURLs.removeAll()
         recordingError = nil
         recordingPipPositionKeyframes.removeAll()
@@ -2185,6 +2199,11 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         }
 
         guard let activeRecorder else { return }
+        // Пропускаем первые кадры: камера ещё не вышла на рабочую экспозицию.
+        if let deadline = realtimeWarmupDeadline {
+            guard Date() >= deadline else { return }
+            realtimeWarmupDeadline = nil
+        }
         guard let backBuffer = latestRealtimeBackBuffer,
               let frontBuffer = latestRealtimeFrontBuffer,
               backPTS.isValid,
