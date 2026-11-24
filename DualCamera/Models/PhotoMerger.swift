@@ -222,19 +222,11 @@ enum PhotoMerger {
         return renderer.image { ctx in
             back.draw(in: CGRect(origin: .zero, size: size))
 
-            // В ландшафте окно повёрнуто: стороны меняются местами, поэтому
-            // картинка второй камеры уже стоит прямо и поворачивать её не нужно.
-            let isLandscape = size.width > size.height
+            // Окно строится одинаково в портрете и ландшафте: короткая сторона
+            // кадра задаёт ширину, форма — высоту.
             let shortSide = min(size.width, size.height)
-            let pipWidth: CGFloat
-            let pipHeight: CGFloat
-            if isLandscape {
-                pipHeight = shortSide * pipWidthFraction
-                pipWidth = pipHeight * shape.aspectRatio
-            } else {
-                pipWidth = shortSide * pipWidthFraction
-                pipHeight = pipWidth * shape.aspectRatio
-            }
+            let pipWidth = shortSide * pipWidthFraction
+            let pipHeight = pipWidth * shape.aspectRatio
             let margin: CGFloat = 2
             let x = min(max(margin, pipOffsetFraction.width * size.width),
                         max(margin, size.width - pipWidth - margin))

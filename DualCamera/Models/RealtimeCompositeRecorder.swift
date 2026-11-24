@@ -273,19 +273,12 @@ final class RealtimeCompositeRecorder {
             }
         case .pip:
             composed = fill(mainForCanvas, in: canvas)
-            // В ландшафте окно повёрнуто: стороны меняются местами,
-            // а содержимое разворачиваем на 90°.
-            let isLandscape = renderSize.width > renderSize.height
+            // Окно строится одинаково в портрете и ландшафте: короткая сторона
+            // кадра задаёт ширину, форма — высоту. Иначе прямоугольник
+            // в ландшафте лежит на боку, а картинка внутри стоит прямо.
             let shortSide = min(renderSize.width, renderSize.height)
-            let width: CGFloat
-            let height: CGFloat
-            if isLandscape {
-                height = shortSide * state.pipWidthFraction
-                width = height * state.pipShape.aspectRatio
-            } else {
-                width = shortSide * state.pipWidthFraction
-                height = width * state.pipShape.aspectRatio
-            }
+            let width = shortSide * state.pipWidthFraction
+            let height = width * state.pipShape.aspectRatio
             let margin: CGFloat = 2
             // Ось Y в Core Image идёт снизу, поэтому переворачиваем.
             let rect = CGRect(
@@ -298,8 +291,6 @@ final class RealtimeCompositeRecorder {
                 height: height
             )
             if state.isSecondaryCameraVisible {
-                // Окно в ландшафте повёрнуто, но кадр второй камеры уже
-                // сориентирован верно: содержимое просто заполняет окно.
                 let pip = fill(smallSource, in: rect)
                 guard let mask = shapeMask(rect, canvas: canvas, shape: state.pipShape) else { return nil }
                 let blend = CIFilter.blendWithMask()

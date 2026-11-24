@@ -166,20 +166,12 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
             switch captureLayout.layout {
             case .pip:
                 let layout = layoutAt(instruction, time: request.compositionTime.seconds)
-                // В ландшафте окно повёрнуто: стороны меняются местами.
-                let canvasIsLandscape = instruction.canvasSize.width
-                    > instruction.canvasSize.height
+                // Окно строится одинаково в портрете и ландшафте: короткая
+                // сторона кадра задаёт ширину, форма — высоту.
                 let shortSide = min(instruction.canvasSize.width,
                                     instruction.canvasSize.height)
-                let width: CGFloat
-                let height: CGFloat
-                if canvasIsLandscape {
-                    height = shortSide * layout.widthFraction
-                    width = height * captureLayout.shape.aspectRatio
-                } else {
-                    width = shortSide * layout.widthFraction
-                    height = width * captureLayout.shape.aspectRatio
-                }
+                let width = shortSide * layout.widthFraction
+                let height = width * captureLayout.shape.aspectRatio
                 let margin: CGFloat = 2
                 let x = min(max(margin, layout.offset.width * instruction.canvasSize.width),
                             max(margin, instruction.canvasSize.width - width - margin))
@@ -311,8 +303,8 @@ final class DualCameraVideoCompositor: NSObject, AVVideoCompositing {
                     : frontWithMirror
 
                 if captureLayout.layout == .pip {
-                    // Окно в ландшафте повёрнуто, но кадр второй камеры уже
-                    // сориентирован верно: содержимое просто заполняет окно.
+                    // Содержимое окна просто заполняет его: кадр второй камеры
+                    // уже сориентирован верно.
                     let pipContent = front
                     let frontBottomRect = CGRect(x: frontRect.minX,
                                                  y: instruction.canvasSize.height - frontRect.maxY,
