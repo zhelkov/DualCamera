@@ -12,9 +12,8 @@ struct ContentView: View {
     @State private var settings = CameraSettings()
     @Environment(\.scenePhase) private var scenePhase
     @State private var pipOffset: CGSize = .zero
-    /// Базовое смещение окна PiP в превью (точка отсчёта перетаскивания).
-    @State private var pipBaseInset: CGPoint = CGPoint(x: HUDTheme.pipPreviewInset,
-                                                       y: HUDTheme.topStripMinimumHeight + HUDTheme.pipPreviewInset)
+    /// Размер родительского поля кадра — окно PiP паркуется от его границ.
+    @State private var pipFieldSize: CGSize = .zero
     @State private var photoOverlayOffset: CGSize = .zero
     @State private var previewSize: CGSize = .zero
     @State private var importedImageWidthFraction: CGFloat = 0.3
@@ -129,6 +128,13 @@ struct ContentView: View {
                 updateDeviceOrientation()
             }
             .onDisappear { camera.stopRunning() }
+            .onChange(of: isDeviceLandscape) { _, _ in
+                // Поворот экрана: окно PiP всегда возвращается
+                // в парковочное место в левом верхнем углу кадра.
+                pipDragBase = nil
+                pipOffset = .zero
+                camera.updatePipOffsetFraction(mediaPipOffsetFraction(for: .zero))
+            }
             .onChange(of: scenePhase) { _, newPhase in
                 switch newPhase {
                 case .active:
@@ -183,14 +189,13 @@ struct ContentView: View {
         GeometryReader { geometry in
             let topStripHeight = max(HUDTheme.topStripMinimumHeight,
                                      geometry.safeAreaInsets.top + HUDTheme.topSafeAreaAddition)
-            let bottomStripHeight = HUDTheme.bottomStripMinimumHeight
             let previewRect = CGRect(x: 0,
                                      y: topStripHeight,
                                      width: geometry.size.width,
-                                     height: max(0, geometry.size.height - topStripHeight - bottomStripHeight))
+                                     height: max(0, geometry.size.height - topStripHeight - HUDTheme.bottomStripMinimumHeight))
             let aspectRatio = settings.aspectRatio.ratio(isPortrait: true)
             let guideWidth = min(previewRect.width, previewRect.height * aspectRatio)
-            let guideHeight = guideWidth / aspectRatio
+            let guideHeight = guideWidth / max(aspectRatio, 0.0001)
             let guideRect = CGRect(x: previewRect.minX + (previewRect.width - guideWidth) / 2,
                                    y: previewRect.minY + (previewRect.height - guideHeight) / 2,
                                    width: guideWidth,
@@ -319,22 +324,25 @@ struct ContentView: View {
         GeometryReader { geo in
             let size = geo.size
             let backIsMain = !camera.isCamerasSwapped
+            // Родительское поле кадра: та же рамка, что задаёт формат кадра
+            // в настройках. Окно PiP живёт внутри неё, поэтому положение
+            // на экране совпадает с положением в готовом файле.
+            let fieldRect = Self.frameRect(in: size,
+                                           safeInsets: geo.safeAreaInsets,
+                                           aspectRatio: settings.aspectRatio.ratio(isPortrait: true))
             // Размер самой картинки PiP (портретный) и размер её окна на экране.
             // В ландшафте окно повёрнуто на 90°, поэтому стороны меняются местами,
             // иначе повёрнутый прямоугольник обрезается.
-            let pipContentSize = Self.pipSize(for: camera.pipShape, in: size, widthFraction: 0.3)
+            let pipContentSize = Self.pipSize(for: camera.pipShape, in: fieldRect.size, widthFraction: 0.3)
             let pipSlotSize = isDeviceLandscape
                 ? CGSize(width: pipContentSize.height, height: pipContentSize.width)
                 : pipContentSize
             // В сплит-режиме вторичное окно — это ячейка сплита, а не PiP.
             let isPipLayout = camera.layout == .pip
             let secondaryContentSize = isPipLayout ? pipContentSize : .zero
-            let pipTopInset = max(HUDTheme.topStripMinimumHeight,
-                                  geo.safeAreaInsets.top + HUDTheme.topSafeAreaAddition)
-                + HUDTheme.pipPreviewInset
             let frames = Self.layoutFrames(layout: camera.layout, size: size, pipSize: pipSlotSize,
                                            pipOffset: pipOffset,
-                                           pipTopInset: pipTopInset,
+                                           pipBounds: fieldRect,
                                            splitOrientation: camera.splitOrientation,
                                            splitRatio: camera.splitRatio,
                                            isSecondaryCameraVisible: camera.isSecondaryCameraVisible)
@@ -407,18 +415,19 @@ struct ContentView: View {
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.layout)
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.isCamerasSwapped)
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.pipShape)
+            .animation(.easeInOut(duration: 0.25), value: pipOffset)
             .animation(.easeInOut(duration: HUDTheme.stateTransitionDuration),
                        value: camera.isSecondaryCameraVisible)
             .onAppear {
                 previewSize = size
-                pipBaseInset = CGPoint(x: HUDTheme.pipPreviewInset, y: pipTopInset)
+                pipFieldSize = fieldRect.size
             }
             .onChange(of: size) { _, newSize in
                 previewSize = newSize
-                pipBaseInset = CGPoint(x: HUDTheme.pipPreviewInset, y: pipTopInset)
+                pipFieldSize = fieldRect.size
             }
-            .onChange(of: pipTopInset) { _, newInset in
-                pipBaseInset = CGPoint(x: HUDTheme.pipPreviewInset, y: newInset)
+            .onChange(of: fieldRect) { _, newRect in
+                pipFieldSize = newRect.size
             }
         }
     }
@@ -458,10 +467,6 @@ struct ContentView: View {
         }
     }
 
-    private var pipOffsetFraction: CGSize {
-        pipOffsetFraction(for: pipOffset)
-    }
-
     private var photoOverlayOffsetFraction: CGSize {
         offsetFraction(for: photoOverlayOffset)
     }
@@ -481,11 +486,12 @@ struct ContentView: View {
     }
 
     /// Доля кадра, в которой находится левый верхний угол окна PiP.
-    /// Считаем от реального положения в превью, чтобы кадр совпадал с экраном.
+    /// Отсчитываем от парковочного отступа внутри родительского поля,
+    /// поэтому экран и готовый файл совпадают.
     private func pipOffsetFraction(for offset: CGSize) -> CGSize {
-        guard previewSize.width > 0, previewSize.height > 0 else { return .zero }
-        return CGSize(width: (pipBaseInset.x + offset.width) / previewSize.width,
-                      height: (pipBaseInset.y + offset.height) / previewSize.height)
+        guard pipFieldSize.width > 0, pipFieldSize.height > 0 else { return .zero }
+        return CGSize(width: (HUDTheme.pipParkInset + offset.width) / pipFieldSize.width,
+                      height: (HUDTheme.pipParkInset + offset.height) / pipFieldSize.height)
     }
 
     /// Доля для записи и фото. Положение берём как есть: окно должно
@@ -619,12 +625,31 @@ struct ContentView: View {
         return CGSize(width: width, height: width * shape.aspectRatio)
     }
 
+    /// Прямоугольник родительского поля кадра в координатах превью:
+    /// область между полосами HUD, вписанная в выбранный формат кадра.
+    private static func frameRect(in size: CGSize,
+                                  safeInsets: EdgeInsets,
+                                  aspectRatio: CGFloat) -> CGRect {
+        let topStripHeight = max(HUDTheme.topStripMinimumHeight,
+                                 safeInsets.top + HUDTheme.topSafeAreaAddition)
+        let previewRect = CGRect(x: 0,
+                                 y: topStripHeight,
+                                 width: size.width,
+                                 height: max(0, size.height - topStripHeight - HUDTheme.bottomStripMinimumHeight))
+        let width = min(previewRect.width, previewRect.height * aspectRatio)
+        let height = width / max(aspectRatio, 0.0001)
+        return CGRect(x: previewRect.minX + (previewRect.width - width) / 2,
+                      y: previewRect.minY + (previewRect.height - height) / 2,
+                      width: width,
+                      height: height)
+    }
+
     /// Считает прямоугольники основной и вторичной камер для выбранной раскладки.
     private static func layoutFrames(layout: CaptureLayout,
                                      size: CGSize,
                                      pipSize: CGSize,
                                      pipOffset: CGSize,
-                                     pipTopInset: CGFloat,
+                                     pipBounds: CGRect,
                                      splitOrientation: SplitOrientation,
                                      splitRatio: CGFloat,
                                      isSecondaryCameraVisible: Bool) -> (main: CGRect, secondary: CGRect) {
@@ -647,12 +672,14 @@ struct ContentView: View {
                 )
             }
         case .pip:
-            // Небольшой отступ, чтобы окно не прилипало вплотную к краю.
-            let margin: CGFloat = 2
-            let maxX = max(margin, size.width - pipSize.width - margin)
-            let maxY = max(margin, size.height - pipSize.height - margin)
-            let x = min(max(margin, 16 + pipOffset.width), maxX)
-            let y = min(max(margin, pipTopInset + pipOffset.height), maxY)
+            // Парковка — левый верхний угол поля кадра, отступ 3 pt.
+            let inset = HUDTheme.pipParkInset
+            let parkX = pipBounds.minX + inset
+            let parkY = pipBounds.minY + inset
+            let maxX = max(parkX, pipBounds.maxX - pipSize.width - inset)
+            let maxY = max(parkY, pipBounds.maxY - pipSize.height - inset)
+            let x = min(max(parkX, parkX + pipOffset.width), maxX)
+            let y = min(max(parkY, parkY + pipOffset.height), maxY)
             return (
                 CGRect(origin: .zero, size: size),
                 CGRect(x: x, y: y, width: pipSize.width, height: pipSize.height)

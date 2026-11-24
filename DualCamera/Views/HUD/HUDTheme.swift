@@ -20,6 +20,8 @@ enum HUDTheme {
     static let splitHandleBorder = Color.white.opacity(0.7)
     static let splitHandleShadow = Color.black.opacity(0.4)
     static let pipPreviewInset: CGFloat = 16
+    /// Отступ припаркованного окна PiP от границ кадра.
+    static let pipParkInset: CGFloat = 3
 
     static let topStripMinimumHeight: CGFloat = 54
     static let bottomStripMinimumHeight: CGFloat = 110
