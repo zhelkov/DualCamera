@@ -358,13 +358,14 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         case .faceDown: device = "экран вниз"
         default: device = "не определён"
         }
+        let raw = UIDevice.current.orientation.rawValue
         let frameIsPortrait = lastVideoOrientation == .portrait
             || lastVideoOrientation == .portraitUpsideDown
         let canvas = captureSettings.outputSize(isPortrait: isPortrait)
         let buffer = lastBackBufferSize == .zero
             ? "нет"
             : "\(Int(lastBackBufferSize.width))×\(Int(lastBackBufferSize.height))"
-        return "датчик: \(device) · кадр: \(frameIsPortrait ? "портрет" : "ландшафт") · "
+        return "датчик: \(device)[\(raw)] · кадр: \(frameIsPortrait ? "портрет" : "ландшафт") · "
             + "холст: \(Int(canvas.width))×\(Int(canvas.height)) · буфер: \(buffer)"
     }
 

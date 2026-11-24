@@ -434,6 +434,7 @@ struct ContentView: View {
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.isCamerasSwapped)
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.pipShape)
             .animation(.easeInOut(duration: 0.25), value: pipOffset)
+            .animation(.easeInOut(duration: 0.25), value: deviceOrientation)
             .animation(.easeInOut(duration: HUDTheme.stateTransitionDuration),
                        value: camera.isSecondaryCameraVisible)
             .onAppear {
@@ -814,11 +815,13 @@ struct ContentView: View {
 
     /// Угол окна, который пользователь видит верхним левым.
     /// Экран закреплён в портрете, поэтому в ландшафте «верхний левый»
-    /// на экране оказывается другим углом рамки кадра.
+    /// на экране оказывается другим углом рамки кадра:
+    /// кнопка «Домой» справа → верхний правый угол экрана,
+    /// кнопка «Домой» слева → нижний левый угол экрана.
     private var pipParkCorner: PipParkCorner {
         switch deviceOrientation {
-        case .landscapeRight: return .topTrailing
-        case .landscapeLeft: return .bottomLeading
+        case .landscapeLeft: return .topTrailing
+        case .landscapeRight: return .bottomLeading
         default: return .topLeading
         }
     }
