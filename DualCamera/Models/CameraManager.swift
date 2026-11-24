@@ -208,6 +208,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         NotificationCenter.default.removeObserver(self,
                                                   name: UIDevice.orientationDidChangeNotification,
                                                   object: nil)
+        lowLightTimer?.cancel()
+        lowLightTimer = nil
         if orientationObserverRegistered {
             UIDevice.current.endGeneratingDeviceOrientationNotifications()
         }
@@ -270,6 +272,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                     try? self.configureRealtimeOutputs()
                 }
                 self.checkPreviewLayersAfterStart()
+                self.startLowLightMonitoring()
                 // Характеристики читаем на очереди сессии, применяем на главной.
                 let unit = self.backCameraZoomUnit
                 let minZoom = (self.backCamera?.minAvailableVideoZoomFactor ?? 1) * unit
@@ -308,6 +311,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                 self.session.startRunning()
             }
             self.deactivateAudioSessionIfIdle()
+            self.startLowLightMonitoring()
             self.updateOnMain { self.isRunning = self.session.isRunning }
         }
     }
@@ -315,6 +319,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     func stopRunning() {
         sessionQueue.async { [weak self] in
             guard let self, self.session.isRunning else { return }
+            self.stopLowLightMonitoring()
             self.session.stopRunning()
             self.deactivateAudioSession()
             self.updateOnMain { self.isRunning = false }
@@ -687,12 +692,15 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
 
         sessionQueue.async { [weak self] in
             guard let self else { return }
-            self.session.stopRunning()
+            // Сессию не останавливаем: остановка давала тёмный кадр на экране
+            // при проходе зума через 1×. Пересобираем на ходу.
             self.resetSessionConfiguration()
             do {
                 try self.configureSession()
                 self.applyInterfaceOrientation(self.lastVideoOrientation, forceCaptureOutputs: true)
-                self.session.startRunning()
+                if !self.session.isRunning {
+                    self.session.startRunning()
+                }
                 // После пересборки сессии синхронный захват нужен снова.
                 if !self.realtimeVideoOutputsReady {
                     try? self.configureRealtimeOutputs()
@@ -714,7 +722,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                 self.sessionQueue.async {
                     self.resetSessionConfiguration()
                     try? self.configureSession()
-                    self.session.startRunning()
+                    if !self.session.isRunning {
+                        self.session.startRunning()
+                    }
                 }
                 self.updateOnMain {
                     self.isApplyingSettings = false
@@ -725,9 +735,57 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         }
     }
 
+    // MARK: - Ночной режим фронтальной камеры
+
+    private var lowLightTimer: DispatchSourceTimer?
+    /// Сколько проверок подряд сцена остаётся тёмной.
+    private var darkChecks = 0
+    /// Текущий автоматический сдвиг экспозиции фронтальной камеры.
+    private var frontNightBias: Float = 0
+    /// Предел авто-подъёма EV: выше начинаются сильные шумы.
+    private let frontNightBiasCap: Float = 4
+
+    /// Следит за освещённостью и поднимает экспозицию фронтальной камеры
+    /// в темноте, как штатная «Камера».
+    private func startLowLightMonitoring() {
+        guard lowLightTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: sessionQueue)
+        timer.schedule(deadline: .now() + 1, repeating: 1)
+        timer.setEventHandler { [weak self] in self?.updateFrontNightBias() }
+        timer.resume()
+        lowLightTimer = timer
+    }
+
+    private func stopLowLightMonitoring() {
+        lowLightTimer?.cancel()
+        lowLightTimer = nil
+        darkChecks = 0
+    }
+
+    /// Тёмной считаем сцену, где ISO подошёл к пределу активного формата.
+    /// Решение принимается по двум проверкам подряд, чтобы не мигать
+    /// на случайных кадрах.
+    private func updateFrontNightBias() {
+        guard let device = frontCamera, !isFocusExposureLocked else { return }
+        // Ручной сдвиг пользователя для фронтальной камеры не перебиваем.
+        if isCamerasSwapped, abs(exposureTargetBias) > 0.01 { return }
+        let maxISO = device.activeFormat.maxISO
+        let ratio = maxISO > 0 ? device.iso / maxISO : 0
+        if ratio > 0.7 {
+            darkChecks = min(darkChecks + 1, 3)
+        } else if ratio < 0.4 {
+            darkChecks = 0
+        }
+        let target: Float = darkChecks >= 2
+            ? min(device.maxExposureTargetBias, frontNightBiasCap)
+            : 0
+        guard abs(target - frontNightBias) > 0.5 else { return }
+        frontNightBias = target
+        device.setExposureTargetBias(target, completionHandler: nil)
+    }
+
     /// Включает/выключает фонарик основной камеры.
-    func toggleTorch() {
-        let newValue = !isTorchOn
+    func toggleTorch() {        let newValue = !isTorchOn
         updateOnMain { self.isTorchOn = newValue }
 
         sessionQueue.async { [weak self] in
