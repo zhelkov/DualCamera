@@ -257,6 +257,18 @@ enum VideoMerger {
                                    keyframes: segment.keyframes,
                                    duration: duration)
             guard let first = rects.first else { throw CameraError.videoMergeFailed }
+            // Увеличение и смещение картинки внутри полотна.
+            let firstFrame = segment.keyframes.first
+            let zoom = max(firstFrame?.innerScale ?? 1, 1)
+            if zoom > 1.0001 {
+                let inner = firstFrame?.innerOffsetFraction ?? .zero
+                let visible = 1 / zoom
+                let dx = inner.width * renderSize.width * visible / max(first.rect.width, 1)
+                let dy = inner.height * renderSize.height * visible / max(first.rect.height, 1)
+                let x = min(max(0.5 - visible / 2 - dx, 0), 1 - visible)
+                let y = min(max(0.5 - visible / 2 - dy, 0), 1 - visible)
+                photoLayer.contentsRect = CGRect(x: x, y: y, width: visible, height: visible)
+            }
             photoLayer.bounds = CGRect(origin: .zero, size: first.rect.size)
             photoLayer.position = CGPoint(x: first.rect.midX,
                                           y: renderSize.height - first.rect.midY)
@@ -288,7 +300,8 @@ enum VideoMerger {
             addVisibilityAnimation(to: photoLayer,
                                    start: segment.startTime,
                                    end: segment.endTime,
-                                   duration: duration.seconds)
+                                   duration: duration.seconds,
+                                   peakOpacity: segment.keyframes.first?.opacity ?? 1)
         }
 
         videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(
@@ -333,7 +346,10 @@ enum VideoMerger {
                                                                 offsetFraction: frame.offsetFraction,
                                                                 widthFraction: frame.widthFraction,
                                                                 image: image,
-                                                                imageID: imageID))
+                                                                imageID: imageID,
+                                                                innerScale: frame.innerScale,
+                                                                innerOffsetFraction: frame.innerOffsetFraction,
+                                                                opacity: frame.opacity))
                 } else {
                     finishActive(at: time)
                     activeID = imageID
@@ -343,7 +359,10 @@ enum VideoMerger {
                                                             offsetFraction: frame.offsetFraction,
                                                             widthFraction: frame.widthFraction,
                                                             image: image,
-                                                            imageID: imageID)]
+                                                            imageID: imageID,
+                                                            innerScale: frame.innerScale,
+                                                            innerOffsetFraction: frame.innerOffsetFraction,
+                                                            opacity: frame.opacity)]
                 }
             } else if activeID != nil {
                 finishActive(at: time)
@@ -359,8 +378,10 @@ enum VideoMerger {
     private static func addVisibilityAnimation(to layer: CALayer,
                                                 start: Double,
                                                 end: Double,
-                                                duration: Double) {
+                                                duration: Double,
+                                                peakOpacity: CGFloat = 1) {
         guard duration > 0 else { return }
+        let peak = NSNumber(value: Double(min(max(peakOpacity, 0), 1)))
         let startTime = min(max(0, start / duration), 1)
         let endTime = min(max(startTime, end / duration), 1)
         let epsilon = min(1, endTime + 0.00001)
@@ -369,18 +390,18 @@ enum VideoMerger {
 
         if startTime > 0 {
             values.append(0); keyTimes.append(0)
-            values.append(1); keyTimes.append(NSNumber(value: startTime))
+            values.append(peak); keyTimes.append(NSNumber(value: startTime))
         } else {
-            values.append(1); keyTimes.append(0)
+            values.append(peak); keyTimes.append(0)
         }
         if endTime < 1 {
-            values.append(1); keyTimes.append(NSNumber(value: endTime))
+            values.append(peak); keyTimes.append(NSNumber(value: endTime))
             values.append(0); keyTimes.append(NSNumber(value: epsilon))
             if epsilon < 1 {
                 values.append(0); keyTimes.append(1)
             }
         } else if keyTimes.last?.doubleValue != 1 {
-            values.append(1); keyTimes.append(1)
+            values.append(peak); keyTimes.append(1)
         }
 
         let opacity = CAKeyframeAnimation(keyPath: "opacity")

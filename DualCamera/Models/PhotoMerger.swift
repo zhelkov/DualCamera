@@ -32,6 +32,9 @@ enum PhotoMerger {
                       photoOverlay: UIImage? = nil,
                       photoOverlayOffsetFraction: CGSize = .zero,
                       photoOverlayWidthFraction: CGFloat = 0.3,
+                      photoOverlayInnerScale: CGFloat = 1,
+                      photoOverlayInnerOffsetFraction: CGSize = .zero,
+                      photoOverlayOpacity: CGFloat = 1,
                       elements: [DrawingElement] = [],
                       timestamp: Date? = nil) throws -> UIImage {
         // Приводим к вертикальной ориентации, чтобы размеры были честными.
@@ -75,7 +78,10 @@ enum PhotoMerger {
         let withPhoto = photoOverlay.map {
             overlayPhoto($0, on: aspectCorrected,
                          offsetFraction: photoOverlayOffsetFraction,
-                         widthFraction: photoOverlayWidthFraction)
+                         widthFraction: photoOverlayWidthFraction,
+                         innerScale: photoOverlayInnerScale,
+                         innerOffsetFraction: photoOverlayInnerOffsetFraction,
+                         opacity: photoOverlayOpacity)
         } ?? aspectCorrected
         var result = elements.isEmpty
             ? withPhoto
@@ -130,19 +136,35 @@ enum PhotoMerger {
     private static func overlayPhoto(_ photo: UIImage,
                                      on image: UIImage,
                                      offsetFraction: CGSize,
-                                     widthFraction: CGFloat) -> UIImage {
+                                     widthFraction: CGFloat,
+                                     innerScale: CGFloat,
+                                     innerOffsetFraction: CGSize,
+                                     opacity: CGFloat) -> UIImage {
         let size = image.size
-        let width = size.width * widthFraction
+        let width = size.width * min(max(widthFraction, 0.05), 1)
         let height = width * photo.size.height / max(photo.size.width, 1)
-        let x = min(max(0, 16 + offsetFraction.width * size.width), size.width - width)
-        let y = min(max(0, 16 + offsetFraction.height * size.height), size.height - height)
+        let x = min(max(0, 16 + offsetFraction.width * size.width), max(0, size.width - width))
+        let y = min(max(0, 16 + offsetFraction.height * size.height), max(0, size.height - height))
         let target = CGRect(x: x, y: y, width: width, height: height)
+        // Картинка внутри полотна: увеличение и смещение, границы полотна неизменны.
+        let zoom = max(innerScale, 1)
+        let innerWidth = target.width * zoom
+        let innerHeight = target.height * zoom
+        let fillScale = max(innerWidth / max(photo.size.width, 1),
+                            innerHeight / max(photo.size.height, 1))
+        let drawSize = CGSize(width: photo.size.width * fillScale,
+                              height: photo.size.height * fillScale)
+        let inner = CGRect(x: target.midX + innerOffsetFraction.width * size.width - drawSize.width / 2,
+                           y: target.midY + innerOffsetFraction.height * size.height - drawSize.height / 2,
+                           width: drawSize.width,
+                           height: drawSize.height)
         let renderer = UIGraphicsImageRenderer(size: size)
         return renderer.image { context in
             image.draw(in: CGRect(origin: .zero, size: size))
             context.cgContext.saveGState()
             UIBezierPath(roundedRect: target, cornerRadius: 10).addClip()
-            photo.draw(in: aspectFillRect(image: photo, in: target))
+            context.cgContext.setAlpha(min(max(opacity, 0), 1))
+            photo.draw(in: inner)
             context.cgContext.restoreGState()
         }
     }

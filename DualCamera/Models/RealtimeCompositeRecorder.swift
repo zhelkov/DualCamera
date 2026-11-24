@@ -18,6 +18,9 @@ final class RealtimeCompositeRecorder {
         let photo: UIImage?
         let photoOffsetFraction: CGSize
         let photoWidthFraction: CGFloat
+        var photoInnerScale: CGFloat = 1
+        var photoInnerOffsetFraction: CGSize = .zero
+        var photoOpacity: CGFloat = 1
         let drawing: [DrawingElement]
         let dateTimeEnabled: Bool
         let recordingStartDate: Date?
@@ -308,12 +311,28 @@ final class RealtimeCompositeRecorder {
         }
 
         if let photo = state.photo, let photoCI = normalizedPhoto(photo) {
-            let width = renderSize.width * state.photoWidthFraction
+            let width = renderSize.width * min(max(state.photoWidthFraction, 0.05), 1)
             let height = width * photoCI.extent.height / max(photoCI.extent.width, 1)
-            let rect = CGRect(x: min(max(0, 16 + state.photoOffsetFraction.width * renderSize.width), renderSize.width - width),
-                              y: min(max(0, renderSize.height - 16 - height - state.photoOffsetFraction.height * renderSize.height), renderSize.height - height),
+            let rect = CGRect(x: min(max(0, 16 + state.photoOffsetFraction.width * renderSize.width), max(0, renderSize.width - width)),
+                              y: min(max(0, renderSize.height - 16 - height - state.photoOffsetFraction.height * renderSize.height), max(0, renderSize.height - height)),
                               width: width, height: height)
-            let placed = fill(photoCI, in: rect)
+            // Картинка внутри полотна: увеличение и смещение, границы полотна неизменны.
+            let zoom = max(state.photoInnerScale, 1)
+            let innerWidth = rect.width * zoom
+            let innerHeight = rect.height * zoom
+            let inner = CGRect(x: rect.midX + state.photoInnerOffsetFraction.width * renderSize.width
+                                    - innerWidth / 2,
+                               y: rect.midY + state.photoInnerOffsetFraction.height * renderSize.height
+                                    - innerHeight / 2,
+                               width: innerWidth,
+                               height: innerHeight)
+            var placed = fill(photoCI, in: inner).cropped(to: rect)
+            let opacity = min(max(state.photoOpacity, 0), 1)
+            if opacity < 0.999 {
+                placed = placed.applyingFilter("CIColorMatrix", parameters: [
+                    "inputAVector": CIVector(x: 0, y: 0, z: 0, w: opacity)
+                ])
+            }
             if let mask = shapeMask(rect, canvas: canvas, shape: .rectangle, radiusFraction: 0.03) {
                 let blend = CIFilter.blendWithMask()
                 blend.inputImage = placed

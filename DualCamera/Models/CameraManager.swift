@@ -176,6 +176,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private var recordingPhotoOverlayID: UUID?
     private var recordingPhotoOverlayOffsetFraction: CGSize = .zero
     private var recordingPhotoOverlayWidthFraction: CGFloat = 0.3
+    private var recordingPhotoOverlayInnerScale: CGFloat = 1
+    private var recordingPhotoOverlayInnerOffsetFraction: CGSize = .zero
+    private var recordingPhotoOverlayOpacity: CGFloat = 1
     private var recordingPhotoOverlayKeyframes: [PhotoOverlayKeyframe] = []
     private var recordingImportedVideoURL: URL?
     private var recordingLayout: CaptureLayout = .pip
@@ -381,7 +384,10 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     func captureBothCameras(elements: [DrawingElement] = [],
                             pipOffsetFraction: CGSize = .zero,
                             photoOverlayOffsetFraction: CGSize = .zero,
-                            photoOverlayWidthFraction: CGFloat = 0.3) {
+                            photoOverlayWidthFraction: CGFloat = 0.3,
+                            photoOverlayInnerScale: CGFloat = 1,
+                            photoOverlayInnerOffsetFraction: CGSize = .zero,
+                            photoOverlayOpacity: CGFloat = 1) {
         guard isConfigured, !isCapturing, !isApplyingSettings else { return }
         let filterAtCapture = videoFilter
         let filterTargetAtCapture = activeFilterTarget
@@ -398,6 +404,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                                                 pipOffsetFraction: pipOffsetFraction,
                                                                 photoOverlayOffsetFraction: photoOverlayOffsetFraction,
                                                                 photoOverlayWidthFraction: photoOverlayWidthFraction,
+                                                                photoOverlayInnerScale: photoOverlayInnerScale,
+                                                                photoOverlayInnerOffsetFraction: photoOverlayInnerOffsetFraction,
+                                                                photoOverlayOpacity: photoOverlayOpacity,
                                                                 videoFilter: filterAtCapture,
                                                                 filterTarget: filterTargetAtCapture,
                                                                 outputAspectRatio: aspectRatioAtCapture,
@@ -904,7 +913,10 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     func startRecording(elements: [DrawingElement] = [],
                         pipOffsetFraction: CGSize = .zero,
                         photoOverlayOffsetFraction: CGSize = .zero,
-                        photoOverlayWidthFraction: CGFloat = 0.3) {
+                        photoOverlayWidthFraction: CGFloat = 0.3,
+                        photoOverlayInnerScale: CGFloat = 1,
+                        photoOverlayInnerOffsetFraction: CGSize = .zero,
+                        photoOverlayOpacity: CGFloat = 1) {
         guard isConfigured, !isRecording, !isApplyingSettings else { return }
         if importedVideoURL != nil, captureSettings.audioQuality == .appleLossless {
             showError("Apple Lossless недоступен при записи с импортированным видео.")
@@ -935,6 +947,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                      elements: elements,
                                      photoOffsetFraction: photoOverlayOffsetFraction,
                                      photoWidthFraction: photoOverlayWidthFraction,
+                                     photoInnerScale: photoOverlayInnerScale,
+                                     photoInnerOffsetFraction: photoOverlayInnerOffsetFraction,
+                                     photoOpacity: photoOverlayOpacity,
                                      photo: importedPhotoAtStart,
                                      camerasSwapped: swappedAtStart,
                                      layout: layoutAtStart,
@@ -1178,7 +1193,11 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         }
     }
 
-    func updatePhotoOverlay(offsetFraction: CGSize, widthFraction: CGFloat) {
+    func updatePhotoOverlay(offsetFraction: CGSize,
+                            widthFraction: CGFloat,
+                            innerScale: CGFloat = 1,
+                            innerOffsetFraction: CGSize = .zero,
+                            opacity: CGFloat = 1) {
         guard isRecording else { return }
         recordingLock.lock()
         defer { recordingLock.unlock() }
@@ -1189,17 +1208,27 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
            time - previous.time < 0.025,
            abs(previous.offsetFraction.width - offsetFraction.width) < 0.0005,
            abs(previous.offsetFraction.height - offsetFraction.height) < 0.0005,
-           abs(previous.widthFraction - widthFraction) < 0.0005 {
+           abs(previous.widthFraction - widthFraction) < 0.0005,
+           abs(previous.innerScale - innerScale) < 0.0005,
+           abs(previous.innerOffsetFraction.width - innerOffsetFraction.width) < 0.0005,
+           abs(previous.innerOffsetFraction.height - innerOffsetFraction.height) < 0.0005,
+           abs(previous.opacity - opacity) < 0.0005 {
             return
         }
         recordingPhotoOverlayOffsetFraction = offsetFraction
         recordingPhotoOverlayWidthFraction = widthFraction
+        recordingPhotoOverlayInnerScale = innerScale
+        recordingPhotoOverlayInnerOffsetFraction = innerOffsetFraction
+        recordingPhotoOverlayOpacity = opacity
         recordingPhotoOverlayKeyframes.append(
             PhotoOverlayKeyframe(time: time,
                                  offsetFraction: offsetFraction,
                                  widthFraction: widthFraction,
                                  image: recordingPhotoOverlay,
-                                 imageID: recordingPhotoOverlayID)
+                                 imageID: recordingPhotoOverlayID,
+                                 innerScale: innerScale,
+                                 innerOffsetFraction: innerOffsetFraction,
+                                 opacity: opacity)
         )
     }
 
@@ -1217,7 +1246,10 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                  offsetFraction: recordingPhotoOverlayOffsetFraction,
                                  widthFraction: recordingPhotoOverlayWidthFraction,
                                  image: image,
-                                 imageID: imageID)
+                                 imageID: imageID,
+                                 innerScale: recordingPhotoOverlayInnerScale,
+                                 innerOffsetFraction: recordingPhotoOverlayInnerOffsetFraction,
+                                 opacity: recordingPhotoOverlayOpacity)
         )
     }
 
@@ -1819,6 +1851,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                  pipOffsetFraction: CGSize,
                                  photoOverlayOffsetFraction: CGSize,
                                  photoOverlayWidthFraction: CGFloat,
+                                 photoOverlayInnerScale: CGFloat,
+                                 photoOverlayInnerOffsetFraction: CGSize,
+                                 photoOverlayOpacity: CGFloat,
                                  videoFilter: VideoFilter,
                                  filterTarget: VideoFilterTarget,
                                  outputAspectRatio: CGFloat,
@@ -1856,6 +1891,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                  photoOverlay: importedPhoto,
                                  photoOverlayOffsetFraction: photoOverlayOffsetFraction,
                                  photoOverlayWidthFraction: photoOverlayWidthFraction,
+                                 photoOverlayInnerScale: photoOverlayInnerScale,
+                                 photoOverlayInnerOffsetFraction: photoOverlayInnerOffsetFraction,
+                                 photoOverlayOpacity: photoOverlayOpacity,
                                  elements: elements,
                                  timestamp: timestamp)
     }
@@ -2056,6 +2094,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         recordingPhotoOverlayID = nil
         recordingPhotoOverlayOffsetFraction = .zero
         recordingPhotoOverlayWidthFraction = 0.3
+        recordingPhotoOverlayInnerScale = 1
+        recordingPhotoOverlayInnerOffsetFraction = .zero
+        recordingPhotoOverlayOpacity = 1
         expectedRecordingCount = 0
         receivedRecordingCallbacks = 0
         isUsingRealtimeRecorder = false
@@ -2082,6 +2123,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                      elements: [DrawingElement],
                                      photoOffsetFraction: CGSize,
                                      photoWidthFraction: CGFloat,
+                                     photoInnerScale: CGFloat,
+                                     photoInnerOffsetFraction: CGSize,
+                                     photoOpacity: CGFloat,
                                      photo: UIImage?,
                                      camerasSwapped: Bool,
                                      layout: CaptureLayout,
@@ -2124,12 +2168,18 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         recordingPhotoOverlayID = photo == nil ? nil : UUID()
         recordingPhotoOverlayOffsetFraction = photoOffsetFraction
         recordingPhotoOverlayWidthFraction = photoWidthFraction
+        recordingPhotoOverlayInnerScale = photoInnerScale
+        recordingPhotoOverlayInnerOffsetFraction = photoInnerOffsetFraction
+        recordingPhotoOverlayOpacity = photoOpacity
         recordingPhotoOverlayKeyframes = [
             PhotoOverlayKeyframe(time: 0,
                                  offsetFraction: photoOffsetFraction,
                                  widthFraction: photoWidthFraction,
                                  image: photo,
-                                 imageID: recordingPhotoOverlayID)
+                                 imageID: recordingPhotoOverlayID,
+                                 innerScale: photoInnerScale,
+                                 innerOffsetFraction: photoInnerOffsetFraction,
+                                 opacity: photoOpacity)
         ]
         recordingLock.unlock()
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
@@ -2323,6 +2373,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             photo: photo?.image,
             photoOffsetFraction: photo?.offsetFraction ?? recordingPhotoOverlayOffsetFraction,
             photoWidthFraction: photo?.widthFraction ?? recordingPhotoOverlayWidthFraction,
+            photoInnerScale: photo?.innerScale ?? recordingPhotoOverlayInnerScale,
+            photoInnerOffsetFraction: photo?.innerOffsetFraction ?? recordingPhotoOverlayInnerOffsetFraction,
+            photoOpacity: photo?.opacity ?? recordingPhotoOverlayOpacity,
             drawing: drawing,
             dateTimeEnabled: recordingCaptureSettings.dateTimeEnabled,
             recordingStartDate: recordingStartDate

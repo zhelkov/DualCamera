@@ -34,6 +34,12 @@ struct PhotoOverlayKeyframe {
     let widthFraction: CGFloat
     let image: UIImage?
     let imageID: UUID?
+    /// Увеличение картинки внутри полотна (1 — вписана целиком).
+    var innerScale: CGFloat = 1
+    /// Смещение картинки внутри полотна, в долях кадра.
+    var innerOffsetFraction: CGSize = .zero
+    /// Прозрачность картинки.
+    var opacity: CGFloat = 1
 }
 
 final class DualCameraVideoCompositionInstruction: NSObject, AVVideoCompositionInstructionProtocol {

@@ -24,6 +24,13 @@ struct ContentView: View {
     @State private var photoOverlayOffset: CGSize = .zero
     @State private var previewSize: CGSize = .zero
     @State private var importedImageWidthFraction: CGFloat = 0.3
+    /// Увеличение картинки внутри полотна вставленного фото.
+    @State private var importedPhotoInnerScale: CGFloat = 1
+    /// Смещение картинки внутри полотна (в точках превью).
+    @State private var importedPhotoInnerOffset: CGSize = .zero
+    @State private var importedPhotoOpacity: Double = 1
+    @State private var isPhotoControlsVisible = false
+    @State private var photoInnerDragBase: CGSize?
     @State private var pipDragBase: CGSize?
     @State private var photoOverlayDragBase: CGSize?
     @State private var isZoomSliderVisible = false
@@ -136,6 +143,15 @@ struct ContentView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
                 updateDeviceOrientation()
+            }
+            .onChange(of: camera.importedPhoto != nil) { _, hasPhoto in
+                isPhotoControlsVisible = false
+                importedPhotoInnerScale = 1
+                importedPhotoInnerOffset = .zero
+                importedPhotoOpacity = 1
+                photoOverlayDragBase = nil
+                photoInnerDragBase = nil
+                if !hasPhoto { photoOverlayOffset = .zero }
             }
             .onDisappear { camera.stopRunning() }
             .onChange(of: isDeviceLandscape) { _, _ in
@@ -411,15 +427,14 @@ struct ContentView: View {
 
                 if let photo = camera.importedPhoto {
                     let frame = photoOverlayFrame(for: photo, in: size)
-                    Image(uiImage: photo)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: frame.width, height: frame.height)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white, lineWidth: 2))
-                        .shadow(color: .black.opacity(0.35), radius: 5)
-                        .offset(x: frame.minX, y: frame.minY)
+                    photoOverlayView(photo, frame: frame)
                         .gesture(photoOverlayDrag)
+                        .onLongPressGesture(minimumDuration: 0.4) {
+                            Haptics.selection()
+                            withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
+                                isPhotoControlsVisible.toggle()
+                            }
+                        }
                 }
 
                 if camera.layout == .splitScreen && camera.isSecondaryCameraVisible {
@@ -491,11 +506,34 @@ struct ContentView: View {
     }
 
     private func photoOverlayFrame(for image: UIImage, in size: CGSize) -> CGRect {
-        let width = size.width * importedImageWidthFraction
+        let width = size.width * min(max(importedImageWidthFraction, 0.05), 1)
         let height = width * image.size.height / max(image.size.width, 1)
-        let x = min(max(0, 16 + photoOverlayOffset.width), size.width - width)
-        let y = min(max(0, 16 + photoOverlayOffset.height), size.height - height)
+        let x = min(max(0, 16 + photoOverlayOffset.width), max(0, size.width - width))
+        let y = min(max(0, 16 + photoOverlayOffset.height), max(0, size.height - height))
         return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    /// Полотно фото: неизменные границы, внутри — увеличенная и сдвинутая картинка.
+    private func photoOverlayView(_ photo: UIImage, frame: CGRect) -> some View {
+        let zoom = max(importedPhotoInnerScale, 1)
+        let innerWidth = frame.width * zoom
+        let innerHeight = frame.height * zoom
+        let fillScale = max(innerWidth / max(photo.size.width, 1),
+                            innerHeight / max(photo.size.height, 1))
+        let contentSize = CGSize(width: photo.size.width * fillScale,
+                                 height: photo.size.height * fillScale)
+        return ZStack {
+            Image(uiImage: photo)
+                .resizable()
+                .frame(width: contentSize.width, height: contentSize.height)
+                .offset(x: importedPhotoInnerOffset.width, y: importedPhotoInnerOffset.height)
+        }
+        .frame(width: frame.width, height: frame.height)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white, lineWidth: 2))
+        .shadow(color: .black.opacity(0.35), radius: 5)
+        .opacity(importedPhotoOpacity)
+        .offset(x: frame.minX, y: frame.minY)
     }
 
     private func offsetFraction(for offset: CGSize) -> CGSize {
@@ -542,18 +580,42 @@ struct ContentView: View {
     private var photoOverlayDrag: some Gesture {
         DragGesture()
             .onChanged { value in
-                let base = photoOverlayDragBase ?? photoOverlayOffset
-                photoOverlayDragBase = base
-                photoOverlayOffset = CGSize(width: base.width + value.translation.width,
-                                            height: base.height + value.translation.height)
-                camera.updatePhotoOverlay(offsetFraction: photoOverlayOffsetFraction,
-                                          widthFraction: importedImageWidthFraction)
+                // При увеличенной картинке тянем её внутри полотна,
+                // иначе перемещаем само полотно.
+                if importedPhotoInnerScale > 1.01 {
+                    let base = photoInnerDragBase ?? importedPhotoInnerOffset
+                    photoInnerDragBase = base
+                    importedPhotoInnerOffset = CGSize(width: base.width + value.translation.width,
+                                                      height: base.height + value.translation.height)
+                } else {
+                    let base = photoOverlayDragBase ?? photoOverlayOffset
+                    photoOverlayDragBase = base
+                    photoOverlayOffset = CGSize(width: base.width + value.translation.width,
+                                                height: base.height + value.translation.height)
+                }
+                pushPhotoOverlayToCamera()
             }
             .onEnded { _ in
                 photoOverlayDragBase = nil
-                camera.updatePhotoOverlay(offsetFraction: photoOverlayOffsetFraction,
-                                          widthFraction: importedImageWidthFraction)
+                photoInnerDragBase = nil
+                pushPhotoOverlayToCamera()
             }
+    }
+
+    /// Передаёт настройки фото в запись: смещение полотна и картинки,
+    /// увеличение внутри полотна и прозрачность.
+    private func pushPhotoOverlayToCamera() {
+        camera.updatePhotoOverlay(offsetFraction: photoOverlayOffsetFraction,
+                                  widthFraction: importedImageWidthFraction,
+                                  innerScale: importedPhotoInnerScale,
+                                  innerOffsetFraction: importedPhotoInnerOffsetFraction,
+                                  opacity: CGFloat(importedPhotoOpacity))
+    }
+
+    private var importedPhotoInnerOffsetFraction: CGSize {
+        guard previewSize.width > 0, previewSize.height > 0 else { return .zero }
+        return CGSize(width: importedPhotoInnerOffset.width / previewSize.width,
+                      height: importedPhotoInnerOffset.height / previewSize.height)
     }
 
     private func focusTap(in size: CGSize,
@@ -771,13 +833,19 @@ struct ContentView: View {
                         camera.captureBothCameras(elements: mediaDrawingElements(),
                                                   pipOffsetFraction: mediaPipOffsetFraction(for: pipOffset),
                                                   photoOverlayOffsetFraction: photoOverlayOffsetFraction,
-                                                  photoOverlayWidthFraction: importedImageWidthFraction)
+                                                  photoOverlayWidthFraction: importedImageWidthFraction,
+                                                  photoOverlayInnerScale: importedPhotoInnerScale,
+                                                  photoOverlayInnerOffsetFraction: importedPhotoInnerOffsetFraction,
+                                                  photoOverlayOpacity: CGFloat(importedPhotoOpacity))
                     },
                     onStartRecording: {
                         camera.startRecording(elements: mediaDrawingElements(),
                                               pipOffsetFraction: mediaPipOffsetFraction(for: pipOffset),
                                               photoOverlayOffsetFraction: photoOverlayOffsetFraction,
-                                              photoOverlayWidthFraction: importedImageWidthFraction)
+                                              photoOverlayWidthFraction: importedImageWidthFraction,
+                                              photoOverlayInnerScale: importedPhotoInnerScale,
+                                              photoOverlayInnerOffsetFraction: importedPhotoInnerOffsetFraction,
+                                              photoOverlayOpacity: CGFloat(importedPhotoOpacity))
                     },
                     onSwapCameras: { camera.swapCameras() }
                 ),
@@ -788,7 +856,10 @@ struct ContentView: View {
                             DrawingPaletteView(engine: drawing, hapticsEnabled: settings.hapticsEnabled)
                                 .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
                         }
-                        if camera.importedPhoto != nil { importedPhotoSizeControl }
+                        if camera.importedPhoto != nil && isPhotoControlsVisible {
+                            importedPhotoSizeControl
+                                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+                        }
                     }
                 )
             )
@@ -940,23 +1011,46 @@ struct ContentView: View {
     }
 
     private var importedPhotoSizeControl: some View {
-        HStack(spacing: 8) {
-            Text("Размер фото")
-                .font(.caption)
-                .foregroundStyle(.white)
-            Slider(value: $importedImageWidthFraction, in: 0.15...0.6)
-                .tint(.white)
-                .frame(width: 120)
-            Text("\(Int(importedImageWidthFraction * 100))%")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.white)
+        VStack(spacing: 6) {
+            photoSliderRow(title: "Полотно",
+                           value: Binding(get: { Double(importedImageWidthFraction) },
+                                          set: { importedImageWidthFraction = CGFloat($0) }),
+                           range: 0.05...1.0,
+                           display: "\(Int(importedImageWidthFraction * 100))%")
+            photoSliderRow(title: "Фото",
+                           value: Binding(get: { Double(importedPhotoInnerScale) },
+                                          set: { importedPhotoInnerScale = CGFloat($0) }),
+                           range: 1...4,
+                           display: String(format: "%.1f×", importedPhotoInnerScale))
+            photoSliderRow(title: "Прозрачность",
+                           value: $importedPhotoOpacity,
+                           range: 0.1...1.0,
+                           display: "\(Int(importedPhotoOpacity * 100))%")
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(HUDTheme.glass, in: Capsule())
-        .onChange(of: importedImageWidthFraction) { _, newValue in
-            camera.updatePhotoOverlay(offsetFraction: photoOverlayOffsetFraction,
-                                      widthFraction: newValue)
+        .padding(.vertical, 10)
+        .background(HUDTheme.glass, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func photoSliderRow(title: String,
+                                value: Binding<Double>,
+                                range: ClosedRange<Double>,
+                                display: String) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.white)
+                .frame(width: 82, alignment: .leading)
+            Slider(value: value, in: range)
+                .tint(.white)
+                .frame(width: 130)
+            Text(display)
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.white)
+                .frame(width: 40, alignment: .trailing)
+        }
+        .onChange(of: value.wrappedValue) { _, _ in
+            pushPhotoOverlayToCamera()
         }
     }
 
