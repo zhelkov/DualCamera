@@ -154,8 +154,13 @@ enum PhotoMerger {
                             innerHeight / max(photo.size.height, 1))
         let drawSize = CGSize(width: photo.size.width * fillScale,
                               height: photo.size.height * fillScale)
-        let inner = CGRect(x: target.midX + innerOffsetFraction.width * size.width - drawSize.width / 2,
-                           y: target.midY + innerOffsetFraction.height * size.height - drawSize.height / 2,
+        // Не позволяем краю картинки зайти внутрь полотна.
+        let maxShiftX = max(0, (drawSize.width - target.width) / 2)
+        let maxShiftY = max(0, (drawSize.height - target.height) / 2)
+        let shiftX = min(max(innerOffsetFraction.width * size.width, -maxShiftX), maxShiftX)
+        let shiftY = min(max(innerOffsetFraction.height * size.height, -maxShiftY), maxShiftY)
+        let inner = CGRect(x: target.midX + shiftX - drawSize.width / 2,
+                           y: target.midY + shiftY - drawSize.height / 2,
                            width: drawSize.width,
                            height: drawSize.height)
         let renderer = UIGraphicsImageRenderer(size: size)

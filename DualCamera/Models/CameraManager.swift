@@ -132,6 +132,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     /// Размер последнего кадра задней камеры — для диагностики ориентации.
     private(set) var lastBackBufferSize = CGSize.zero
     private var publishedBackBufferSize = CGSize.zero
+    /// Кадр-заглушка на время переключения объектива: закрывает чёрный провал.
+    private(set) var lensSwitchSnapshot: UIImage?
+    private let snapshotContext = CIContext()
 
     // MARK: - Ротация
 
@@ -701,6 +704,10 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
 
         sessionQueue.async { [weak self] in
             guard let self else { return }
+            // Замораживаем последний кадр: пересборка сессии на время
+            // отключает превью, и без заглушки экран мигал чёрным.
+            let snapshot = self.latestRealtimeBackBuffer.flatMap { self.makeSnapshot($0) }
+            self.updateOnMain { self.lensSwitchSnapshot = snapshot }
             // Сессию не останавливаем: остановка давала тёмный кадр на экране
             // при проходе зума через 1×. Пересобираем на ходу.
             self.resetSessionConfiguration()
@@ -726,8 +733,13 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                     self.isApplyingSettings = false
                 }
                 self.applyZoom(targetZoom)
+                // Заглушку убираем, когда новые кадры уже пошли.
+                self.sessionQueue.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                    self?.updateOnMain { self?.lensSwitchSnapshot = nil }
+                }
             } catch {
                 self.backLens = previousLens
+                self.updateOnMain { self.lensSwitchSnapshot = nil }
                 self.sessionQueue.async {
                     self.resetSessionConfiguration()
                     try? self.configureSession()
@@ -744,6 +756,15 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         }
     }
 
+    /// Кадр-заглушка из последнего буфера камеры.
+    private func makeSnapshot(_ buffer: CVPixelBuffer) -> UIImage? {
+        let image = CIImage(cvPixelBuffer: buffer)
+        guard let cgImage = snapshotContext.createCGImage(image, from: image.extent) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage)
+    }
+
     // MARK: - Ночной режим фронтальной камеры
 
     private var lowLightTimer: DispatchSourceTimer?
@@ -752,7 +773,10 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     /// Текущий автоматический сдвиг экспозиции фронтальной камеры.
     private var frontNightBias: Float = 0
     /// Предел авто-подъёма EV: выше начинаются сильные шумы.
-    private let frontNightBiasCap: Float = 4
+    private let frontNightBiasCap: Float = 2
+    /// Копия блокировки экспозиции: читается с очереди сессии без обращения
+    /// к наблюдаемым свойствам.
+    private var isFocusLockedForNight = false
 
     /// Следит за освещённостью и поднимает экспозицию фронтальной камеры
     /// в темноте, как штатная «Камера».
@@ -775,11 +799,11 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     /// Решение принимается по двум проверкам подряд, чтобы не мигать
     /// на случайных кадрах.
     private func updateFrontNightBias() {
-        guard let device = frontCamera, !isFocusExposureLocked else { return }
-        // Ручной сдвиг пользователя для фронтальной камеры не перебиваем.
-        if isCamerasSwapped, abs(exposureTargetBias) > 0.01 { return }
+        guard !isRecording, !isFocusLockedForNight, let device = frontCamera else { return }
         let maxISO = device.activeFormat.maxISO
-        let ratio = maxISO > 0 ? device.iso / maxISO : 0
+        guard maxISO > 0 else { return }
+        let ratio = device.iso / maxISO
+        guard ratio.isFinite else { return }
         if ratio > 0.7 {
             darkChecks = min(darkChecks + 1, 3)
         } else if ratio < 0.4 {
@@ -788,7 +812,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         let target: Float = darkChecks >= 2
             ? min(device.maxExposureTargetBias, frontNightBiasCap)
             : 0
-        guard abs(target - frontNightBias) > 0.5 else { return }
+        guard abs(target - frontNightBias) >= 1 else { return }
         frontNightBias = target
         device.setExposureTargetBias(target, completionHandler: nil)
     }
@@ -871,6 +895,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                     self.maxExposureTargetBias = maximumBias
                     self.exposureTargetBias = currentBias
                     self.isFocusExposureLocked = didLock
+                    self.isFocusLockedForNight = didLock
                     completion(didLock)
                 }
             } catch {
@@ -1495,11 +1520,20 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         guard let audioPort = micInput.ports.first else { return }
         try connect(audioPort, to: backMovieOutput)
         try connect(audioPort, to: frontMovieOutput)
-        if realtimeVideoOutputsReady, session.outputs.contains(audioDataOutput) {
-            let connection = AVCaptureConnection(inputPorts: [audioPort], output: audioDataOutput)
-            if session.canAddConnection(connection) {
-                session.addConnection(connection)
-                audioDataOutput.setSampleBufferDelegate(self, queue: realtimeWriterQueue)
+        if realtimeVideoOutputsReady {
+            // Выход аудио для композитора мог не попасть в сессию при её
+            // настройке: микрофон подключается только на время записи.
+            if !session.outputs.contains(audioDataOutput) {
+                if session.canAddOutput(audioDataOutput) {
+                    session.addOutputWithNoConnections(audioDataOutput)
+                }
+            }
+            if session.outputs.contains(audioDataOutput) {
+                let connection = AVCaptureConnection(inputPorts: [audioPort], output: audioDataOutput)
+                if session.canAddConnection(connection) {
+                    session.addConnection(connection)
+                    audioDataOutput.setSampleBufferDelegate(self, queue: realtimeWriterQueue)
+                }
             }
         }
         try? configureAudioSession()
@@ -1520,6 +1554,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             session.removeConnection(connection)
         }
         session.removeInput(micInput)
+        if session.outputs.contains(audioDataOutput) {
+            session.removeOutput(audioDataOutput)
+        }
         session.commitConfiguration()
         audioInput = nil
         deactivateAudioSession()

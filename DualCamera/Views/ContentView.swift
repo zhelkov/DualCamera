@@ -485,11 +485,13 @@ struct ContentView: View {
 
     @ViewBuilder
     private var backCameraContent: some View {
-        if let image = camera.backFilteredPreviewImage {
-            FilteredCameraPreviewView(image: image, isMirrored: false)
-        } else {
-            CameraPreviewView(previewLayer: camera.backPreviewLayer, isMirrored: false)
-        }
+            if let image = camera.lensSwitchSnapshot {
+                FilteredCameraPreviewView(image: image, isMirrored: false)
+            } else if let image = camera.backFilteredPreviewImage {
+                FilteredCameraPreviewView(image: image, isMirrored: false)
+            } else {
+                CameraPreviewView(previewLayer: camera.backPreviewLayer, isMirrored: false)
+            }
     }
 
     @ViewBuilder
@@ -577,6 +579,23 @@ struct ContentView: View {
             }
     }
 
+    /// Не даёт утащить картинку так, чтобы внутри полотна появился её край.
+    private func clampPhotoInnerOffset(_ offset: CGSize, photo: UIImage?) -> CGSize {
+        guard let photo, previewSize.width > 0, previewSize.height > 0 else { return offset }
+        let frame = photoOverlayFrame(for: photo, in: previewSize)
+        let zoom = max(importedPhotoInnerScale, 1)
+        let innerWidth = frame.width * zoom
+        let innerHeight = frame.height * zoom
+        let fillScale = max(innerWidth / max(photo.size.width, 1),
+                            innerHeight / max(photo.size.height, 1))
+        let contentWidth = photo.size.width * fillScale
+        let contentHeight = photo.size.height * fillScale
+        let maxX = max(0, (contentWidth - frame.width) / 2)
+        let maxY = max(0, (contentHeight - frame.height) / 2)
+        return CGSize(width: min(max(offset.width, -maxX), maxX),
+                      height: min(max(offset.height, -maxY), maxY))
+    }
+
     private var photoOverlayDrag: some Gesture {
         DragGesture()
             .onChanged { value in
@@ -585,8 +604,10 @@ struct ContentView: View {
                 if importedPhotoInnerScale > 1.01 {
                     let base = photoInnerDragBase ?? importedPhotoInnerOffset
                     photoInnerDragBase = base
-                    importedPhotoInnerOffset = CGSize(width: base.width + value.translation.width,
-                                                      height: base.height + value.translation.height)
+                    importedPhotoInnerOffset = clampPhotoInnerOffset(
+                        CGSize(width: base.width + value.translation.width,
+                               height: base.height + value.translation.height),
+                        photo: camera.importedPhoto)
                 } else {
                     let base = photoOverlayDragBase ?? photoOverlayOffset
                     photoOverlayDragBase = base
@@ -1019,7 +1040,12 @@ struct ContentView: View {
                            display: "\(Int(importedImageWidthFraction * 100))%")
             photoSliderRow(title: "Фото",
                            value: Binding(get: { Double(importedPhotoInnerScale) },
-                                          set: { importedPhotoInnerScale = CGFloat($0) }),
+                                          set: { newValue in
+                                              importedPhotoInnerScale = CGFloat(newValue)
+                                              importedPhotoInnerOffset = clampPhotoInnerOffset(
+                                                  importedPhotoInnerOffset,
+                                                  photo: camera.importedPhoto)
+                                          }),
                            range: 1...4,
                            display: String(format: "%.1f×", importedPhotoInnerScale))
             photoSliderRow(title: "Прозрачность",

@@ -320,10 +320,13 @@ final class RealtimeCompositeRecorder {
             let zoom = max(state.photoInnerScale, 1)
             let innerWidth = rect.width * zoom
             let innerHeight = rect.height * zoom
-            let inner = CGRect(x: rect.midX + state.photoInnerOffsetFraction.width * renderSize.width
-                                    - innerWidth / 2,
-                               y: rect.midY + state.photoInnerOffsetFraction.height * renderSize.height
-                                    - innerHeight / 2,
+            // Не позволяем краю картинки зайти внутрь полотна.
+            let maxShiftX = max(0, (innerWidth - rect.width) / 2)
+            let maxShiftY = max(0, (innerHeight - rect.height) / 2)
+            let shiftX = min(max(state.photoInnerOffsetFraction.width * renderSize.width, -maxShiftX), maxShiftX)
+            let shiftY = min(max(-state.photoInnerOffsetFraction.height * renderSize.height, -maxShiftY), maxShiftY)
+            let inner = CGRect(x: rect.midX + shiftX - innerWidth / 2,
+                               y: rect.midY + shiftY - innerHeight / 2,
                                width: innerWidth,
                                height: innerHeight)
             var placed = fill(photoCI, in: inner).cropped(to: rect)
