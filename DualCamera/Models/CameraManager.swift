@@ -136,9 +136,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private(set) var lensSwitchSnapshot: UIImage?
     /// Переключение объектива ещё идёт — заглушку не убираем.
     private var lensSwitchInFlight = false
-    /// Сколько живых кадров ещё прятать за заглушкой: новому объективу нужно
-    /// время на автоэкспозицию.
-    private var lensSwitchFramesLeft = 0
+    /// Когда снять заглушку: новому объективу нужно время на автоэкспозицию.
+    private var lensSwitchClearAt: Date?
     private let snapshotContext = CIContext()
 
     // MARK: - Ротация
@@ -711,7 +710,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             // отключает превью, и без заглушки экран мигал чёрным.
             let snapshot = self.latestRealtimeBackBuffer.flatMap { self.makeSnapshot($0) }
             self.lensSwitchInFlight = true
-            self.lensSwitchFramesLeft = 12
+            self.lensSwitchClearAt = nil
             self.updateOnMain { self.lensSwitchSnapshot = snapshot }
             // Сессию не останавливаем: остановка давала тёмный кадр на экране
             // при проходе зума через 1×. Пересобираем на ходу.
@@ -742,11 +741,13 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                 // Страховка: если кадры почему-то не пришли, заглушку снимаем сами.
                 self.sessionQueue.asyncAfter(deadline: .now() + 2.5) { [weak self] in
                     guard let self, !self.lensSwitchInFlight else { return }
+                    self.lensSwitchClearAt = nil
                     self.updateOnMain { self.lensSwitchSnapshot = nil }
                 }
             } catch {
                 self.backLens = previousLens
                 self.lensSwitchInFlight = false
+                self.lensSwitchClearAt = nil
                 self.updateOnMain { self.lensSwitchSnapshot = nil }
                 self.sessionQueue.async {
                     self.resetSessionConfiguration()
@@ -2351,12 +2352,14 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             updateFrontNightMode(from: buffer)
         }
 
-        // Заглушка переключения объектива держится, пока не вышла на режим
-        // экспозиция нового объектива: первые кадры ещё тёмные.
+        // Заглушка переключения объектива держится, пока новый объектив
+        // не выйдет на рабочую экспозицию: первые кадры ещё тёмные.
         if currentBackBuffer != nil, lensSwitchSnapshot != nil, !lensSwitchInFlight {
-            lensSwitchFramesLeft -= 1
-            if lensSwitchFramesLeft <= 0 {
-                lensSwitchFramesLeft = 0
+            if lensSwitchClearAt == nil {
+                lensSwitchClearAt = Date().addingTimeInterval(0.9)
+            }
+            if let clearAt = lensSwitchClearAt, Date() >= clearAt {
+                lensSwitchClearAt = nil
                 updateOnMain { self.lensSwitchSnapshot = nil }
             }
         }

@@ -56,6 +56,13 @@ enum Haptics {
         _ = ensureEngineReady()
     }
 
+    /// Запись включила аудиосессию `.playAndRecord` — движок мог замолчать.
+    /// Пересоздаём его уже в новом аудиоокружении.
+    static func audioSessionDidChange() {
+        engine = nil
+        _ = ensureEngineReady()
+    }
+
     /// Освобождает аудиосессию, если запись не идёт. Возвращает true,
     /// если освобождение удалось.
     @discardableResult

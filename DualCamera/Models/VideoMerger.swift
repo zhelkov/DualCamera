@@ -425,8 +425,8 @@ enum VideoMerger {
             let width = size.width * min(max(frame.widthFraction, 0.01), 1)
             let height = width * photo.size.height / max(photo.size.width, 1)
             guard width > 0, height > 0, height <= size.height else { continue }
-            let x = min(max(0, 16 + frame.offsetFraction.width * size.width), size.width - width)
-            let y = min(max(0, 16 + frame.offsetFraction.height * size.height), size.height - height)
+            let x = min(max(0, frame.offsetFraction.width * size.width), size.width - width)
+            let y = min(max(0, frame.offsetFraction.height * size.height), size.height - height)
             let rect = CGRect(x: x, y: y, width: width, height: height)
             if result.last?.time == time {
                 result[result.count - 1] = (time, rect)

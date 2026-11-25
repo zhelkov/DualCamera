@@ -31,6 +31,7 @@ struct ContentView: View {
     @State private var importedPhotoOpacity: Double = 1
     @State private var isPhotoControlsVisible = false
     @State private var photoInnerDragBase: CGSize?
+    @State private var photoHoldWorkItem: DispatchWorkItem?
     @State private var pipDragBase: CGSize?
     @State private var photoOverlayDragBase: CGSize?
     @State private var isZoomSliderVisible = false
@@ -153,6 +154,13 @@ struct ContentView: View {
                 photoInnerDragBase = nil
                 if !hasPhoto { photoOverlayOffset = .zero }
             }
+            .onChange(of: settings.aspectRatio) { _, _ in
+                // Сменился формат кадра: окно PiP снова паркуется в угол,
+                // иначе прежнее смещение выводит его за границы кадра.
+                pipDragBase = nil
+                pipOffset = .zero
+                camera.updatePipOffsetFraction(mediaPipOffsetFraction(for: .zero))
+            }
             .onDisappear { camera.stopRunning() }
             .onChange(of: isDeviceLandscape) { _, _ in
                 // Поворот экрана: окно PiP всегда возвращается
@@ -189,6 +197,9 @@ struct ContentView: View {
             }
             .onChange(of: camera.isRecording) { _, recording in
                 Haptics.audioCanBeReleased = !recording
+                // Аудиосессия записи глушит мотор: пересоздаём движок
+                // в новом окружении, иначе во время записи тиков нет.
+                Haptics.audioSessionDidChange()
             }
     }
 
@@ -202,8 +213,6 @@ struct ContentView: View {
                     .transition(.opacity)
             }
             cameraSettingsOverlay
-            DrawingCanvas(engine: drawing)
-                .allowsHitTesting(drawing.isDrawingEnabled)
             focusIndicatorOverlay
             pointerMarkerOverlay
             controls
@@ -429,12 +438,6 @@ struct ContentView: View {
                     let frame = photoOverlayFrame(for: photo, in: size)
                     photoOverlayView(photo, frame: frame)
                         .gesture(photoOverlayDrag)
-                        .onLongPressGesture(minimumDuration: 0.4) {
-                            Haptics.selection()
-                            withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
-                                isPhotoControlsVisible.toggle()
-                            }
-                        }
                 }
 
                 if camera.layout == .splitScreen && camera.isSecondaryCameraVisible {
@@ -444,6 +447,13 @@ struct ContentView: View {
                     }
                     .frame(width: size.width, height: size.height)
                 }
+
+                // Рисунок — самый верхний слой, а его область совпадает
+                // с рамкой кадра, поэтому координаты совпадают с файлом.
+                DrawingCanvas(engine: drawing)
+                    .frame(width: fieldRect.width, height: fieldRect.height)
+                    .offset(x: fieldRect.minX, y: fieldRect.minY)
+                    .allowsHitTesting(drawing.isDrawingEnabled)
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.layout)
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: camera.isCamerasSwapped)
@@ -504,14 +514,23 @@ struct ContentView: View {
     }
 
     private var photoOverlayOffsetFraction: CGSize {
-        offsetFraction(for: photoOverlayOffset)
+        guard previewSize.width > 0, previewSize.height > 0,
+              let photo = camera.importedPhoto else { return .zero }
+        // Доля кадра для левого верхнего угла полотна: берём фактическое
+        // положение в превью, чтобы файл совпал с экраном.
+        let frame = photoOverlayFrame(for: photo, in: previewSize)
+        return CGSize(width: frame.minX / previewSize.width,
+                      height: frame.minY / previewSize.height)
     }
 
     private func photoOverlayFrame(for image: UIImage, in size: CGSize) -> CGRect {
         let width = size.width * min(max(importedImageWidthFraction, 0.05), 1)
         let height = width * image.size.height / max(image.size.width, 1)
-        let x = min(max(0, 16 + photoOverlayOffset.width), max(0, size.width - width))
-        let y = min(max(0, 16 + photoOverlayOffset.height), max(0, size.height - height))
+        // По умолчанию полотно стоит по центру кадра, перетаскивание — смещение от центра.
+        let x = min(max(0, (size.width - width) / 2 + photoOverlayOffset.width),
+                    max(0, size.width - width))
+        let y = min(max(0, (size.height - height) / 2 + photoOverlayOffset.height),
+                    max(0, size.height - height))
         return CGRect(x: x, y: y, width: width, height: height)
     }
 
@@ -597,8 +616,17 @@ struct ContentView: View {
     }
 
     private var photoOverlayDrag: some Gesture {
-        DragGesture()
+        DragGesture(minimumDistance: 0)
             .onChanged { value in
+                // Первое касание запускает таймер удержания: меню появляется
+                // по времени, не дожидаясь, пока палец отпустят.
+                if photoHoldWorkItem == nil, photoInnerDragBase == nil, photoOverlayDragBase == nil {
+                    schedulePhotoLongPress()
+                }
+                if abs(value.translation.width) > 6 || abs(value.translation.height) > 6 {
+                    photoHoldWorkItem?.cancel()
+                    photoHoldWorkItem = nil
+                }
                 // При увеличенной картинке тянем её внутри полотна,
                 // иначе перемещаем само полотно.
                 if importedPhotoInnerScale > 1.01 {
@@ -617,10 +645,26 @@ struct ContentView: View {
                 pushPhotoOverlayToCamera()
             }
             .onEnded { _ in
+                photoHoldWorkItem?.cancel()
+                photoHoldWorkItem = nil
                 photoOverlayDragBase = nil
                 photoInnerDragBase = nil
                 pushPhotoOverlayToCamera()
             }
+    }
+
+    /// Показывает меню настроек фото через время удержания, не дожидаясь
+    /// отпускания пальца.
+    private func schedulePhotoLongPress() {
+        let workItem = DispatchWorkItem {
+            Haptics.selection()
+            withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
+                isPhotoControlsVisible.toggle()
+            }
+            photoHoldWorkItem = nil
+        }
+        photoHoldWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
     }
 
     /// Передаёт настройки фото в запись: смещение полотна и картинки,

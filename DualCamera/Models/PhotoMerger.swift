@@ -162,8 +162,8 @@ enum PhotoMerger {
         let size = image.size
         let width = size.width * min(max(widthFraction, 0.05), 1)
         let height = width * photo.size.height / max(photo.size.width, 1)
-        let x = min(max(0, 16 + offsetFraction.width * size.width), max(0, size.width - width))
-        let y = min(max(0, 16 + offsetFraction.height * size.height), max(0, size.height - height))
+        let x = min(max(0, offsetFraction.width * size.width), max(0, size.width - width))
+        let y = min(max(0, offsetFraction.height * size.height), max(0, size.height - height))
         let target = CGRect(x: x, y: y, width: width, height: height)
         // Картинка внутри полотна: увеличение и смещение, границы полотна неизменны.
         let zoom = max(innerScale, 1)

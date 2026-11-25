@@ -314,16 +314,11 @@ final class RealtimeCompositeRecorder {
             }
         }
 
-        if !state.drawing.isEmpty,
-           let drawingCG = DrawingRenderer.render(state.drawing, size: renderSize).cgImage {
-            composed = CIImage(cgImage: drawingCG).composited(over: composed)
-        }
-
         if let photo = state.photo, let photoCI = normalizedPhoto(photo) {
             let width = renderSize.width * min(max(state.photoWidthFraction, 0.05), 1)
             let height = width * photoCI.extent.height / max(photoCI.extent.width, 1)
-            let rect = CGRect(x: min(max(0, 16 + state.photoOffsetFraction.width * renderSize.width), max(0, renderSize.width - width)),
-                              y: min(max(0, renderSize.height - 16 - height - state.photoOffsetFraction.height * renderSize.height), max(0, renderSize.height - height)),
+            let rect = CGRect(x: min(max(0, state.photoOffsetFraction.width * renderSize.width), max(0, renderSize.width - width)),
+                              y: min(max(0, renderSize.height - height - state.photoOffsetFraction.height * renderSize.height), max(0, renderSize.height - height)),
                               width: width, height: height)
             // Картинка внутри полотна: увеличение и смещение, границы полотна неизменны.
             let zoom = max(state.photoInnerScale, 1)
@@ -352,6 +347,11 @@ final class RealtimeCompositeRecorder {
                 blend.maskImage = mask
                 composed = blend.outputImage ?? composed
             }
+        }
+        // Рисунок — всегда самый верхний слой, поверх окон и наложенных фото.
+        if !state.drawing.isEmpty,
+           let drawingCG = DrawingRenderer.render(state.drawing, size: renderSize).cgImage {
+            composed = CIImage(cgImage: drawingCG).composited(over: composed)
         }
         if state.dateTimeEnabled, let startDate = state.recordingStartDate,
            let timestamp = timestampOverlay(at: startDate.addingTimeInterval(elapsed)) {
