@@ -100,7 +100,10 @@ enum PhotoMerger {
 
     private static func applyExposure(_ ev: Float, to image: UIImage) throws -> UIImage {
         guard let source = CIImage(image: image) else { throw CameraError.captureFailed }
-        let adjusted = source.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: ev])
+        let adjusted = source
+            .applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: ev])
+            .applyingFilter("CINoiseReduction", parameters: ["inputNoiseLevel": 0.02,
+                                                             "inputSharpness": 0.4])
         let extent = adjusted.extent.integral
         guard let cgImage = filterContext.createCGImage(adjusted, from: extent) else {
             throw CameraError.filterProcessingFailed

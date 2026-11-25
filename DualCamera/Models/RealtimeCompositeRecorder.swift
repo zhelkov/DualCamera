@@ -228,9 +228,13 @@ final class RealtimeCompositeRecorder {
                          state: FrameState,
                          elapsed: TimeInterval) -> CIImage? {
         let canvas = CGRect(origin: .zero, size: renderSize)
-        let frontImage = state.frontExposureEV > 0
-            ? front.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: state.frontExposureEV])
-            : front
+        var frontImage = front
+        if state.frontExposureEV > 0 {
+            frontImage = frontImage
+                .applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: state.frontExposureEV])
+                .applyingFilter("CINoiseReduction", parameters: ["inputNoiseLevel": 0.02,
+                                                                 "inputSharpness": 0.4])
+        }
         let rawMain = state.camerasSwapped ? frontImage : back
         let rawSmall = state.camerasSwapped ? back : frontImage
         let filteredMain: CIImage
