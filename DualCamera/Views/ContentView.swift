@@ -1035,7 +1035,10 @@ struct ContentView: View {
         VStack(spacing: 6) {
             photoSliderRow(title: "Полотно",
                            value: Binding(get: { Double(importedImageWidthFraction) },
-                                          set: { importedImageWidthFraction = CGFloat($0) }),
+                                          set: { newValue in
+                                              importedImageWidthFraction = CGFloat(newValue)
+                                              reclampPhotoInnerOffset()
+                                          }),
                            range: 0.05...1.0,
                            display: "\(Int(importedImageWidthFraction * 100))%")
             photoSliderRow(title: "Фото",
@@ -1078,6 +1081,14 @@ struct ContentView: View {
         .onChange(of: value.wrappedValue) { _, _ in
             pushPhotoOverlayToCamera()
         }
+    }
+
+    /// При изменении размера полотна картинка остаётся на месте:
+    /// смещение пересчитывается под новые границы.
+    private func reclampPhotoInnerOffset() {
+        importedPhotoInnerOffset = clampPhotoInnerOffset(importedPhotoInnerOffset,
+                                                         photo: camera.importedPhoto)
+        pushPhotoOverlayToCamera()
     }
 
     private var isFrontLightAvailable: Bool {

@@ -21,6 +21,8 @@ final class RealtimeCompositeRecorder {
         var photoInnerScale: CGFloat = 1
         var photoInnerOffsetFraction: CGSize = .zero
         var photoOpacity: CGFloat = 1
+        /// Подъём экспозиции фронтальной камеры в темноте (EV).
+        var frontExposureEV: Float = 0
         let drawing: [DrawingElement]
         let dateTimeEnabled: Bool
         let recordingStartDate: Date?
@@ -226,8 +228,11 @@ final class RealtimeCompositeRecorder {
                          state: FrameState,
                          elapsed: TimeInterval) -> CIImage? {
         let canvas = CGRect(origin: .zero, size: renderSize)
-        let rawMain = state.camerasSwapped ? front : back
-        let rawSmall = state.camerasSwapped ? back : front
+        let frontImage = state.frontExposureEV > 0
+            ? front.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: state.frontExposureEV])
+            : front
+        let rawMain = state.camerasSwapped ? frontImage : back
+        let rawSmall = state.camerasSwapped ? back : frontImage
         let filteredMain: CIImage
         let filteredSmall: CIImage
         do {

@@ -134,6 +134,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private var publishedBackBufferSize = CGSize.zero
     /// Кадр-заглушка на время переключения объектива: закрывает чёрный провал.
     private(set) var lensSwitchSnapshot: UIImage?
+    /// Переключение объектива ещё идёт — заглушку не убираем.
+    private var lensSwitchInFlight = false
     private let snapshotContext = CIContext()
 
     // MARK: - Ротация
@@ -707,6 +709,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             // Замораживаем последний кадр: пересборка сессии на время
             // отключает превью, и без заглушки экран мигал чёрным.
             let snapshot = self.latestRealtimeBackBuffer.flatMap { self.makeSnapshot($0) }
+            self.lensSwitchInFlight = true
             self.updateOnMain { self.lensSwitchSnapshot = snapshot }
             // Сессию не останавливаем: остановка давала тёмный кадр на экране
             // при проходе зума через 1×. Пересобираем на ходу.
@@ -733,12 +736,15 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                     self.isApplyingSettings = false
                 }
                 self.applyZoom(targetZoom)
-                // Заглушку убираем, когда новые кадры уже пошли.
-                self.sessionQueue.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                    self?.updateOnMain { self?.lensSwitchSnapshot = nil }
+                self.lensSwitchInFlight = false
+                // Страховка: если кадры почему-то не пришли, заглушку снимаем сами.
+                self.sessionQueue.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+                    guard let self, !self.lensSwitchInFlight else { return }
+                    self.updateOnMain { self.lensSwitchSnapshot = nil }
                 }
             } catch {
                 self.backLens = previousLens
+                self.lensSwitchInFlight = false
                 self.updateOnMain { self.lensSwitchSnapshot = nil }
                 self.sessionQueue.async {
                     self.resetSessionConfiguration()
@@ -770,21 +776,25 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private var lowLightTimer: DispatchSourceTimer?
     /// Сколько проверок подряд сцена остаётся тёмной.
     private var darkChecks = 0
-    /// Текущий автоматический сдвиг экспозиции фронтальной камеры.
-    private var frontNightBias: Float = 0
-    /// Предел авто-подъёма EV: выше начинаются сильные шумы.
-    private let frontNightBiasCap: Float = 2
     /// Копия блокировки экспозиции: читается с очереди сессии без обращения
     /// к наблюдаемым свойствам.
     private var isFocusLockedForNight = false
+    /// Флаг ночного режима для очереди съёмки.
+    private var frontNightModeActive = false
+    /// Виден ли ночной режим интерфейсу.
+    private(set) var isFrontNightMode = false
+    /// Подъём экспозиции фронтальной камеры в темноте (в ступенях EV).
+    static let frontNightExposureEV: Float = 1.5
 
-    /// Следит за освещённостью и поднимает экспозицию фронтальной камеры
-    /// в темноте, как штатная «Камера».
+    /// Следит за освещённостью фронтальной камеры и включает ночной подъём
+    /// экспозиции. Само устройство не настраиваем: в MultiCam изменение
+    /// экспозиции на одном устройстве роняло приложение, поэтому яркость
+    /// поднимаем в обработке кадра.
     private func startLowLightMonitoring() {
         guard lowLightTimer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: sessionQueue)
         timer.schedule(deadline: .now() + 1, repeating: 1)
-        timer.setEventHandler { [weak self] in self?.updateFrontNightBias() }
+        timer.setEventHandler { [weak self] in self?.updateFrontNightMode() }
         timer.resume()
         lowLightTimer = timer
     }
@@ -793,13 +803,15 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         lowLightTimer?.cancel()
         lowLightTimer = nil
         darkChecks = 0
+        frontNightModeActive = false
+        updateOnMain { self.isFrontNightMode = false }
     }
 
     /// Тёмной считаем сцену, где ISO подошёл к пределу активного формата.
     /// Решение принимается по двум проверкам подряд, чтобы не мигать
     /// на случайных кадрах.
-    private func updateFrontNightBias() {
-        guard !isRecording, !isFocusLockedForNight, let device = frontCamera else { return }
+    private func updateFrontNightMode() {
+        guard !isFocusLockedForNight, let device = frontCamera else { return }
         let maxISO = device.activeFormat.maxISO
         guard maxISO > 0 else { return }
         let ratio = device.iso / maxISO
@@ -809,12 +821,14 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         } else if ratio < 0.4 {
             darkChecks = 0
         }
-        let target: Float = darkChecks >= 2
-            ? min(device.maxExposureTargetBias, frontNightBiasCap)
-            : 0
-        guard abs(target - frontNightBias) >= 1 else { return }
-        frontNightBias = target
-        device.setExposureTargetBias(target, completionHandler: nil)
+        let shouldBoost = darkChecks >= 2
+        guard shouldBoost != frontNightModeActive else { return }
+        frontNightModeActive = shouldBoost
+        updateOnMain { self.isFrontNightMode = shouldBoost }
+        // Сбрасываем кадры превью, чтобы вернуться к живому слою камеры.
+        if !shouldBoost {
+            updateOnMain { self.frontFilteredPreviewImage = nil }
+        }
     }
 
     /// Включает/выключает фонарик основной камеры.
@@ -1931,6 +1945,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                                  photoOverlayInnerScale: photoOverlayInnerScale,
                                  photoOverlayInnerOffsetFraction: photoOverlayInnerOffsetFraction,
                                  photoOverlayOpacity: photoOverlayOpacity,
+                                 frontExposureEV: frontNightModeActive ? Self.frontNightExposureEV : 0,
                                  elements: elements,
                                  timestamp: timestamp)
     }
@@ -2288,7 +2303,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         let filter = captureVideoFilter
         let previewCamera = filterPreviewCamera
         filterStateLock.unlock()
-        guard activeRecorder != nil || filter != .original else { return }
+        let nightMode = frontNightModeActive
+        guard activeRecorder != nil || filter != .original || nightMode else { return }
         activeRecorder?.recordSynchronizationEvent(backPresent: backData != nil,
                                                    frontPresent: frontData != nil,
                                                    backDropped: backDropped,
@@ -2315,32 +2331,22 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             currentFrontBuffer = buffer
         }
 
-        if filter != .original {
-            let buffer = previewCamera == .back ? currentBackBuffer : currentFrontBuffer
-            if let buffer, filterPreviewSlot.wait(timeout: .now()) == .success {
-                let previewSlot = filterPreviewSlot
-                filterPreviewQueue.async { [weak self, previewSlot] in
-                    defer { previewSlot.signal() }
-                    guard let self else { return }
-                    do {
-                        let image = try self.makeFilteredPreviewImage(buffer, filter: filter)
-                        self.updateOnMain {
-                            self.filterStateLock.lock()
-                            let isCurrent = self.captureVideoFilter == filter
-                                && self.filterPreviewCamera == previewCamera
-                            self.filterStateLock.unlock()
-                            guard isCurrent else { return }
-                            if previewCamera == .back {
-                                self.backFilteredPreviewImage = image
-                            } else {
-                                self.frontFilteredPreviewImage = image
-                            }
-                        }
-                    } catch {
-                        self.reportFilterPreviewError(error)
-                    }
-                }
-            }
+        if currentBackBuffer != nil, lensSwitchSnapshot != nil, !lensSwitchInFlight {
+            updateOnMain { self.lensSwitchSnapshot = nil }
+        }
+
+        // Превью: выбранный фильтр и/или ночной подъём экспозиции фронтальной камеры.
+        let backNeedsImage = filter != .original && previewCamera == .back
+        let frontNeedsImage = nightMode || (filter != .original && previewCamera == .front)
+        if backNeedsImage, let buffer = currentBackBuffer {
+            schedulePreviewImage(buffer, filter: filter, camera: .back, exposureEV: 0)
+        }
+        if frontNeedsImage, let buffer = currentFrontBuffer {
+            let frontFilter: VideoFilter = previewCamera == .front ? filter : .original
+            schedulePreviewImage(buffer,
+                                 filter: frontFilter,
+                                 camera: .front,
+                                 exposureEV: nightMode ? Self.frontNightExposureEV : 0)
         }
 
         guard let activeRecorder else { return }
@@ -2365,9 +2371,48 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         }
     }
 
+    /// Готовит кадр превью в фоне: фильтр и/или подъём экспозиции.
+    private func schedulePreviewImage(_ buffer: CVPixelBuffer,
+                                      filter: VideoFilter,
+                                      camera: MovieCaptureDelegate.Camera,
+                                      exposureEV: Float) {
+        guard filterPreviewSlot.wait(timeout: .now()) == .success else { return }
+        let previewSlot = filterPreviewSlot
+        filterPreviewQueue.async { [weak self, previewSlot] in
+            defer { previewSlot.signal() }
+            guard let self else { return }
+            do {
+                let image = try self.makeFilteredPreviewImage(buffer,
+                                                              filter: filter,
+                                                              exposureEV: exposureEV)
+                self.updateOnMain {
+                    // Кадр мог устареть, пока он готовился.
+                    self.filterStateLock.lock()
+                    let isCurrent = exposureEV > 0 || (self.captureVideoFilter == filter
+                        && self.filterPreviewCamera == camera)
+                    self.filterStateLock.unlock()
+                    guard isCurrent else { return }
+                    if camera == .back {
+                        self.backFilteredPreviewImage = image
+                    } else {
+                        self.frontFilteredPreviewImage = image
+                    }
+                }
+            } catch {
+                self.reportFilterPreviewError(error)
+            }
+        }
+    }
+
     private func makeFilteredPreviewImage(_ buffer: CVPixelBuffer,
-                                          filter: VideoFilter) throws -> UIImage {
-        let source = CIImage(cvPixelBuffer: buffer)
+                                          filter: VideoFilter,
+                                          exposureEV: Float) throws -> UIImage {
+        var source = CIImage(cvPixelBuffer: buffer)
+        if exposureEV > 0 {
+            source = source.applyingFilter("CIExposureAdjust", parameters: [
+                kCIInputEVKey: exposureEV
+            ])
+        }
         let filtered = try filter.applying(to: source)
         let maxDimension = max(filtered.extent.width, filtered.extent.height)
         let scale = min(1, VideoFilter.previewMaxDimension / max(maxDimension, 1))
@@ -2415,7 +2460,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             photoOpacity: photo?.opacity ?? recordingPhotoOverlayOpacity,
             drawing: drawing,
             dateTimeEnabled: recordingCaptureSettings.dateTimeEnabled,
-            recordingStartDate: recordingStartDate
+            recordingStartDate: recordingStartDate,
+            frontExposureEV: frontNightModeActive ? Self.frontNightExposureEV : 0
         )
     }
 }

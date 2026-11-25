@@ -35,11 +35,17 @@ enum PhotoMerger {
                       photoOverlayInnerScale: CGFloat = 1,
                       photoOverlayInnerOffsetFraction: CGSize = .zero,
                       photoOverlayOpacity: CGFloat = 1,
+                      frontExposureEV: Float = 0,
                       elements: [DrawingElement] = [],
                       timestamp: Date? = nil) throws -> UIImage {
         // Приводим к вертикальной ориентации, чтобы размеры были честными.
         var back = normalized(back)
         var front = normalized(front)
+
+        // Ночной подъём экспозиции фронтальной камеры — тот же, что в превью.
+        if frontExposureEV > 0 {
+            front = try applyExposure(frontExposureEV, to: front)
+        }
 
         // Если целевой кадр горизонтальный, а основной снимок вертикальный,
         // разворачиваем его: иначе в готовом файле картинка окажется боком.
@@ -90,6 +96,16 @@ enum PhotoMerger {
             result = overlay(DrawingRenderer.renderTimestamp(timestamp, size: result.size), on: result)
         }
         return result
+    }
+
+    private static func applyExposure(_ ev: Float, to image: UIImage) throws -> UIImage {
+        guard let source = CIImage(image: image) else { throw CameraError.captureFailed }
+        let adjusted = source.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: ev])
+        let extent = adjusted.extent.integral
+        guard let cgImage = filterContext.createCGImage(adjusted, from: extent) else {
+            throw CameraError.filterProcessingFailed
+        }
+        return UIImage(cgImage: cgImage, scale: image.scale, orientation: .up)
     }
 
     private static func apply(_ filter: VideoFilter, to image: UIImage) throws -> UIImage {
