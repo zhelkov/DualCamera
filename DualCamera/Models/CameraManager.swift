@@ -2458,10 +2458,10 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             photoInnerScale: photo?.innerScale ?? recordingPhotoOverlayInnerScale,
             photoInnerOffsetFraction: photo?.innerOffsetFraction ?? recordingPhotoOverlayInnerOffsetFraction,
             photoOpacity: photo?.opacity ?? recordingPhotoOverlayOpacity,
+            frontExposureEV: frontNightModeActive ? Self.frontNightExposureEV : 0,
             drawing: drawing,
             dateTimeEnabled: recordingCaptureSettings.dateTimeEnabled,
-            recordingStartDate: recordingStartDate,
-            frontExposureEV: frontNightModeActive ? Self.frontNightExposureEV : 0
+            recordingStartDate: recordingStartDate
         )
     }
 }
