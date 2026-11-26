@@ -32,6 +32,8 @@ struct ContentView: View {
     @State private var isPhotoControlsVisible = false
     @State private var photoInnerDragBase: CGSize?
     @State private var photoHoldWorkItem: DispatchWorkItem?
+    /// Фактическая доля положения окна PiP в рамке кадра.
+    @State private var pipMediaFraction: CGSize = .zero
     @State private var pipDragBase: CGSize?
     @State private var photoOverlayDragBase: CGSize?
     @State private var isZoomSliderVisible = false
@@ -465,6 +467,7 @@ struct ContentView: View {
             .onAppear {
                 previewSize = size
                 pipFieldSize = fieldRect.size
+                updatePipMediaFraction(frames: frames, field: fieldRect)
             }
             .onChange(of: size) { _, newSize in
                 previewSize = newSize
@@ -472,8 +475,23 @@ struct ContentView: View {
             }
             .onChange(of: fieldRect) { _, newRect in
                 pipFieldSize = newRect.size
+                updatePipMediaFraction(frames: frames, field: newRect)
+            }
+            .onChange(of: frames.secondary) { _, _ in
+                updatePipMediaFraction(frames: frames, field: fieldRect)
             }
         }
+    }
+
+    /// Запоминает фактическое положение окна PiP в рамке кадра, чтобы
+    /// в готовом файле оно стояло там же (при любом формате и угле).
+    private func updatePipMediaFraction(frames: (main: CGRect, secondary: CGRect),
+                                        field: CGRect) {
+        guard field.width > 0, field.height > 0, frames.secondary != .zero else { return }
+        let fraction = CGSize(width: (frames.secondary.minX - field.minX) / field.width,
+                              height: (frames.secondary.minY - field.minY) / field.height)
+        pipMediaFraction = fraction
+        camera.updatePipOffsetFraction(fraction)
     }
 
     /// Второе превью. В режиме PiP картинка строится в своих пропорциях и
@@ -563,19 +581,10 @@ struct ContentView: View {
                       height: offset.height / previewSize.height)
     }
 
-    /// Доля кадра, в которой находится левый верхний угол окна PiP.
-    /// Отсчитываем от парковочного отступа внутри родительского поля,
-    /// поэтому экран и готовый файл совпадают.
-    private func pipOffsetFraction(for offset: CGSize) -> CGSize {
-        guard pipFieldSize.width > 0, pipFieldSize.height > 0 else { return .zero }
-        return CGSize(width: (HUDTheme.pipParkInset + offset.width) / pipFieldSize.width,
-                      height: (HUDTheme.pipParkInset + offset.height) / pipFieldSize.height)
-    }
-
-    /// Доля для записи и фото. Положение берём как есть: окно должно
-    /// оказаться в том же углу, что и в превью.
+    /// Доля для записи и фото: берём фактическое положение окна в рамке,
+    /// поэтому оно совпадает с превью при любом формате кадра.
     private func mediaPipOffsetFraction(for offset: CGSize) -> CGSize {
-        pipOffsetFraction(for: offset)
+        pipMediaFraction
     }
 
     /// Перетаскивание окна PiP (работает только в раскладке «картинка в картинке»).

@@ -54,6 +54,12 @@ enum PhotoMerger {
             back = rotatedQuarterTurn(back)
         }
 
+        // Приводим кадр к выбранному формату ДО раскладки: иначе кроп после
+        // склейки срезал край и окно PiP оказывалось за границей кадра.
+        if let ratio = outputAspectRatio {
+            back = crop(back, toAspectRatio: ratio)
+        }
+
         if videoFilter != .original {
             switch filterTarget {
             case .primary:
@@ -271,8 +277,13 @@ enum PhotoMerger {
             // Окно строится одинаково в портрете и ландшафте: короткая сторона
             // кадра задаёт ширину, форма — высоту.
             let shortSide = min(size.width, size.height)
-            let pipWidth = shortSide * pipWidthFraction
-            let pipHeight = pipWidth * shape.aspectRatio
+            var pipWidth = shortSide * pipWidthFraction
+            var pipHeight = pipWidth * shape.aspectRatio
+            let maxHeight = max(1, size.height - 4)
+            if pipHeight > maxHeight {
+                pipHeight = maxHeight
+                pipWidth = pipHeight / max(shape.aspectRatio, 0.0001)
+            }
             let margin: CGFloat = 2
             let x = min(max(margin, pipOffsetFraction.width * size.width),
                         max(margin, size.width - pipWidth - margin))

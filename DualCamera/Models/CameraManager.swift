@@ -1573,6 +1573,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             }
         }
         try? configureAudioSession()
+        // Аудиосессия записи глушит мотор тактильной отдачи: пересоздаём
+        // движок уже после её активации, иначе тики во время записи молчат.
+        updateOnMain { Haptics.audioSessionDidChange() }
     }
 
     /// Убирает микрофон из сессии после записи и освобождает аудио.
@@ -1596,6 +1599,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
         session.commitConfiguration()
         audioInput = nil
         deactivateAudioSession()
+        updateOnMain { Haptics.audioSessionDidChange() }
     }
 
     // MARK: - Ротация

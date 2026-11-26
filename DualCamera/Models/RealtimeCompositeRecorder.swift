@@ -289,8 +289,14 @@ final class RealtimeCompositeRecorder {
             // кадра задаёт ширину, форма — высоту. Иначе прямоугольник
             // в ландшафте лежит на боку, а картинка внутри стоит прямо.
             let shortSide = min(renderSize.width, renderSize.height)
-            let width = shortSide * state.pipWidthFraction
-            let height = width * state.pipShape.aspectRatio
+            var width = shortSide * state.pipWidthFraction
+            var height = width * state.pipShape.aspectRatio
+            // Окно не должно быть выше кадра: иначе оно не помещается.
+            let maxHeight = max(1, renderSize.height - 4)
+            if height > maxHeight {
+                height = maxHeight
+                width = height / max(state.pipShape.aspectRatio, 0.0001)
+            }
             let margin: CGFloat = 2
             // Ось Y в Core Image идёт снизу, поэтому переворачиваем.
             let rect = CGRect(
@@ -336,7 +342,12 @@ final class RealtimeCompositeRecorder {
             var placed = fill(photoCI, in: inner).cropped(to: rect)
             let opacity = min(max(state.photoOpacity, 0), 1)
             if opacity < 0.999 {
+                // Цвет тоже умножаем на альфу: иначе Core Image считает пиксели
+                // непредумноженными и фото просто темнеет вместо прозрачности.
                 placed = placed.applyingFilter("CIColorMatrix", parameters: [
+                    "inputRVector": CIVector(x: opacity, y: 0, z: 0, w: 0),
+                    "inputGVector": CIVector(x: 0, y: opacity, z: 0, w: 0),
+                    "inputBVector": CIVector(x: 0, y: 0, z: opacity, w: 0),
                     "inputAVector": CIVector(x: 0, y: 0, z: 0, w: opacity)
                 ])
             }
