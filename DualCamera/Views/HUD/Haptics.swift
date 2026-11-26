@@ -124,9 +124,10 @@ enum Haptics {
             vibrateSystem()
             return
         }
-        // Во время записи активна аудиосессия .playAndRecord, и Core Haptics
-        // молчит. Системный тактильный звук проходит мимо неё.
+        // Во время записи активна аудиосессия, и Core Haptics обычно молчит.
+        // Поэтому пробуем оба пути: движок и системный тактильный отклик.
         if !audioCanBeReleased {
+            _ = playTransientCoreHaptics(intensity: intensity, sharpness: sharpness)
             playSystemHapticTick(strong: intensity >= 0.95)
             return
         }

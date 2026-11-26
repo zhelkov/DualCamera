@@ -341,7 +341,9 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     /// Настраивает аудио-сессию для одновременной записи звука и превью.
     private func configureAudioSession() throws {
         let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(.playAndRecord, mode: .videoRecording,
+        // Режим .default, а не .videoRecording: режим видеозаписи глушит
+        // тактильную отдачу и системные отклики.
+        try audioSession.setCategory(.playAndRecord, mode: .default,
                                      options: [.defaultToSpeaker, .mixWithOthers])
         try audioSession.setActive(true)
     }
@@ -679,11 +681,12 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     }
 
     private func applyZoom(_ factor: CGFloat, publish: Bool = true) {
-        let unit = backCameraZoomUnit
-        let deviceFactor = factor / max(unit, 0.0001)
-
         sessionQueue.async { [weak self] in
             guard let self, let device = self.backCamera else { return }
+            // Единицу зума читаем уже здесь: во время переключения объектива
+            // она меняется, и старое значение давало скачок к 2,3×.
+            let unit = self.backCameraZoomUnit
+            let deviceFactor = factor / max(unit, 0.0001)
             let clamped = min(max(deviceFactor, device.minAvailableVideoZoomFactor),
                               device.maxAvailableVideoZoomFactor)
             guard (try? device.lockForConfiguration()) != nil else { return }
