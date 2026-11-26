@@ -352,11 +352,17 @@ final class RealtimeCompositeRecorder {
                 ])
             }
             if let mask = shapeMask(rect, canvas: canvas, shape: .rectangle, radiusFraction: 0.03) {
+                // Маску применяем к прозрачному фону, а результат кладём поверх
+                // кадра обычным наложением: иначе blendWithMask смешивает цвета
+                // напрямую и прозрачность превращается в затемнение.
+                let clear = CIImage(color: .clear).cropped(to: canvas)
                 let blend = CIFilter.blendWithMask()
                 blend.inputImage = placed
-                blend.backgroundImage = composed
+                blend.backgroundImage = clear
                 blend.maskImage = mask
-                composed = blend.outputImage ?? composed
+                if let masked = blend.outputImage {
+                    composed = masked.composited(over: composed)
+                }
             }
         }
         // Рисунок — всегда самый верхний слой, поверх окон и наложенных фото.

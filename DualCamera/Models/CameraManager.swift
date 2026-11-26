@@ -134,6 +134,8 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private var publishedBackBufferSize = CGSize.zero
     /// Кадр-заглушка на время переключения объектива: закрывает чёрный провал.
     private(set) var lensSwitchSnapshot: UIImage?
+    /// Та же заглушка для второй камеры: при пересборке сессии она тоже гаснет.
+    private(set) var lensSwitchFrontSnapshot: UIImage?
     /// Переключение объектива ещё идёт — заглушку не убираем.
     private var lensSwitchInFlight = false
     /// Когда снять заглушку: новому объективу нужно время на автоэкспозицию.
@@ -709,9 +711,13 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             // Замораживаем последний кадр: пересборка сессии на время
             // отключает превью, и без заглушки экран мигал чёрным.
             let snapshot = self.latestRealtimeBackBuffer.flatMap { self.makeSnapshot($0) }
+            let frontSnapshot = self.latestRealtimeFrontBuffer.flatMap { self.makeSnapshot($0) }
             self.lensSwitchInFlight = true
             self.lensSwitchClearAt = nil
-            self.updateOnMain { self.lensSwitchSnapshot = snapshot }
+            self.updateOnMain {
+                self.lensSwitchSnapshot = snapshot
+                self.lensSwitchFrontSnapshot = frontSnapshot
+            }
             // Сессию не останавливаем: остановка давала тёмный кадр на экране
             // при проходе зума через 1×. Пересобираем на ходу.
             self.resetSessionConfiguration()
@@ -742,13 +748,19 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                 self.sessionQueue.asyncAfter(deadline: .now() + 2.5) { [weak self] in
                     guard let self, !self.lensSwitchInFlight else { return }
                     self.lensSwitchClearAt = nil
-                    self.updateOnMain { self.lensSwitchSnapshot = nil }
+                    self.updateOnMain {
+                    self.lensSwitchSnapshot = nil
+                    self.lensSwitchFrontSnapshot = nil
+                }
                 }
             } catch {
                 self.backLens = previousLens
                 self.lensSwitchInFlight = false
                 self.lensSwitchClearAt = nil
-                self.updateOnMain { self.lensSwitchSnapshot = nil }
+                self.updateOnMain {
+                    self.lensSwitchSnapshot = nil
+                    self.lensSwitchFrontSnapshot = nil
+                }
                 self.sessionQueue.async {
                     self.resetSessionConfiguration()
                     try? self.configureSession()
@@ -2364,7 +2376,10 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             }
             if let clearAt = lensSwitchClearAt, Date() >= clearAt {
                 lensSwitchClearAt = nil
-                updateOnMain { self.lensSwitchSnapshot = nil }
+                updateOnMain {
+                    self.lensSwitchSnapshot = nil
+                    self.lensSwitchFrontSnapshot = nil
+                }
             }
         }
 

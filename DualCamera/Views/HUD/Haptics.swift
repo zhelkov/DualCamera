@@ -124,6 +124,12 @@ enum Haptics {
             vibrateSystem()
             return
         }
+        // Во время записи активна аудиосессия .playAndRecord, и Core Haptics
+        // молчит. Системный тактильный звук проходит мимо неё.
+        if !audioCanBeReleased {
+            playSystemHapticTick(strong: intensity >= 0.95)
+            return
+        }
         if playTransientCoreHaptics(intensity: intensity, sharpness: sharpness) {
             return
         }
@@ -163,6 +169,14 @@ enum Haptics {
     private static func vibrateSystem() {
         AudioServicesPlaySystemSound(vibrateSoundID)
         lastMechanism = "системная вибрация"
+    }
+
+    /// Короткий системный тактильный отклик (звуки 1519/1520 — только тактильные,
+    /// без звука). Работают даже при активной аудиосессии записи.
+    private static func playSystemHapticTick(strong: Bool) {
+        let soundID: SystemSoundID = strong ? 1520 : 1519
+        AudioServicesPlaySystemSound(soundID)
+        lastMechanism = "системный тактильный отклик"
     }
 
     // MARK: - Диагностика

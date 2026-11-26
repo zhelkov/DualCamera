@@ -193,8 +193,7 @@ enum PhotoMerger {
             image.draw(in: CGRect(origin: .zero, size: size))
             context.cgContext.saveGState()
             UIBezierPath(roundedRect: target, cornerRadius: 10).addClip()
-            context.cgContext.setAlpha(min(max(opacity, 0), 1))
-            photo.draw(in: inner)
+            photo.draw(in: inner, blendMode: .normal, alpha: min(max(opacity, 0), 1))
             context.cgContext.restoreGState()
         }
     }

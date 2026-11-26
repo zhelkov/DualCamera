@@ -524,7 +524,9 @@ struct ContentView: View {
 
     @ViewBuilder
     private var frontCameraContent: some View {
-        if let image = camera.frontFilteredPreviewImage {
+        if let snapshot = camera.lensSwitchFrontSnapshot {
+            FilteredCameraPreviewView(image: snapshot, isMirrored: true)
+        } else if let image = camera.frontFilteredPreviewImage {
             FilteredCameraPreviewView(image: image, isMirrored: true)
         } else {
             CameraPreviewView(previewLayer: camera.frontPreviewLayer, isMirrored: false)
