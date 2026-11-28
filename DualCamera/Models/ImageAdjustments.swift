@@ -4,32 +4,33 @@ import Foundation
 enum WhiteBalancePreset: String, CaseIterable, Identifiable {
     case auto
     case daylight
-    case cloudy
     case shade
-    case fluorescent
+    case cloudy
     case tungsten
+    case fluorescent
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .auto: return "Авто"
-        case .daylight: return "Дневной"
-        case .cloudy: return "Облачно"
+        case .daylight: return "Дневной свет"
         case .shade: return "Тень"
-        case .fluorescent: return "Лампы"
-        case .tungsten: return "Накаливания"
+        case .cloudy: return "Облачно"
+        case .tungsten: return "Лампа накаливания"
+        case .fluorescent: return "Люминесцентная лампа"
         }
     }
 
-    var shortTitle: String {
+    /// Значок без подписи, как в макете.
+    var systemImage: String? {
         switch self {
-        case .auto: return "A"
-        case .daylight: return "Д"
-        case .cloudy: return "О"
-        case .shade: return "Т"
-        case .fluorescent: return "Л"
-        case .tungsten: return "Н"
+        case .auto: return nil
+        case .daylight: return "sun.max.fill"
+        case .shade: return "house.fill"
+        case .cloudy: return "cloud.fill"
+        case .tungsten: return "lightbulb.fill"
+        case .fluorescent: return "light.max"
         }
     }
 
@@ -49,27 +50,25 @@ enum WhiteBalancePreset: String, CaseIterable, Identifiable {
 /// Настройки изображения с ползунком.
 enum ImageAdjustment: String, CaseIterable, Identifiable {
     case whiteBalance
-    case temperature
     case iso
     case shutter
 
     var id: String { rawValue }
 
-    var title: String {
+    /// Короткая подпись на кнопке.
+    func buttonTitle(shutter: String) -> String {
         switch self {
-        case .whiteBalance: return "ББ"
-        case .temperature: return "Темп."
+        case .whiteBalance: return "WB"
         case .iso: return "ISO"
-        case .shutter: return "Выдержка"
+        case .shutter: return shutter
         }
     }
 
-    var systemImage: String {
+    var accessibilityTitle: String {
         switch self {
-        case .whiteBalance: return "sun.max"
-        case .temperature: return "thermometer"
-        case .iso: return "circle.lefthalf.filled"
-        case .shutter: return "timer"
+        case .whiteBalance: return "Баланс белого"
+        case .iso: return "Светочувствительность"
+        case .shutter: return "Выдержка"
         }
     }
 }

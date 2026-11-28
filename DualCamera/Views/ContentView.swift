@@ -7,6 +7,12 @@ import CoreTransferable
 import UIKit
 import UniformTypeIdentifiers
 
+/// Панель настроек изображения внизу под кнопками.
+enum ActivePanel: Equatable {
+    case adjustment(ImageAdjustment)
+    case timer
+}
+
 /// Угол рамки кадра, в который паркуется окно PiP при повороте.
 enum PipParkCorner {
     case topLeading
@@ -34,8 +40,12 @@ struct ContentView: View {
     @State private var photoHoldWorkItem: DispatchWorkItem?
     /// Фактическая доля положения окна PiP в рамке кадра.
     @State private var pipMediaFraction: CGSize = .zero
-    /// Открытая настройка изображения.
-    @State private var activeAdjustment: ImageAdjustment?
+    /// Панель настроек изображения или таймера затвора.
+    @State private var activePanel: ActivePanel?
+    /// Отсрочка затвора в секундах (0 — выключена).
+    @State private var selfTimerSeconds = 0
+    /// Идёт обратный отсчёт перед снимком.
+    @State private var countdownRemaining: Int?
     @State private var pipDragBase: CGSize?
     @State private var photoOverlayDragBase: CGSize?
     @State private var isZoomSliderVisible = false
@@ -217,8 +227,10 @@ struct ContentView: View {
                     .transition(.opacity)
             }
             cameraSettingsOverlay
+            adjustmentsPanelOverlay
             focusIndicatorOverlay
             pointerMarkerOverlay
+            countdownOverlay
             controls
         }
     }
@@ -862,6 +874,53 @@ struct ContentView: View {
 
     // MARK: - Тонкие настройки изображения
 
+    /// Снимок с учётом отсрочки затвора.
+    private func triggerPhotoCapture() {
+        if selfTimerSeconds > 0 {
+            runCountdown(selfTimerSeconds)
+        } else {
+            capturePhoto()
+        }
+    }
+
+    private func runCountdown(_ remaining: Int) {
+        guard remaining > 0 else {
+            withAnimation(.easeOut(duration: 0.2)) { countdownRemaining = nil }
+            capturePhoto()
+            return
+        }
+        withAnimation(.easeIn(duration: 0.15)) { countdownRemaining = remaining }
+        Haptics.selection()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            runCountdown(remaining - 1)
+        }
+    }
+
+    private func capturePhoto() {
+        camera.captureBothCameras(elements: mediaDrawingElements(),
+                                  pipOffsetFraction: mediaPipOffsetFraction(for: pipOffset),
+                                  photoOverlayOffsetFraction: photoOverlayOffsetFraction,
+                                  photoOverlayWidthFraction: importedImageWidthFraction,
+                                  photoOverlayInnerScale: importedPhotoInnerScale,
+                                  photoOverlayInnerOffsetFraction: importedPhotoInnerOffsetFraction,
+                                  photoOverlayOpacity: CGFloat(importedPhotoOpacity))
+    }
+
+    /// Крупный отсчёт перед снимком.
+    private var countdownOverlay: some View {
+        Group {
+            if let remaining = countdownRemaining {
+                Text("\(remaining)")
+                    .font(.system(size: 96, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.5), radius: 12)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+
     private var whiteBalanceLabel: String {
         if camera.whiteBalancePreset == .auto {
             return "\(Int(camera.whiteBalanceTemperature))K A"
@@ -883,111 +942,190 @@ struct ContentView: View {
         return "1/\(Int((1 / seconds).rounded()))"
     }
 
-    /// Кнопки настроек, ползунок выбранной настройки и кнопка «auto».
+    /// Кнопки настроек изображения: WB, ISO, выдержка и таймер затвора.
     private var imageAdjustmentsControls: some View {
-        VStack(alignment: .trailing, spacing: HUDTheme.controlBlockGap) {
+        VStack(spacing: HUDTheme.controlBlockGap) {
             ForEach(ImageAdjustment.allCases) { adjustment in
-                Button {
-                    Haptics.selection()
-                    withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
-                        activeAdjustment = activeAdjustment == adjustment ? nil : adjustment
-                    }
-                } label: {
-                    HUDIconGlyph(systemName: adjustment.systemImage,
-                                 size: HUDTheme.iconButtonSize,
-                                 isLandscape: isDeviceLandscape)
-                }
-                .buttonStyle(HUDIconButtonStyle(isActive: activeAdjustment == adjustment,
-                                                size: HUDTheme.iconButtonSize))
-                .accessibilityLabel(adjustment.title)
+                adjustmentButton(adjustment)
             }
+            selfTimerButton
         }
         .hudPanel()
-        .overlay(alignment: .topTrailing) {
-            if let adjustment = activeAdjustment {
-                adjustmentPanel(adjustment)
-                    .offset(x: -HUDTheme.iconButtonSize - HUDTheme.columnSpacing)
+    }
+
+    private func adjustmentButton(_ adjustment: ImageAdjustment) -> some View {
+        let isActive = activePanel == .adjustment(adjustment)
+        return Button {
+            Haptics.selection()
+            withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
+                activePanel = isActive ? nil : .adjustment(adjustment)
             }
+        } label: {
+            Text(adjustment.buttonTitle(shutter: shutterLabel(camera.exposureDuration)))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(isActive ? HUDTheme.yellow : .white)
+                .frame(width: HUDTheme.iconButtonSize, height: HUDTheme.iconButtonSize)
         }
+        .buttonStyle(HUDIconButtonStyle(isActive: isActive, size: HUDTheme.iconButtonSize))
+        .accessibilityLabel(adjustment.accessibilityTitle)
+    }
+
+    private var selfTimerButton: some View {
+        Button {
+            Haptics.selection()
+            withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
+                activePanel = activePanel == .timer ? nil : .timer
+            }
+        } label: {
+            Text(selfTimerSeconds > 0 ? "\(selfTimerSeconds)с" : "Тайм")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(activePanel == .timer || selfTimerSeconds > 0
+                                 ? HUDTheme.yellow : .white)
+                .frame(width: HUDTheme.iconButtonSize, height: HUDTheme.iconButtonSize)
+        }
+        .buttonStyle(HUDIconButtonStyle(isActive: activePanel == .timer,
+                                        size: HUDTheme.iconButtonSize))
+        .accessibilityLabel("Отсрочка затвора")
+    }
+
+    /// Панель выбранной настройки: во всю ширину, под блоком кнопок.
+    private var adjustmentsPanelOverlay: some View {
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                if let panel = activePanel {
+                    panelView(panel)
+                        .padding(.horizontal, 16)
+                        .padding(.top, max(HUDTheme.topStripMinimumHeight,
+                                           geometry.safeAreaInsets.top + HUDTheme.topSafeAreaAddition) + 8)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+        .ignoresSafeArea()
     }
 
     @ViewBuilder
-    private func adjustmentPanel(_ adjustment: ImageAdjustment) -> some View {
-        switch adjustment {
-        case .whiteBalance:
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(WhiteBalancePreset.allCases) { preset in
-                    Button {
-                        Haptics.selection()
-                        camera.setWhiteBalancePreset(preset)
-                    } label: {
-                        Text(preset.title)
-                            .font(.caption2)
-                            .foregroundStyle(camera.whiteBalancePreset == preset
-                                             ? HUDTheme.yellow : .white)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(10)
-            .background(HUDTheme.glass, in: RoundedRectangle(cornerRadius: 12))
-        case .temperature:
-            sliderPanel(title: "Температура",
-                        value: Binding(get: { Double(camera.whiteBalanceTemperature) },
-                                       set: { camera.setWhiteBalanceTemperature(Float($0)) }),
-                        range: Double(camera.whiteBalanceRange.lowerBound)...Double(camera.whiteBalanceRange.upperBound),
-                        display: "\(Int(camera.whiteBalanceTemperature))K",
-                        onAuto: { camera.setWhiteBalancePreset(.auto) })
-        case .iso:
-            sliderPanel(title: "ISO",
-                        value: Binding(get: { Double(camera.isoValue) },
-                                       set: { camera.setISO(Float($0)) }),
-                        range: Double(camera.isoRange.lowerBound)...Double(max(camera.isoRange.upperBound, camera.isoRange.lowerBound + 1)),
-                        display: "\(Int(camera.isoValue.rounded()))",
-                        onAuto: { camera.resetExposureToAuto() })
-        case .shutter:
-            sliderPanel(title: "Выдержка",
-                        value: Binding(get: { 1 / max(camera.exposureDuration, 0.0001) },
-                                       set: { camera.setExposureDuration(1 / max($0, 1)) }),
-                        range: (1 / max(camera.exposureDurationRange.upperBound, 0.0001))...(1 / max(camera.exposureDurationRange.lowerBound, 0.0001)),
-                        display: shutterLabel(camera.exposureDuration),
-                        onAuto: { camera.resetExposureToAuto() })
-        }
-    }
-
-    private func sliderPanel(title: String,
-                             value: Binding<Double>,
-                             range: ClosedRange<Double>,
-                             display: String,
-                             onAuto: @escaping () -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("\(title): \(display)")
-                .font(.caption2)
-                .foregroundStyle(.white)
-            HStack(spacing: 8) {
-                Slider(value: value, in: range)
-                    .frame(width: 150)
+    private func panelView(_ panel: ActivePanel) -> some View {
+        switch panel {
+        case .adjustment(.whiteBalance):
+            VStack(spacing: 8) {
+                Slider(value: Binding(get: { Double(camera.whiteBalanceTemperature) },
+                                      set: { camera.setWhiteBalanceTemperature(Float($0)) }),
+                       in: 2500...8500)
                     .tint(HUDTheme.yellow)
-                Button {
-                    Haptics.selection()
-                    onAuto()
-                } label: {
-                    Text("auto")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(HUDTheme.yellow)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(HUDTheme.glass, in: Capsule())
+                HStack(spacing: 8) {
+                    ForEach(WhiteBalancePreset.allCases) { preset in
+                        whiteBalanceChip(preset)
+                    }
+                    Spacer(minLength: 0)
+                    Text("\(Int(camera.whiteBalanceTemperature))K")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.white)
                 }
-                .buttonStyle(.plain)
             }
+            .panelBackground()
+        case .adjustment(.iso):
+            VStack(spacing: 8) {
+                Slider(value: Binding(get: { Double(camera.isoValue) },
+                                      set: { camera.setISO(Float($0)) }),
+                       in: Double(camera.isoRange.lowerBound)...Double(max(camera.isoRange.upperBound, camera.isoRange.lowerBound + 1)))
+                    .tint(HUDTheme.yellow)
+                HStack(spacing: 8) {
+                    ForEach(isoPresets, id: \.self) { value in
+                        chip(value.map { "\($0)" } ?? "auto",
+                             active: value == nil ? !camera.isExposureCustom : isCurrentISO(value)) {
+                            if let value {
+                                camera.setISO(Float(value))
+                            } else {
+                                camera.resetExposureToAuto()
+                            }
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    Text("\(Int(camera.isoValue.rounded()))")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.white)
+                }
+            }
+            .panelBackground()
+        case .adjustment(.shutter):
+            VStack(spacing: 8) {
+                Slider(value: Binding(get: { 1 / max(camera.exposureDuration, 0.0001) },
+                                      set: { camera.setExposureDuration(1 / max($0, 1)) }),
+                       in: (1 / max(camera.exposureDurationRange.upperBound, 0.0001))...(1 / max(camera.exposureDurationRange.lowerBound, 0.0001)))
+                    .tint(HUDTheme.yellow)
+                HStack(spacing: 8) {
+                    chip("auto", active: !camera.isExposureCustom) {
+                        camera.resetExposureToAuto()
+                    }
+                    Spacer(minLength: 0)
+                    Text(shutterLabel(camera.exposureDuration))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.white)
+                }
+            }
+            .panelBackground()
+        case .timer:
+            HStack(spacing: 8) {
+                ForEach([0, 3, 5, 10], id: \.self) { value in
+                    chip(value == 0 ? "выкл" : "\(value) с", active: selfTimerSeconds == value) {
+                        selfTimerSeconds = value
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .panelBackground()
         }
-        .padding(10)
-        .background(HUDTheme.glass, in: RoundedRectangle(cornerRadius: 12))
     }
 
+    private var isoPresets: [Int?] { [nil, 100, 200, 400, 800, 1600] }
 
+    private func isCurrentISO(_ value: Int?) -> Bool {
+        guard let value, camera.isExposureCustom else { return false }
+        return abs(camera.isoValue - Float(value)) < 1
+    }
+
+    private func whiteBalanceChip(_ preset: WhiteBalancePreset) -> some View {
+        let active = camera.whiteBalancePreset == preset
+        return Button {
+            Haptics.selection()
+            camera.setWhiteBalancePreset(preset)
+        } label: {
+            Group {
+                if let symbol = preset.systemImage {
+                    Image(systemName: symbol)
+                        .font(.system(size: 13, weight: .semibold))
+                } else {
+                    Text("AWB")
+                        .font(.system(size: 11, weight: .bold))
+                }
+            }
+            .foregroundStyle(active ? Color.black : Color.white)
+            .frame(width: 40, height: 26)
+            .background(active ? HUDTheme.yellow : Color.white.opacity(0.16),
+                        in: RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(preset.title)
+    }
+
+    private func chip(_ title: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            Haptics.selection()
+            action()
+        } label: {
+            Text(title)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(active ? Color.black : Color.white)
+                .padding(.horizontal, 10)
+                .frame(height: 26)
+                .background(active ? HUDTheme.yellow : Color.white.opacity(0.16),
+                            in: RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+    }
     private var controls: some View {
         GeometryReader { geometry in
             HUDOverlayView(
@@ -1034,15 +1172,7 @@ struct ContentView: View {
                         }
                     },
                     onStopRecording: { camera.stopRecording(elements: mediaDrawingElements()) },
-                    onCapturePhoto: {
-                        camera.captureBothCameras(elements: mediaDrawingElements(),
-                                                  pipOffsetFraction: mediaPipOffsetFraction(for: pipOffset),
-                                                  photoOverlayOffsetFraction: photoOverlayOffsetFraction,
-                                                  photoOverlayWidthFraction: importedImageWidthFraction,
-                                                  photoOverlayInnerScale: importedPhotoInnerScale,
-                                                  photoOverlayInnerOffsetFraction: importedPhotoInnerOffsetFraction,
-                                                  photoOverlayOpacity: CGFloat(importedPhotoOpacity))
-                    },
+                    onCapturePhoto: { triggerPhotoCapture() },
                     onStartRecording: {
                         camera.startRecording(elements: mediaDrawingElements(),
                                               pipOffsetFraction: mediaPipOffsetFraction(for: pipOffset),

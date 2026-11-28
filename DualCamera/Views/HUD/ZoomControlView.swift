@@ -299,3 +299,12 @@ private final class ZoomGestureState {
     var lastHapticStep = 0
     var holdTimer: Timer?
 }
+
+extension View {
+    /// Подложка панели настроек изображения: во всю ширину.
+    func panelBackground() -> some View {
+        padding(12)
+            .frame(maxWidth: .infinity)
+            .background(HUDTheme.glass, in: RoundedRectangle(cornerRadius: 14))
+    }
+}
