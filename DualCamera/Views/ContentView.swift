@@ -925,7 +925,7 @@ struct ContentView: View {
         if camera.whiteBalancePreset == .auto {
             return "\(Int(camera.whiteBalanceTemperature))K A"
         }
-        return "\(Int(camera.whiteBalanceTemperature))K \(camera.whiteBalancePreset.shortTitle)"
+        return "\(Int(camera.whiteBalanceTemperature))K \(camera.whiteBalancePreset.title)"
     }
 
     private var exposureLabel: String {
@@ -1010,74 +1010,107 @@ struct ContentView: View {
     private func panelView(_ panel: ActivePanel) -> some View {
         switch panel {
         case .adjustment(.whiteBalance):
-            VStack(spacing: 8) {
-                Slider(value: Binding(get: { Double(camera.whiteBalanceTemperature) },
-                                      set: { camera.setWhiteBalanceTemperature(Float($0)) }),
-                       in: 2500...8500)
-                    .tint(HUDTheme.yellow)
-                HStack(spacing: 8) {
-                    ForEach(WhiteBalancePreset.allCases) { preset in
-                        whiteBalanceChip(preset)
-                    }
-                    Spacer(minLength: 0)
-                    Text("\(Int(camera.whiteBalanceTemperature))K")
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.white)
-                }
-            }
-            .panelBackground()
+            whiteBalancePanel
         case .adjustment(.iso):
-            VStack(spacing: 8) {
-                Slider(value: Binding(get: { Double(camera.isoValue) },
-                                      set: { camera.setISO(Float($0)) }),
-                       in: Double(camera.isoRange.lowerBound)...Double(max(camera.isoRange.upperBound, camera.isoRange.lowerBound + 1)))
-                    .tint(HUDTheme.yellow)
-                HStack(spacing: 8) {
-                    ForEach(isoPresets, id: \.self) { value in
-                        chip(value.map { "\($0)" } ?? "auto",
-                             active: value == nil ? !camera.isExposureCustom : isCurrentISO(value)) {
-                            if let value {
-                                camera.setISO(Float(value))
-                            } else {
-                                camera.resetExposureToAuto()
-                            }
-                        }
-                    }
-                    Spacer(minLength: 0)
-                    Text("\(Int(camera.isoValue.rounded()))")
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.white)
-                }
-            }
-            .panelBackground()
+            isoPanel
         case .adjustment(.shutter):
-            VStack(spacing: 8) {
-                Slider(value: Binding(get: { 1 / max(camera.exposureDuration, 0.0001) },
-                                      set: { camera.setExposureDuration(1 / max($0, 1)) }),
-                       in: (1 / max(camera.exposureDurationRange.upperBound, 0.0001))...(1 / max(camera.exposureDurationRange.lowerBound, 0.0001)))
-                    .tint(HUDTheme.yellow)
-                HStack(spacing: 8) {
-                    chip("auto", active: !camera.isExposureCustom) {
-                        camera.resetExposureToAuto()
-                    }
-                    Spacer(minLength: 0)
-                    Text(shutterLabel(camera.exposureDuration))
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.white)
-                }
-            }
-            .panelBackground()
+            shutterPanel
         case .timer:
+            timerPanel
+        }
+    }
+
+    private var whiteBalanceSliderValue: Binding<Double> {
+        Binding(get: { Double(camera.whiteBalanceTemperature) },
+                set: { camera.setWhiteBalanceTemperature(Float($0)) })
+    }
+
+    private var whiteBalancePanel: some View {
+        VStack(spacing: 8) {
+            Slider(value: whiteBalanceSliderValue, in: 2500...8500)
+                .tint(HUDTheme.yellow)
             HStack(spacing: 8) {
-                ForEach([0, 3, 5, 10], id: \.self) { value in
-                    chip(value == 0 ? "выкл" : "\(value) с", active: selfTimerSeconds == value) {
-                        selfTimerSeconds = value
-                    }
+                ForEach(WhiteBalancePreset.allCases) { preset in
+                    whiteBalanceChip(preset)
                 }
                 Spacer(minLength: 0)
+                Text("\(Int(camera.whiteBalanceTemperature))K")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.white)
             }
-            .panelBackground()
         }
+        .panelBackground()
+    }
+
+    private var isoSliderValue: Binding<Double> {
+        Binding(get: { Double(camera.isoValue) },
+                set: { camera.setISO(Float($0)) })
+    }
+
+    private var isoPanel: some View {
+        VStack(spacing: 8) {
+            Slider(value: isoSliderValue,
+                   in: Double(camera.isoRange.lowerBound)...Double(max(camera.isoRange.upperBound,
+                                                                      camera.isoRange.lowerBound + 1)))
+                .tint(HUDTheme.yellow)
+            HStack(spacing: 8) {
+                ForEach(isoPresets, id: \.self) { value in
+                    isoChip(value)
+                }
+                Spacer(minLength: 0)
+                Text("\(Int(camera.isoValue.rounded()))")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.white)
+            }
+        }
+        .panelBackground()
+    }
+
+    private func isoChip(_ value: Int?) -> some View {
+        let isAuto = value == nil
+        let active = isAuto ? !camera.isExposureCustom : isCurrentISO(value)
+        return chip(isAuto ? "auto" : "\(value ?? 0)", active: active) {
+            if let value {
+                camera.setISO(Float(value))
+            } else {
+                camera.resetExposureToAuto()
+            }
+        }
+    }
+
+    private var shutterSliderValue: Binding<Double> {
+        Binding(get: { 1 / max(camera.exposureDuration, 0.0001) },
+                set: { camera.setExposureDuration(1 / max($0, 1)) })
+    }
+
+    private var shutterPanel: some View {
+        VStack(spacing: 8) {
+            Slider(value: shutterSliderValue,
+                   in: (1 / max(camera.exposureDurationRange.upperBound, 0.0001))...(1 / max(camera.exposureDurationRange.lowerBound, 0.0001)))
+                .tint(HUDTheme.yellow)
+            HStack(spacing: 8) {
+                chip("auto", active: !camera.isExposureCustom) {
+                    camera.resetExposureToAuto()
+                }
+                Spacer(minLength: 0)
+                Text(shutterLabel(camera.exposureDuration))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.white)
+            }
+        }
+        .panelBackground()
+    }
+
+    private var timerPanel: some View {
+        HStack(spacing: 8) {
+            ForEach([0, 3, 5, 10], id: \.self) { value in
+                chip(value == 0 ? "выкл" : "\(value) с", active: selfTimerSeconds == value) {
+                    selfTimerSeconds = value
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .panelBackground()
     }
 
     private var isoPresets: [Int?] { [nil, 100, 200, 400, 800, 1600] }
