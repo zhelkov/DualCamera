@@ -63,6 +63,17 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
     private(set) var minExposureTargetBias: Float = -2
     private(set) var maxExposureTargetBias: Float = 2
     private(set) var isFocusExposureLocked = false
+    /// Баланс белого: пресет и текущая температура.
+    private(set) var whiteBalancePreset: WhiteBalancePreset = .auto
+    private(set) var whiteBalanceTemperature: Float = 5500
+    private(set) var whiteBalanceRange: ClosedRange<Float> = 2500...8500
+    /// Ручная экспозиция: ISO и выдержка.
+    private(set) var isoValue: Float = 100
+    private(set) var isoRange: ClosedRange<Float> = 34...1600
+    private(set) var exposureDuration: Double = 1.0 / 60
+    private(set) var exposureDurationRange: ClosedRange<Double> = (1.0 / 8000)...(1.0 / 15)
+    /// Включён ли ручной режим экспозиции.
+    private(set) var isExposureCustom = false
     /// Включён ли фонарик.
     private(set) var isTorchOn = false
     /// Поддерживает ли основная камера фонарик.
@@ -282,6 +293,7 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
                     try? self.configureRealtimeOutputs()
                 }
                 self.checkPreviewLayersAfterStart()
+                self.refreshImageAdjustments()
 
                 // Характеристики читаем на очереди сессии, применяем на главной.
                 let unit = self.backCameraZoomUnit
@@ -787,6 +799,162 @@ final class CameraManager: NSObject, AVCaptureDataOutputSynchronizerDelegate,
             return nil
         }
         return UIImage(cgImage: cgImage)
+    }
+
+    // MARK: - Тонкие настройки изображения
+
+    /// Устройство основной (видимой в большом окне) камеры.
+    private var mainDevice: AVCaptureDevice? {
+        isCamerasSwapped ? frontCamera : backCamera
+    }
+
+    /// Применяет пресет баланса белого. `auto` возвращает автоматику.
+    func setWhiteBalancePreset(_ preset: WhiteBalancePreset) {
+        sessionQueue.async { [weak self] in
+            guard let self, let device = self.mainDevice else { return }
+            guard (try? device.lockForConfiguration()) != nil else { return }
+            if let temperature = preset.temperature {
+                Self.applyLockedWhiteBalance(to: device, temperature: temperature, tint: 0)
+            } else if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                device.whiteBalanceMode = .continuousAutoWhiteBalance
+            }
+            device.unlockForConfiguration()
+            let current = preset.temperature ?? Self.whiteBalanceTemperature(of: device)
+            self.updateOnMain {
+                self.whiteBalancePreset = preset
+                self.whiteBalanceTemperature = current
+            }
+        }
+    }
+
+    /// Ручная цветовая температура.
+    func setWhiteBalanceTemperature(_ kelvin: Float) {
+        sessionQueue.async { [weak self] in
+            guard let self, let device = self.mainDevice else { return }
+            guard (try? device.lockForConfiguration()) != nil else { return }
+            Self.applyLockedWhiteBalance(to: device, temperature: kelvin, tint: 0)
+            device.unlockForConfiguration()
+            self.updateOnMain {
+                self.whiteBalancePreset = .auto
+                self.whiteBalanceTemperature = kelvin
+            }
+        }
+    }
+
+    private static func applyLockedWhiteBalance(to device: AVCaptureDevice,
+                                                temperature: Float,
+                                                tint: Float) {
+        guard device.isWhiteBalanceModeSupported(.locked) else { return }
+        let values = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(temperature: temperature,
+                                                                         tint: tint)
+        var gains = device.deviceWhiteBalanceGains(for: values)
+        let maxGain = device.maxWhiteBalanceGain
+        gains.redGain = min(max(gains.redGain, 1), maxGain)
+        gains.greenGain = min(max(gains.greenGain, 1), maxGain)
+        gains.blueGain = min(max(gains.blueGain, 1), maxGain)
+        device.setWhiteBalanceModeLocked(with: gains, completionHandler: nil)
+    }
+
+    /// Текущая цветовая температура устройства в кельвинах.
+    private static func whiteBalanceTemperature(of device: AVCaptureDevice) -> Float {
+        let gains = device.deviceWhiteBalanceGains
+        guard gains.redGain > 0, gains.greenGain > 0, gains.blueGain > 0 else { return 5500 }
+        let values = device.temperatureAndTintValues(for: gains)
+        guard values.temperature.isFinite else { return 5500 }
+        return min(max(values.temperature, 1500), 9000)
+    }
+
+    /// Ручная выдержка (в секундах).
+    func setExposureDuration(_ seconds: Double) {
+        sessionQueue.async { [weak self] in
+            guard let self, let device = self.mainDevice else { return }
+            guard device.isExposureModeSupported(.custom) else { return }
+            guard (try? device.lockForConfiguration()) != nil else { return }
+            let format = device.activeFormat
+            let minimum = format.minExposureDuration.seconds
+            let maximum = min(format.maxExposureDuration.seconds,
+                              self.exposureDurationRange.upperBound)
+            let clamped = min(max(seconds, minimum), max(minimum, maximum))
+            let iso = min(max(self.isoValue, format.minISO), format.maxISO)
+            device.setExposureModeCustom(duration: CMTime(seconds: clamped,
+                                                          preferredTimescale: 1_000_000_000),
+                                         iso: iso,
+                                         completionHandler: nil)
+            device.unlockForConfiguration()
+            self.updateOnMain {
+                self.exposureDuration = clamped
+                self.isExposureCustom = true
+                self.publishExposureLimits(format)
+            }
+        }
+    }
+
+    /// Ручное ISO.
+    func setISO(_ iso: Float) {
+        sessionQueue.async { [weak self] in
+            guard let self, let device = self.mainDevice else { return }
+            guard device.isExposureModeSupported(.custom) else { return }
+            guard (try? device.lockForConfiguration()) != nil else { return }
+            let format = device.activeFormat
+            let clamped = min(max(iso, format.minISO), format.maxISO)
+            let duration = min(max(self.exposureDuration, format.minExposureDuration.seconds),
+                               self.exposureDurationRange.upperBound)
+            device.setExposureModeCustom(duration: CMTime(seconds: duration,
+                                                          preferredTimescale: 1_000_000_000),
+                                         iso: clamped,
+                                         completionHandler: nil)
+            device.unlockForConfiguration()
+            self.updateOnMain {
+                self.isoValue = clamped
+                self.isExposureCustom = true
+                self.publishExposureLimits(format)
+            }
+        }
+    }
+
+    /// Возвращает экспозицию в автоматический режим.
+    func resetExposureToAuto() {
+        sessionQueue.async { [weak self] in
+            guard let self, let device = self.mainDevice else { return }
+            guard (try? device.lockForConfiguration()) != nil else { return }
+            if device.isExposureModeSupported(.continuousAutoExposure) {
+                device.exposureMode = .continuousAutoExposure
+            } else if device.isExposureModeSupported(.autoExpose) {
+                device.exposureMode = .autoExpose
+            }
+            device.unlockForConfiguration()
+            self.updateOnMain {
+                self.isExposureCustom = false
+                self.isFocusExposureLocked = false
+            }
+        }
+    }
+
+    private func publishExposureLimits(_ format: AVCaptureDevice.Format) {
+        let range = format.minISO...format.maxISO
+        updateOnMain { self.isoRange = range }
+    }
+
+    /// Читает текущие значения основной камеры в интерфейс.
+    private func refreshImageAdjustments() {
+        guard let device = mainDevice else { return }
+        let format = device.activeFormat
+        let duration = device.exposureDuration.seconds
+        let iso = device.iso
+        let temperature = Self.whiteBalanceTemperature(of: device)
+        let minimum = max(format.minExposureDuration.seconds, 0.0001)
+        let maximum = min(format.maxExposureDuration.seconds,
+                          exposureDurationRange.upperBound)
+        updateOnMain {
+            self.whiteBalanceRange = 2500...8500
+            self.whiteBalanceTemperature = temperature
+            self.isoValue = iso
+            self.isoRange = format.minISO...format.maxISO
+            if duration.isFinite, duration > 0 {
+                self.exposureDuration = duration
+            }
+            self.exposureDurationRange = minimum...max(minimum, maximum)
+        }
     }
 
     // MARK: - Ночной режим фронтальной камеры

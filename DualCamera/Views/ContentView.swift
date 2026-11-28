@@ -34,6 +34,8 @@ struct ContentView: View {
     @State private var photoHoldWorkItem: DispatchWorkItem?
     /// Фактическая доля положения окна PiP в рамке кадра.
     @State private var pipMediaFraction: CGSize = .zero
+    /// Открытая настройка изображения.
+    @State private var activeAdjustment: ImageAdjustment?
     @State private var pipDragBase: CGSize?
     @State private var photoOverlayDragBase: CGSize?
     @State private var isZoomSliderVisible = false
@@ -858,7 +860,133 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Управление
+    // MARK: - Тонкие настройки изображения
+
+    private var whiteBalanceLabel: String {
+        if camera.whiteBalancePreset == .auto {
+            return "\(Int(camera.whiteBalanceTemperature))K A"
+        }
+        return "\(Int(camera.whiteBalanceTemperature))K \(camera.whiteBalancePreset.shortTitle)"
+    }
+
+    private var exposureLabel: String {
+        let iso = Int(camera.isoValue.rounded())
+        let shutter = shutterLabel(camera.exposureDuration)
+        return camera.isExposureCustom ? "ISO \(iso) · \(shutter)" : "ISO \(iso) A · \(shutter)"
+    }
+
+    private func shutterLabel(_ seconds: Double) -> String {
+        guard seconds > 0, seconds.isFinite else { return "—" }
+        if seconds >= 1 {
+            return String(format: "%.1f s", seconds)
+        }
+        return "1/\(Int((1 / seconds).rounded()))"
+    }
+
+    /// Кнопки настроек, ползунок выбранной настройки и кнопка «auto».
+    private var imageAdjustmentsControls: some View {
+        VStack(alignment: .trailing, spacing: HUDTheme.controlBlockGap) {
+            ForEach(ImageAdjustment.allCases) { adjustment in
+                Button {
+                    Haptics.selection()
+                    withAnimation(.easeInOut(duration: HUDTheme.stateTransitionDuration)) {
+                        activeAdjustment = activeAdjustment == adjustment ? nil : adjustment
+                    }
+                } label: {
+                    HUDIconGlyph(systemName: adjustment.systemImage,
+                                 size: HUDTheme.iconButtonSize,
+                                 isLandscape: isDeviceLandscape)
+                }
+                .buttonStyle(HUDIconButtonStyle(isActive: activeAdjustment == adjustment,
+                                                size: HUDTheme.iconButtonSize))
+                .accessibilityLabel(adjustment.title)
+            }
+        }
+        .hudPanel()
+        .overlay(alignment: .topTrailing) {
+            if let adjustment = activeAdjustment {
+                adjustmentPanel(adjustment)
+                    .offset(x: -HUDTheme.iconButtonSize - HUDTheme.columnSpacing)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func adjustmentPanel(_ adjustment: ImageAdjustment) -> some View {
+        switch adjustment {
+        case .whiteBalance:
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(WhiteBalancePreset.allCases) { preset in
+                    Button {
+                        Haptics.selection()
+                        camera.setWhiteBalancePreset(preset)
+                    } label: {
+                        Text(preset.title)
+                            .font(.caption2)
+                            .foregroundStyle(camera.whiteBalancePreset == preset
+                                             ? HUDTheme.yellow : .white)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(10)
+            .background(HUDTheme.glass, in: RoundedRectangle(cornerRadius: 12))
+        case .temperature:
+            sliderPanel(title: "Температура",
+                        value: Binding(get: { Double(camera.whiteBalanceTemperature) },
+                                       set: { camera.setWhiteBalanceTemperature(Float($0)) }),
+                        range: Double(camera.whiteBalanceRange.lowerBound)...Double(camera.whiteBalanceRange.upperBound),
+                        display: "\(Int(camera.whiteBalanceTemperature))K",
+                        onAuto: { camera.setWhiteBalancePreset(.auto) })
+        case .iso:
+            sliderPanel(title: "ISO",
+                        value: Binding(get: { Double(camera.isoValue) },
+                                       set: { camera.setISO(Float($0)) }),
+                        range: Double(camera.isoRange.lowerBound)...Double(max(camera.isoRange.upperBound, camera.isoRange.lowerBound + 1)),
+                        display: "\(Int(camera.isoValue.rounded()))",
+                        onAuto: { camera.resetExposureToAuto() })
+        case .shutter:
+            sliderPanel(title: "Выдержка",
+                        value: Binding(get: { 1 / max(camera.exposureDuration, 0.0001) },
+                                       set: { camera.setExposureDuration(1 / max($0, 1)) }),
+                        range: (1 / max(camera.exposureDurationRange.upperBound, 0.0001))...(1 / max(camera.exposureDurationRange.lowerBound, 0.0001)),
+                        display: shutterLabel(camera.exposureDuration),
+                        onAuto: { camera.resetExposureToAuto() })
+        }
+    }
+
+    private func sliderPanel(title: String,
+                             value: Binding<Double>,
+                             range: ClosedRange<Double>,
+                             display: String,
+                             onAuto: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("\(title): \(display)")
+                .font(.caption2)
+                .foregroundStyle(.white)
+            HStack(spacing: 8) {
+                Slider(value: value, in: range)
+                    .frame(width: 150)
+                    .tint(HUDTheme.yellow)
+                Button {
+                    Haptics.selection()
+                    onAuto()
+                } label: {
+                    Text("auto")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(HUDTheme.yellow)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(HUDTheme.glass, in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(10)
+        .background(HUDTheme.glass, in: RoundedRectangle(cornerRadius: 12))
+    }
+
 
     private var controls: some View {
         GeometryReader { geometry in
@@ -882,7 +1010,8 @@ struct ContentView: View {
                     hasImportedMedia: camera.hasImportedMedia,
                     isLandscape: isDeviceLandscape,
                     hapticsEnabled: settings.hapticsEnabled,
-                    onClearImportedMedia: { camera.clearImportedMedia() }
+                    onClearImportedMedia: { camera.clearImportedMedia() },
+                    adjustments: AnyView(imageAdjustmentsControls)
                 ),
                 statusLabels: AnyView(statusLabels),
                 filterLabel: AnyView(filterLabelView),
@@ -978,6 +1107,8 @@ struct ContentView: View {
             Text(settings.resolution.rawValue)
             Text("\(settings.frameRate.rawValue) FPS")
             Text(settings.audioQuality == .aac ? "AAC" : "Lossless")
+            Text(whiteBalanceLabel)
+            Text(exposureLabel)
             if camera.isFocusExposureLocked {
                 Text("AE/AF LOCK")
                     .foregroundStyle(HUDTheme.yellow)

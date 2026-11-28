@@ -18,6 +18,7 @@ struct TopControlsView: View {
     let isLandscape: Bool
     let hapticsEnabled: Bool
     let onClearImportedMedia: () -> Void
+    let adjustments: AnyView
 
     private var buttonSize: CGFloat {
         HUDTheme.iconButtonSize
@@ -147,6 +148,9 @@ struct TopControlsView: View {
             .accessibilityLabel(isSecondaryCameraVisible
                                 ? "Убрать вторую камеру" : "Показать вторую камеру")
             .hudPanel()
+
+            // Тонкие настройки изображения — под кнопкой второй камеры.
+            adjustments
 
             if isFilterCarouselVisible {
                 FilterCarouselView(selectedFilter: $selectedFilter,
